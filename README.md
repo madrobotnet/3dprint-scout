@@ -41,9 +41,20 @@ The agent stops for your choice after references and after the dimension table.
 git clone https://github.com/madrobotnet/3dprint-scout ~/.claude/skills/3dprint-scout
 ```
 
+**Any agent, one command.** The [skills CLI](https://github.com/vercel-labs/skills) installs it
+into Claude Code, Codex, Cursor, OpenCode and many other agents:
+
+```bash
+npx skills add madrobotnet/3dprint-scout
+```
+
 **Other agents.** The skill follows the [Agent Skills](https://agentskills.io) format and names no
 agent-specific tools, so any agent that loads `SKILL.md` skills can use the same folder. Copy it to
 wherever your agent reads skills from.
+
+**Or let your agent do it.** Tell it: *"Install the agent skill from
+https://github.com/madrobotnet/3dprint-scout."* An agent that can run commands can usually set
+it up by itself.
 
 Then just ask, in any language: *"I want a wall hook for a 6 mm dowel"*, *"make a case for this
 PCB"*, *"X2D 프린터 문 손잡이를 만들고 싶어"*.

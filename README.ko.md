@@ -37,9 +37,19 @@
 git clone https://github.com/madrobotnet/3dprint-scout ~/.claude/skills/3dprint-scout
 ```
 
+**어떤 에이전트든 명령 한 줄로.** [skills CLI](https://github.com/vercel-labs/skills)가 Claude Code,
+Codex, Cursor, OpenCode 등 여러 에이전트에 설치해 줘요.
+
+```bash
+npx skills add madrobotnet/3dprint-scout
+```
+
 **다른 에이전트.** [Agent Skills](https://agentskills.io) 형식을 따르고 특정 에이전트의 도구 이름을
 쓰지 않아서 `SKILL.md` 스킬을 읽는 에이전트라면 같은 폴더를 그대로 쓸 수 있어요. 그 에이전트가
 스킬을 읽는 위치에 복사하세요.
+
+**귀찮으면 에이전트에게 맡기세요.** *"https://github.com/madrobotnet/3dprint-scout 에 있는 스킬을
+설치해 줘"*라고 말하면 돼요. 명령을 실행할 수 있는 에이전트라면 대개 알아서 설정해요.
 
 그다음엔 어떤 언어로든 그냥 요청하면 돼요. 예: *"6mm 봉에 거는 벽걸이 고리 만들어줘"*, *"이 기판
 케이스 만들어줘"*, *"X2D 프린터 문 손잡이를 만들고 싶어"*.
