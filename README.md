@@ -101,12 +101,8 @@ python3 -m unittest discover -s tests
 
 ## License
 
-MIT, see [LICENSE](LICENSE). The code is original. Ideas were taken, not code, from other
-3D-printing skills, including
-[EdwinjJ1/3d-print-skill](https://github.com/EdwinjJ1/3d-print-skill) and
-[flowful-ai/cad-skill](https://github.com/flowful-ai/cad-skill). Bambu Studio's project format was
-learned from its open-source code; only file-format constants needed to interoperate are used, and
-Bambu's profile data is read at run time (from your installation, or Bambu's public profiles),
-never shipped.
+MIT, see [LICENSE](LICENSE). Bambu Studio's project format was learned from its open-source code;
+only file-format constants needed to interoperate are used, and Bambu's profile data is read at run
+time (from your installation, or Bambu's public profiles), never shipped.
 
 Not affiliated with Bambu Lab, Autodesk or any other company named here.

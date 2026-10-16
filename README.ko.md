@@ -94,10 +94,8 @@ python3 -m unittest discover -s tests
 
 ## 라이선스
 
-MIT, [LICENSE](LICENSE) 참고. 코드는 직접 작성했어요. 다른 3D 프린팅 스킬에서는 코드가 아니라
-아이디어만 참고했어요. 예를 들어 [EdwinjJ1/3d-print-skill](https://github.com/EdwinjJ1/3d-print-skill),
-[flowful-ai/cad-skill](https://github.com/flowful-ai/cad-skill)이 있어요. Bambu Studio 프로젝트 형식은
-공개된 소스 코드를 보고 익혔고 호환에 필요한 파일 형식 상수만 써요. Bambu 프로필 데이터는 실행할
-때 읽고(내 설치본 또는 Bambu 공개 프로필) 스킬에 포함하지 않아요.
+MIT, [LICENSE](LICENSE) 참고. Bambu Studio 프로젝트 형식은 공개된 소스 코드를 보고 익혔고 호환에
+필요한 파일 형식 상수만 써요. Bambu 프로필 데이터는 실행할 때 읽고(내 설치본 또는 Bambu 공개
+프로필) 스킬에 포함하지 않아요.
 
 Bambu Lab, Autodesk 등 여기 나온 어떤 회사와도 관계없어요.
