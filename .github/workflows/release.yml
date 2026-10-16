@@ -22,9 +22,13 @@ jobs:
           (cd dist && zip -qr "3dprint-scout-${GITHUB_REF_NAME}.zip" 3dprint-scout)
       - name: Release notes from CHANGELOG.md
         run: awk '/^## /{n++} n==1' CHANGELOG.md > dist/notes.md
-      - name: Create the release
+      - name: Create the release, or refresh its zip if it already exists
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create "$GITHUB_REF_NAME" "dist/3dprint-scout-${GITHUB_REF_NAME}.zip" \
-            --title "$GITHUB_REF_NAME" --notes-file dist/notes.md
+          zip="dist/3dprint-scout-${GITHUB_REF_NAME}.zip"
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" "$zip" --clobber
+          else
+            gh release create "$GITHUB_REF_NAME" "$zip" --title "$GITHUB_REF_NAME" --notes-file dist/notes.md
+          fi
