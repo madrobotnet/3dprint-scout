@@ -75,13 +75,19 @@ search; previews via OpenSCAD."
    (chamfers instead), and Python leaves a mesh, not editable CAD (every dimension stays a
    parameter in the script).
 2. **Reference search tier** — A: a model-marketplace tool exists; B: web search exists; C: neither.
-3. **Preview** — with Fusion, the MCP screenshot of the viewport is the preview. With OpenSCAD,
-   render one image per part yourself
-   (`openscad -o out/preview.png --imgsize=1200,900 --viewall --autocenter -D part='"body"' model.scad`).
-   With Python, a quick render of the STL is fine (see `references/engines/python.md`), or say
-   there is no preview. A missing preview is not an error; numbers stay the primary evidence.
-   Check the image itself before trusting it (G4): headless OpenSCAD on Linux exits cleanly and
-   writes a **0-byte PNG** unless it runs under `xvfb-run -a`.
+3. **Preview** — `preview.py` renders any STL (numpy only, no display needed), so every engine
+   has a preview once a part is built:
+
+   ```bash
+   python3 "$SKILL_DIR/scripts/preview.py" out/body.stl -o out/preview.png --overwrite
+   ```
+
+   One PNG with iso, front, right and top views (`--views`, `--separate`, several STLs in one
+   scene). It prints JSON with the G4 check of the image (`sane`); exit 2 means a blank image.
+   With Fusion, the MCP screenshot of the viewport is an extra. Without numpy say there is no
+   preview; a missing preview is not an error, numbers stay the primary evidence. Do not
+   use `openscad -o preview.png` headless on Linux: it exits cleanly and writes a **0-byte PNG**
+   unless it runs under `xvfb-run -a`.
 4. **Printer** — does `.3dprint/printers.json` exist?
 
 ## Phase 1 — Intent and references (STOP)
@@ -104,6 +110,18 @@ References give ideas and dimensions only, read from the page and its images. Do
 model files or reverse-engineer meshes. If the license is NC or ND and the result will look close to
 the reference, tell the user. When a page does not show its license in what you can read, write
 "not shown" in the table; never guess one.
+
+### Concepts (STOP, after choice B or C)
+
+Before modeling in detail, show 2–3 **concept variants**: low-detail shapes (no holes, no
+fillets) that differ in one or two things that matter: proportions, where the opening is, a
+lid that lifts off or hinges, round or boxy. Build them quickly (any engine; `parts.py` and
+`sdf.py` are enough for most), render each with `preview.py`, and say in one line per variant
+what differs and what it costs (print time, supports, strength). Rough sizes from the request or
+the references are enough here; exact ones come in Phase 2. Then **stop** for the user's pick;
+the chosen variant's parameters become the first `params.json`. Keep it to a few minutes of
+work: concepts prove the idea, not the fit. Choice A and D skip this step. Unattended runs take
+the first variant and record it in `_assumptions`.
 
 ## Phase 2 — Printer, purpose, dimensions (STOP)
 
@@ -158,7 +176,8 @@ the reference, tell the user. When a page does not show its license in what you 
 
 ## Phase 3 — Base shape (review point)
 
-Read `references/engines/<engine>.md` now, and only that one.
+Read `references/engines/<engine>.md` now, and only that one, plus `references/design.md`
+(bed-edge chamfers, overhangs, walls in nozzle multiples, orientation for strength).
 
 Write one generator script:
 - Every dimension in a `PARAMETERS` block at the top, in mm, with descriptive names (`screw_hole_d`,
@@ -190,8 +209,9 @@ python3 "$SKILL_DIR/scripts/build.py" run model.scad --params .3dprint/params.js
 
 `build.py run` builds every part in `_parts`, writes `<part>.stl.manifest.json`, writes a core 3MF,
 then validates each part against its own `expect`. For Fusion, export the STLs from Fusion and use
-`build.py record` instead (see `references/engines/fusion.md`). Report size, volume, and verdicts in
-two or three lines, then offer to continue.
+`build.py record` instead (see `references/engines/fusion.md`). Render the built STLs with
+`preview.py` (Phase 0, step 3), report size, volume, and verdicts in two or three lines with the
+image, then offer to continue.
 
 - `out/` is the build's working folder: every build rewrites `out/<part>.stl`, its manifest and
   `out/<model>.3mf`. Deliverables (Phase 6) are written elsewhere as new files.
@@ -205,15 +225,36 @@ two or three lines, then offer to continue.
 ## Phase 4 — Features and joints (review point)
 
 Holes, bosses, slots, vents, snap fits, lips, cable paths. Fits and clearances come from
-`references/tolerances.md`, which states whether each value is radial (per side) or on the diameter.
-With several parts, build and validate **all** of them, and check every joint from both sides (F3).
+`references/tolerances.md`, which states whether each value is radial (per side) or on the diameter;
+the shapes (teardrop holes, insert bosses, snap hooks, hinges, threads, text) from
+`references/design.md`, with `parts.py` building them in the Python engine. With several parts,
+build and validate **all** of them, and check every joint from both sides (F3):
+
+```bash
+python3 "$SKILL_DIR/scripts/fit.py" out/box.stl out/lid.stl --b-rotate 180,0,0 \
+  --b-translate 0,40,33 --min-clearance 0.2
+```
+
+`fit.py` places part B as assembled (rotation about its origin, then translation), then measures
+the overlap volume, how far B can move sideways before it touches A (`play`, the real clearance of
+a seated part), the smallest gap and the contact area, and prints a verdict in the validate.py
+style: FAIL on overlap, WARN when the play is below `--min-clearance` or the parts bind, PASS
+otherwise. A press fit fails by design; compare its overlap with the intended one instead.
 
 **Fit test first** when the part must fit an existing object whose shape is not known exactly (no
-caliper numbers, no official drawing): offer a small test piece of the mating profile (a ring or a
-thin slice, a few grams) in two or three clearance steps, and build the real part after the user
-reports which one fits. If the user cannot test now, build to the middle step and record that in
-`_assumptions`. Print the test piece and the final part with the same printer, filament and process
-preset: another preset changes the fit.
+caliper numbers, no official drawing): make test pieces of the mating profile, a few grams each,
+in three clearance steps marked with 1, 2, 3 holes:
+
+```bash
+python3 "$SKILL_DIR/scripts/fit_test.py" --profile rounded --size 45.1,14.0 --radius 2 --out out/fit
+```
+
+(`--profile rect | rounded | circle | polygon`, `--mode ring` for an object that goes into the part,
+`--mode plug` for a part that goes into the object; `--clearance`, `--step`, `--steps`;
+`--bambu-template` also writes a `bambu3mf.py` job.) The JSON's `how_to_read` tells the user
+what to try; build the real part with the step that fits. If the user cannot test now, build to the
+middle step and record that in `_assumptions`. Print the test pieces and the final part with the
+same printer, filament and process preset: another preset changes the fit.
 
 ## Phase 5 — Gate and process tuning (review point)
 
@@ -229,8 +270,9 @@ preset: another preset changes the fit.
    `--expect` is one part's size, so one `validate.py` call per part. `--source` must list the
    same files the build hashed (`build.py` prints them as `sources`, includes and all); R3 names
    both lists when they differ. Editing only `_` keys in `params.json` does not make an STL stale.
-2. Decide the checks `validate.py` lists in `not_covered` yourself, each with evidence (F1–F3,
-   R1, R2, R4).
+2. Decide the checks `validate.py` lists in `not_covered`: F3 with `fit.py` (one run per joint,
+   both parts placed as assembled); F1, F2, R1, R2 and R4 yourself, each with evidence. P6 from
+   the `preview.py` image.
 3. On a hard FAIL, go where its `return_to` says (table below), fix the cause, rebuild, re-validate.
    On a soft WARN, explain it and let the user choose (slicer supports or a redesign). Never model
    support structures into the part: overhangs get the slicer's supports (set per object in Phase
@@ -282,10 +324,10 @@ overwrite an existing path: if it exists, ask and stop (the scripts refuse as we
 | P3 | Wall thickness ≥ 1.2 mm (ray casting; needs numpy and rtree, skipped above 400k triangles) | soft | validate.py | user |
 | P4 | Unsupported bridges | soft | not in v1 (UNVERIFIED) | user |
 | P5 | Minimum feature size | soft | not in v1 (UNVERIFIED) | user |
-| P6 | No fillet on edges that touch the bed (chamfer, or sharp with slicer elephant-foot compensation) | soft | you, from the preview | user |
+| P6 | No fillet on edges that touch the bed (chamfer, or sharp with slicer elephant-foot compensation) | soft | you, from the preview.py image | user |
 | F1 | Hole compensation applied in exactly one place | hard | you | Phase 4 |
 | F2 | Each fit has the clearance for its kind | hard | you | Phase 4 |
-| F3 | Every joint checked from both sides | hard | you | Phase 4 |
+| F3 | Every joint checked from both sides: no overlap, the play of the fit kind | hard | fit.py | Phase 4 |
 | R1 | No magic numbers in geometry code | hard | you | current |
 | R2 | Real-world dimensions carry a source | hard | you | Phase 2 |
 | R3 | Evidence is fresh (manifest hash matches) | hard | validate.py | current |
@@ -321,12 +363,14 @@ Standard library only. Always prints one JSON document, even on errors.
 
 Exit code 0 means it ran (read `gate`), 2 means a broken artifact (G4), 1 means a usage or
 internal error. A failed artifact has `artifact_sane: false` and `artifact_error`, and no checks.
+`not_covered` always lists F1–F3, R1, R2, R4: F3 is decided by `fit.py` (schema
+`3dprint-scout.fit/1`, the same `checks.F3.state` / `kind` / `value` / `note` shape), the rest by you.
 
 ## Unattended runs
 
-When nobody is there to answer, take the default at each stop (reference choice C, purpose general),
-record every assumption in `_assumptions` in `params.json`, and repeat them at the top of the
-deliverable. If the printer and slicer are unknown, deliver STL per part plus a core 3MF, mark D2
+When nobody is there to answer, take the default at each stop (reference choice C, the first
+concept variant, purpose general), record every assumption in `_assumptions` in `params.json`, and
+repeat them at the top of the deliverable. If the printer and slicer are unknown, deliver STL per part plus a core 3MF, mark D2
 UNVERIFIED, and say at the top that the printer was not confirmed. Two exceptions: if a dimension
 the part must fit cannot be sourced, stop rather than guess; and never overwrite an existing file.
 
@@ -336,9 +380,15 @@ the part must fit cannot be sourced, stop rather than guess; and never overwrite
 |---|---|
 | `scripts/validate.py` | Mesh validator (this file's checklist) |
 | `scripts/build.py` | `detect` (Phase 0), `run` (OpenSCAD / Python), `record` (parts built in Fusion) |
+| `scripts/preview.py` | Iso / front / right / top PNG of one or more STLs, numpy only, with the G4 image check |
+| `scripts/fit.py` | F3: overlap, play, gap and contact between two placed STLs, verdict JSON |
+| `scripts/fit_test.py` | Fit-test pieces of a mating profile in clearance steps, marked 1/2/3 |
+| `scripts/parts.py` | Part library for Python generators: boxes, chamfers, holes, bosses, snap fits, hinge, text, threads |
+| `scripts/sdf.py` | Organic shapes as signed distance functions, meshed watertight with `to_manifold` |
 | `scripts/threemf.py` | Core 3MF writer used by build.py (slicer-neutral); `threemf.py out.3mf a.stl b.stl` prints JSON |
 | `scripts/bambu_template.py` | Empty Bambu project that names system presets; Bambu Studio fills in the values |
 | `scripts/bambu3mf.py` | Bambu project 3MF from a template plus allowlisted per-object settings |
 | `references/engines/fusion.md`, `openscad.md`, `python.md` | Engine-specific rules and pitfalls |
+| `references/design.md` | Design for FDM: chamfers, overhangs, walls, orientation, snap fits, screws and inserts, print-in-place, text, with sources |
 | `references/tolerances.md` | Fits and clearances, each marked radial or diameter |
 | `references/bambu-process.md` | Templates (generated or saved), where settings live, allowed keys, tuning rules |
