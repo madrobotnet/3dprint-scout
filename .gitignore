@@ -1,0 +1,12 @@
+__pycache__/
+*.py[cod]
+.venv/
+
+# Project state and outputs belong to the user's projects, not to this repository.
+# A saved Bambu Studio template holds the owner's preset and account id.
+.3dprint/
+out/
+deliver/
+*.3mf
+*.stl
+*.zip
