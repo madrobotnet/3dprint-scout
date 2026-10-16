@@ -110,6 +110,12 @@ python3 -m unittest discover -s tests
 `SKILL.md` is the entry point. Engine rules, tolerances and the Bambu details live in
 `references/` and are read only when needed.
 
+## Support
+
+If this skill saved you some time, you can buy me a coffee.
+
+[![Buy Me a Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-FFDD00?style=for-the-badge&logo=buymeacoffee&logoColor=000000)](https://buymeacoffee.com/madrobotnet)
+
 ## License
 
 MIT, see [LICENSE](LICENSE). Bambu Studio's project format was learned from its open-source code;

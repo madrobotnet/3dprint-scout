@@ -102,6 +102,12 @@ python3 -m unittest discover -s tests
 진입점은 `SKILL.md`예요. 엔진별 규칙, 공차, Bambu 관련 내용은 `references/`에 있고 필요할 때만
 읽어요.
 
+## 응원하기
+
+이 스킬이 시간을 아껴 줬다면 커피 한 잔으로 응원해 주세요.
+
+[![Buy Me a Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-FFDD00?style=for-the-badge&logo=buymeacoffee&logoColor=000000)](https://buymeacoffee.com/madrobotnet)
+
 ## 라이선스
 
 MIT, [LICENSE](LICENSE) 참고. Bambu Studio 프로젝트 형식은 공개된 소스 코드를 보고 익혔고 호환에
