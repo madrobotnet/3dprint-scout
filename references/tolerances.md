@@ -1,8 +1,9 @@
 # Tolerances and design limits (FDM, 0.4 mm nozzle)
 
-Starting points, not truths. Values measured on the user's printer (`printers.json` → `tolerance`,
-source `measured`) always win. Every value says whether it applies **per side (radial)** or **to the
-diameter / total size**; mixing the two is a 2× error.
+Starting points to calibrate, not truths, unless a source is named. Values measured on the user's
+printer (`printers.json` → `tolerance`, source `measured`) always win. Every value says whether it
+applies **per side (radial)** or **to the diameter / total size**; mixing the two is a 2× error.
+This file is the only place for fit clearances; `design.md` links here instead of repeating them.
 
 ## Fits
 
@@ -13,6 +14,7 @@ diameter / total size**; mixing the two is a 2× error.
 | Snug, no rattle | +0.15 | +0.30 | Stacked parts, alignment lips |
 | Press fit | −0.05 to −0.10 | −0.10 to −0.20 | Pins and bosses meant to stay; test before committing |
 | Object in a pocket | +0.30 | +0.60 | A device dropped into a holder; add +1.0 per side if it must lift out easily |
+| Print-in-place joint (hinge, pivot, captive pin) | +0.30 (0.40–0.50 on a less tuned printer) | +0.60 (0.80–1.00) | Parts printed assembled that must move afterwards; Prusa KB ≥ 0.3 mm, Fictiv 0.4 mm for pivots, Hubs 0.5 mm (design.md sources 1, 2, 6) |
 
 Material adjustments: PETG add +0.05 per side; TPU add +0.3 per side; ABS/ASA shrink about 0.5–0.7 %
 (scale critical dimensions, or measure a test print).
@@ -32,19 +34,20 @@ Material adjustments: PETG add +0.05 per side; TPU add +0.3 per side; ABS/ASA sh
 
 | Feature | Minimum | Recommended |
 |---|---|---|
-| Wall | 1.2 mm | 1.6–2.0 mm structural; walls should be a multiple of the line width |
+| Wall | 1.2 mm | 1.6–2.0 mm structural; walls should be a multiple of the line width (one 0.4 mm-nozzle perimeter is about 0.45 mm wide, Prusa KB) |
 | Feature (pin, rib) | 0.8 mm | 1.2 mm |
 | Hole | 2.0 mm diameter | Drill or ream holes that need precision |
 | Embossed text | 0.6 mm high, 0.8 mm stroke | 1.0 mm high |
 | Engraved text | 0.6 mm deep, 0.8 mm stroke | 1.0 mm deep |
 | Overhang from vertical | 45° (PLA often 50°) | Chamfer instead of a horizontal ledge |
-| Unsupported bridge | — | under 20 mm; ribs underneath shorten longer spans |
+| Unsupported bridge | — | under 10 mm (Hubs design rules); under 5 mm it does not sag at all; ribs underneath shorten longer spans |
 | Bottom edge | 0.3–0.5 mm chamfer | Chamfer, never a fillet (P6) |
 
 ## Threads and fasteners
 
 - Printed threads: M6 and up. Below that, use heat-set inserts (hole size from the insert maker's
-  datasheet) or self-tapping screws into an undersized hole.
+  datasheet) or self-tapping screws into an undersized hole. Hole tables, insert bosses, snap-fit
+  formulas and strain limits: `design.md`.
 - Snap-fit cantilevers: at least 1.2 mm thick, printed lying in the XY plane, never flexing across
   layer lines.
 
