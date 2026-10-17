@@ -236,6 +236,66 @@ class FitCheck(unittest.TestCase):
 
 
 @unittest.skipUnless(HAS_NP, "numpy not installed")
+@unittest.skipUnless(HAS_M3D, "manifold3d not installed")
+class Sweep(unittest.TestCase):
+    """A lever (bar 15 x 2 x 2 along +X from its pivot at the origin) and a stop block in its
+    path at x 10..20, y 5..15: turning about Z it hits the block between 20 and 30 degrees;
+    turning the other way it stays free."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.d = self.tmp.name
+        import manifold3d as m3d
+        from build import write_binary_stl
+
+        def save(man, path):
+            mesh = man.to_mesh()
+            write_binary_stl(path, mesh.vert_properties[:, :3].tolist(), mesh.tri_verts.tolist())
+        self.stop = os.path.join(self.d, "stop.stl")
+        save(m3d.Manifold.cube([10, 10, 10]).translate([10, 5, -4]), self.stop)
+        self.lever = os.path.join(self.d, "lever.stl")
+        save(m3d.Manifold.cube([15, 2, 2]).translate([0, -1, 0]), self.lever)
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_first_overlap_angle_and_table(self):
+        code, out = run_fit(self.stop, self.lever, "--play", "none", "--sweep-axis", "z", "--sweep-pivot", "0,0,0",
+                            "--sweep-angles", "0:90:2")
+        self.assertEqual(code, 0, out["errors"])
+        self.assertEqual(out["checks"]["F3"]["state"], "PASS")              # the placed pose is clear
+        sw = out["metrics"]["sweep"]
+        self.assertEqual(out["checks"]["F3_sweep"]["state"], "FAIL")
+        self.assertEqual(out["gate"], "FAIL")
+        # The bar's far corner (15, 1) reaches y = 5 when 15 sin(t) + cos(t) = 5: t is about 15.5 deg.
+        self.assertTrue(14 <= sw["first_overlap_deg"] <= 18, sw["first_overlap_deg"])
+        self.assertEqual(sw["free_until_deg"], sw["first_overlap_deg"] - 2)
+        self.assertEqual(len(sw["table"]), 46)
+        self.assertEqual(sw["table"][0], {"angle_deg": 0.0, "interference_mm3": 0.0, "min_gap_mm": 4.0})
+        gaps = [r["min_gap_mm"] for r in sw["table"][: sw["table"].index(next(r for r in sw["table"] if r["interference_mm3"] > 0))]]
+        self.assertEqual(gaps, sorted(gaps, reverse=True))                  # closing in step by step
+        self.assertGreater(max(r["interference_mm3"] for r in sw["table"]), 10)   # deep inside the block mid-sweep
+        self.assertEqual(sw["table"][-1]["interference_mm3"], 0.0)                 # at 90 deg the bar has passed it
+
+    def test_free_sweep_passes_and_reports_closest_approach(self):
+        code, out = run_fit(self.stop, self.lever, "--play", "none", "--sweep-axis", "0,0,1", "--sweep-pivot", "0,0,0",
+                            "--sweep-angles=-90:0:5")                      # '=' form: the value starts with '-'
+
+        self.assertEqual(out["checks"]["F3_sweep"]["state"], "PASS")
+        self.assertEqual(out["gate"], "PASS")
+        sw = out["metrics"]["sweep"]
+        self.assertIsNone(sw["first_overlap_deg"])
+        self.assertEqual(sw["closest"]["angle_deg"], 0.0)
+        self.assertEqual(sw["closest"]["min_gap_mm"], 4.0)
+        self.assertIn("closest approach", out["checks"]["F3_sweep"]["note"])
+
+    def test_sweep_usage_errors(self):
+        for argv in (["--sweep-angles", "0:90"], ["--sweep-angles", "90:0:5"], ["--sweep-axis", "0,0,0", "--sweep-angles", "0:9:1"]):
+            code, out = run_fit(self.stop, self.lever, *argv)
+            self.assertEqual(code, 1, argv)
+            self.assertFalse(out["ran"])
+
+
 class PointTriangle(unittest.TestCase):
     def test_distances(self):
         import numpy as np
