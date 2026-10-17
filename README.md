@@ -24,15 +24,22 @@ Studio, that is a project file with the print settings already set per object.
    mechanical parts; Python ([manifold3d](https://github.com/elalish/manifold)) for organic shapes,
    and as the fallback. The Python engine comes with a tested part library (rounded and chamfered
    boxes, screw and insert holes, teardrop holes, bosses, snap hooks, a print-in-place hinge, text,
-   threads) and a signed-distance-function toolkit for smooth, blended, organic shapes.
+   threads) and a signed-distance-function toolkit for smooth, blended, organic shapes. Anything
+   with its own job or a likely colour of its own (a latch, a lever, a label) is modelled as a
+   separate part of the same object, so you can give it another filament in the slicer without
+   remodelling; print-in-place pieces keep their clearance.
 6. **Verification** — every part is checked: size, bed fit, watertight mesh, overhangs, wall
-   thickness, fresh evidence (the STL must match the current source and parameters). Mating parts
-   are checked against each other: overlap, play, gap and contact area. Every part gets a preview
-   image (iso, front, right, top) rendered without a display.
+   thickness, fresh evidence (the STL must match the current source and parameters). An object
+   made of several parts is checked as a whole (bed fit, overhang on the union, that fused parts
+   touch and free parts keep their gap). Mating parts are checked against each other: overlap,
+   play, gap and contact area, and a moving part is swept through its travel to find where it
+   hits. Every part gets a preview image (iso, front, right, top) rendered without a display.
 7. **Delivery** — STL per part plus a 3MF that fits your slicer, with print-setting changes and the
-   reason for each.
+   reason for each, and one line naming the separate parts and how to recolour them.
 
-The agent stops for your choice after references, after the concepts, and after the dimension table.
+The agent stops for your choice after references, after the concepts, after the dimension table
+and after the base shape. If you hand it a file of the thing the part must fit (a manufacturer's
+kit, a reference model), it measures the interface dimensions from the file and copies nothing.
 
 ## Examples
 
@@ -86,27 +93,31 @@ PCB"*, *"X2D 프린터 문 손잡이를 만들고 싶어"*.
   library only.
 - One modeling engine: **Fusion** with an MCP connection, **OpenSCAD** (2021.01 or a newer build
   with the Manifold backend), or `pip install manifold3d`.
-- `numpy` for preview images and the contact-area part of the fit check; `manifold3d` for the fit
-  check, the fit-test pieces, the part library and the SDF toolkit; `rtree` (with numpy) for the
-  wall-thickness check. Text on parts needs `matplotlib`, or `fonttools` plus a font file. Each
-  is optional: what is missing is reported as unverified or as a clear error, never faked.
+- `numpy` for preview images, the measuring tool and the contact-area part of the fit check;
+  `manifold3d` for the fit check and sweep, the object checks, the fit-test pieces, the part
+  library and the SDF toolkit; `rtree` (with numpy) for the wall-thickness check. Text on parts
+  needs `matplotlib`, or `fonttools` plus a font file. Each is optional: what is missing is
+  reported as unverified or as a clear error, never faked.
 
 ## Bambu Studio
 
 For Bambu Lab printers the skill writes a Bambu Studio project (open it with **File > Open
 Project**). It needs a template project, made one of two ways:
 
-- **Generated (default).** `bambu_template.py` writes an empty project that only *names* system
+- **Saved (asked for first).** Save an empty project in Bambu Studio with your printer, filaments
+  and print profile and give it to the skill: it keeps your own process tweaks and your exact AMS
+  filament set. Such a file contains your preset and your Bambu account ID: the skill blanks the
+  ID in every file it writes, but keep the template itself private.
+- **Generated (fallback).** `bambu_template.py` writes an empty project that only *names* system
   presets, for example `0.20mm Standard @BBL X2D` and Bambu PLA Basic. When Bambu Studio opens it,
   it fills in every value from the presets installed on your computer. No settings are copied, and
   the file holds no personal data.
-- **Saved.** If you print with your own process preset or want your exact AMS filament set, save an
-  empty project in Bambu Studio and give it to the skill. Such a file contains your preset and
-  your Bambu account ID: the skill blanks the ID in every file it writes, but keep the template
-  itself private.
 
-Per-object settings (supports, brim, walls, infill, layer height and a few more) come only from an
-allowlist with range checks. Keys that can run programs or rewrite G-code are never written.
+An object made of several parts arrives as one Bambu object whose parts are listed by name, each
+with its own filament, in their assembled positions. Per-object settings (supports, support
+interface filament and distance, brim, walls, infill, layer height and a few more) come only from
+an allowlist with range checks. Keys that can run programs or rewrite G-code are never written. On
+the X2D and H2D, objects that need both nozzles are placed where both can reach.
 
 ## What it writes in your project
 
@@ -120,11 +131,14 @@ allowlist with range checks. Keys that can run programs or rewrite G-code are ne
 
 ## Status
 
-**v0.2.0.** Adds the design reference with sourced numbers, the part library, the
-SDF toolkit for organic shapes, fit-test pieces, the fit check between mating parts, the preview
-renderer and the concept step. v0.1.0 was tested end to end on a Bambu Lab X2D with Bambu Studio
-02.08.02.61, with OpenSCAD 2021.01 and manifold3d 3.5.4; generated templates were also checked
-against the A1 mini, A1, P1S, X1C, H2D and H2C profiles. Not yet tested in the app: OrcaSlicer.
+**v0.3.0 (unreleased; latest release v0.2.1).** Adds parts grouped into objects with their own
+checks and grouped 3MF writers, a Fusion Builder skeleton, a measuring tool for supplied files, a
+rotation sweep in the fit check, and the process fixes from a field test on 2026-10-17 (a
+tool-free exhaust adapter designed in Fusion, printed on an X2D). v0.2.1 and v0.1.0 were tested
+end to end on a Bambu Lab X2D with Bambu Studio 02.08.02.61, with OpenSCAD 2021.01 and manifold3d
+3.5.4; generated templates were also checked against the A1 mini, A1, P1S, X1C, H2D and H2C
+profiles. Not yet tested in the app: a Bambu object with several parts, the support interface
+settings, the v0.2.1 six-filament template fix, the cleaned Fusion Builder, and OrcaSlicer.
 Planned: a printer-profile importer, bridge and minimum-feature checks. FDM only; no resin.
 
 ## Development
