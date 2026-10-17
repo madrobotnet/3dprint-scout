@@ -260,6 +260,11 @@ class GroupedObjects(Base):
                                       printer=self.printers))
         self.assertIn("several filaments", res["usable_area_reason"])
         os.remove(self.out)
+        make_template(self.template, support_interface_filament="0")
+        res = bambu3mf.build(self.job([{"name": "box", "stl": self.box, "settings": {"support_interface_filament": 2}}],
+                                      printer=self.printers))
+        self.assertIn("several filaments", res["usable_area_reason"])     # the interface filament counts
+        os.remove(self.out)
         res = bambu3mf.build(self.job([{"name": "box", "stl": self.box}], printer=self.printers, tools="all"))
         self.assertEqual(res["usable_area"], [20.5, 0, 256, 256])
         os.remove(self.out)

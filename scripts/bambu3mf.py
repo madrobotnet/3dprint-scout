@@ -505,6 +505,10 @@ def usable_area(job: dict, bed, objects: list) -> tuple:
     else:
         multi_part = any(len(o["parts"]) > 1 for o in objects)
         filaments = {p["filament"] for o in objects for p in o["parts"]}
+        for o in objects:                                   # a support filament is a filament in use too
+            for key in ("support_filament", "support_interface_filament"):
+                if int(o["settings"].get(key, 0) or 0) > 0:
+                    filaments.add(int(o["settings"][key]))
         if multi_part or len(filaments) > 1:
             ids, reason = list(range(len(tools))), ("an object has several parts" if multi_part else
                                                     "the job uses several filaments")

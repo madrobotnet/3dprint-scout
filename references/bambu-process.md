@@ -122,8 +122,9 @@ python3 "$SKILL_DIR/scripts/bambu3mf.py" job.json
   same angle validate.py's D2 reports; the STLs are unchanged) and the output says so in `warnings`.
 - **Nozzle areas (X2D, H2D).** With `printer`, the usable area is the intersection of the tools'
   reachable areas from `printers.json` whenever an object has several parts or the job uses more
-  than one filament (which nozzle prints which filament is decided in the app, so both must reach
-  the part); a single-filament job of single-part objects keeps the full bed. `"tools": "all"` or
+  than one filament, support and interface filaments included (which nozzle prints which filament
+  is decided in the app, so both must reach the part); a single-filament job of single-part
+  objects keeps the full bed. `"tools": "all"` or
   `[0, 1]` forces it. `usable_area` and `usable_area_reason` are in the output.
 - The output's `warnings` end with one line naming the separate parts and their filaments; repeat
   it at delivery with "select the part in the object list to change its filament".
