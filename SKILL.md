@@ -175,8 +175,9 @@ the first variant and record it in `_assumptions`.
    - With several saved printers, ask which one in a single line.
 2. **Purpose** — decorative, general, or load-bearing. Default: general.
 3. **Real-world dimensions** for anything the part must fit (ports, PCBs, screws, a device it wraps).
-   Priority: the user's caliper measurement or their own calibration log > the official spec >
-   secondary sources (two that agree) > the starting points in `references/`. Record the source
+   Two priorities. The size of the object: the user's caliper measurement > the official spec >
+   secondary sources (two that agree). How this printer prints (clearances, holes, members that
+   held): the user's calibration log > the starting points in `references/`. Record the source
    as a comment next to the parameter. Read `.3dprint/calibration.json` first when it exists
    (`calibration.py lookup`, `references/calibration.md`): a clearance that fit on this printer
    beats every table. A file the user supplies (a manufacturer's kit 3MF, a reference model) is
@@ -186,8 +187,8 @@ the first variant and record it in `_assumptions`.
    **Members that carry load** (pins, knuckles, links, levers, hooks, brackets, handles): when a
    proven reference's file is at hand (supplied by the user, or their own earlier project that
    works), measure its corresponding members with `measure.py` and put them in the table next to
-   ours as a "reference member" note. The field-test latch would have shown up as six times
-   thinner than the official buckle beside it.
+   ours as a "reference member" note. The field-test latch, beside the user's own working latch,
+   would have shown up with half the member thickness and a sixth of the material.
 4. **Compensation lives in one place.** If the slicer is Bambu Studio or OrcaSlicer with circle
    compensation on, model holes at nominal size and record `compensation.holes = "slicer"`.
    Otherwise add the radial compensation from `references/tolerances.md` in the model.
@@ -284,18 +285,19 @@ Every pin, knuckle, lever and latch bar is checked against the mechanism minimum
 the fit, not after the print, and gets a hand calculation:
 
 ```bash
-python3 "$SKILL_DIR/scripts/strength.py" pin --d 3.2 --engagement 10 --shear double --load finger_push \
-  --material pla_basic --orientation xy
+python3 "$SKILL_DIR/scripts/strength.py" pin --d 3.2 --engagement 4.25 --gap 0.3 --shear double \
+  --support stub --load finger_push --material pla_basic --orientation xy
 ```
 
-(`pin`, `beam`, `link`, `bearing`; loads from a cited hand-force table or `--load N`, materials
-from Bambu Lab data sheets, `--orientation xy|z` for the layer direction, `--sf` 2 by default;
-`references/materials.md`.) Record the load in `_assumptions`. FAIL → redesign; WARN, or no
-proven reference to compare with → **print the mechanism first**: `build.py run --only
-latch,keeper --out out/mech` builds just the member and the bit of its mating part it needs,
-a few grams, and the user tries it before the full part (the same idea as the fit test; a
-Bambu job lists only those parts). The calculation is a sizing aid: it flagged the failed
-field latch's arms, not its pins, so the minimums and the test print decide.
+(`pin`, `beam`, `link`, `bearing`; loads from a cited hand-force table or `--load N`, the
+lever ratio applied by you; materials from Bambu Lab data sheets, `--orientation xy|z` for
+the layer direction, `--gap` for the print-in-place gap at a pin's root, `--sf` 2 by default;
+`references/materials.md`.) Record the load and its share in `_assumptions`. FAIL → redesign;
+WARN, or no proven reference to compare with → **print the mechanism first**: `build.py run
+--only latch,keeper --out out/mech` builds those parts whole (a coupon part for less), a few
+grams, and the user tries it before the full part (the same idea as the fit test; a Bambu job
+lists only those parts). The calculation is a sizing aid: it flagged the failed field latch's
+arms, not its pins, so the minimums and the test print decide.
 
 `fit.py` places part B as assembled (rotation about its origin, then translation), then measures
 the overlap volume, how far B can move sideways before it touches A (`play`, the real clearance of
@@ -320,8 +322,9 @@ python3 "$SKILL_DIR/scripts/fit_test.py" --profile rounded --size 45.1,14.0 --ra
 `--mode plug` for a part that goes into the object; `--clearance`, `--step`, `--steps`;
 `--bambu-template` also writes a `bambu3mf.py` job.) The JSON's `how_to_read` tells the user
 what to try; build the real part with the step that fits. If the user cannot test now, build to the
-middle step and record that in `_assumptions`. Print the test pieces and the final part with the
-same printer, filament and process preset: another preset changes the fit.
+middle step and record that in `_assumptions`; the same for a skipped mechanism-first print
+("latch pin Ø3.2: not confirmed by a test print"). Print the test pieces and the final part with
+the same printer, filament and process preset: another preset changes the fit.
 
 ## Phase 5 — Gate and process tuning (review point)
 
@@ -380,9 +383,9 @@ overwrite an existing path: if it exists, ask and stop (the scripts refuse as we
    dimension that is still unverified, and `_assumptions` in full. When the user later reports
    a print result (a ring that fit, a latch that held or broke), offer **once** to record it
    with `calibration.py add` in `.3dprint/calibration.json`; never write it without their yes. If all hard checks pass, say so
-   in one line. When a fit test was offered and skipped, update `_assumptions` first ("latch
-   window clearance 0.3 mm: not confirmed by a fit test") so that the delivery says what is
-   unconfirmed, never that a test confirmed it.
+   in one line. When a fit test or a mechanism-first print was offered and skipped, update
+   `_assumptions` first ("latch window clearance 0.3 mm: not confirmed by a fit test") so that
+   the delivery says what is unconfirmed, never that a test confirmed it.
 
 ## Checklist and gate
 
@@ -405,7 +408,7 @@ overwrite an existing path: if it exists, ask and stop (the scripts refuse as we
 | P4 | Unsupported bridges | soft | not in v1 (UNVERIFIED) | user |
 | P5 | Minimum feature size | soft | not in v1 (UNVERIFIED) | user |
 | P6 | No fillet on edges that touch the bed (chamfer, or sharp with slicer elephant-foot compensation) | soft | you, from the preview.py image | user |
-| P7 | Load-carrying mechanism members meet the minimums in `design.md` (pin ≥ 3.2, pin wall ≥ 2.2, member ≥ 2.5 mm), are compared with a proven reference when one is at hand, and reach the safety factor in `strength.py` | soft | you, from the dimension table and strength.py | user: redesign, or print the member first |
+| P7 | Load-carrying mechanism members meet the minimums in `design.md` (pin ≥ 3.2, pin wall ≥ 2.2, member ≥ 2.5 mm thick and ≥ 4 mm wide), are compared with a proven reference when one is at hand, and reach the safety factor in `strength.py` | soft | you, from the dimension table and strength.py | user: redesign, or print the member first |
 | F1 | Hole compensation applied in exactly one place | hard | you | Phase 4 |
 | F2 | Each fit has the clearance for its kind | hard | you | Phase 4 |
 | F3 | Every joint checked from both sides: no overlap, the play of the fit kind | hard | fit.py | Phase 4 |
@@ -455,8 +458,10 @@ When nobody is there to answer, take the default at each stop (reference choice 
 concept variant, purpose general; at the Phase 3 stop, go on with the base shape as built and put
 its preview, sizes and verdicts at the top of the next message), record every assumption and every
 stop taken alone in `_assumptions` in `params.json`, and repeat them at the top of the deliverable. If the printer and slicer are unknown, deliver STL per part plus a core 3MF, mark D2
-UNVERIFIED, and say at the top that the printer was not confirmed. Two exceptions: if a dimension
-the part must fit cannot be sourced, stop rather than guess; and never overwrite an existing file.
+UNVERIFIED, and say at the top that the printer was not confirmed. A skipped fit test or
+mechanism-first print goes into `_assumptions` like any other stop; `calibration.py add` is never
+run, nobody said yes. Two exceptions: if a dimension the part must fit cannot be sourced, stop
+rather than guess; and never overwrite an existing file.
 
 ## Files
 

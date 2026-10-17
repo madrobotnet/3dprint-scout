@@ -127,7 +127,7 @@ housing to a 100 mm duct, designed in Fusion through MCP, fit-tested and printed
   fit check and the expected P2 warning for the latch's bridged underside.
 - Tests: assembly, grouped writers, nozzle areas, the new allowlist keys, measure.py, the sweep,
   the Fusion Builder against an API stand-in, strength.py (formulas and the field
-  comparison), calibration.py and the new example (198 tests).
+  comparison), calibration.py and the new example (200 tests).
 
 Not yet tested in the app: a Bambu object with several parts, the support interface keys, the
 v0.2.1 six-filament template fix, whether the slicing preview shows no inner wall between two
