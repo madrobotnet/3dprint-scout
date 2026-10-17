@@ -154,8 +154,9 @@ run `strength.py` on it with a cited load and the data-sheet values (`materials.
 when the margin is short or there is no reference, print the mechanism alone first
 (`parts.md`, "Printing the mechanism first"). The user's own results go into the
 calibration log (`calibration.md`) and beat every table here. `parts.hinge()` refuses a pin
-wall under 2.2 mm, a leaf under 2.5 mm or a knuckle under 4 mm unless `decorative=True`
-says the hinge carries nothing.
+wall under 2.2 mm (measured above the teardrop's point, which reaches (r + clearance) × √2
+above the axis, so a 3.2 mm pin needs a 9.8 mm knuckle), a leaf under 2.5 mm or a knuckle
+under 4 mm unless `decorative=True` says the hinge carries nothing.
 
 ## Colour and function seams: split into parts
 

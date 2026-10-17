@@ -59,7 +59,7 @@ mouth at z = 0 going down, overshooting the face by 0.1 mm). Defaults follow `de
 | `snap_hook(length, thickness, width, undercut, entry_angle, retention_angle, material)` | Cantilever hook lying flat (flexes in Y); raises when the strain exceeds the material limit |
 | `snap_window(...)` | Cutter for the matching window in the mating wall (snug clearance) |
 | `snap_fit_check(L, t, y, material, repeated)` | Strain, limit, `ok`, maximum deflection |
-| `hinge(length, knuckle_d, pin_d, leaf_w, leaf_t, knuckles, clearance, decorative)` | Print-in-place hinge: `{"leaf_a", "leaf_b"}`, two bodies that never touch (validate with `--shells 2`). Defaults and refusals follow design.md's mechanism minimums (pin 3.2, pin wall 2.2, leaf 2.5, knuckle 4 mm); `decorative=True` only for a hinge that carries nothing |
+| `hinge(length, knuckle_d, pin_d, leaf_w, leaf_t, knuckles, clearance, decorative)` | Print-in-place hinge: `{"leaf_a", "leaf_b"}`, two bodies that never touch (validate with `--shells 2`). Defaults and refusals follow design.md's mechanism minimums (pin 3.2, pin wall 2.2 above the teardrop's point, leaf 2.5, knuckle 4 mm); `decorative=True` only for a hinge that carries nothing |
 | `text(string, height, depth, font, align)` | Text solid (cap height in mm) to union (emboss) or subtract (engrave); needs matplotlib, or fontTools plus a font file |
 | `thread(d, pitch, length, internal, clearance)` | Approximate ISO thread: a rod, or with `internal=True` a cutter for a nut |
 | `clean(part)` | Welds the slivers hulls, Minkowski sums and some booleans leave (M3) |
