@@ -159,10 +159,7 @@ def normalize(key: str, value, n_filaments: int = 1) -> str:
         raise JobError(f"'{key}' is not on the per-object allowlist")
     kind, a, b = ALLOWED[key]
     if kind == "filament":
-        try:
-            num = int(value)
-        except (TypeError, ValueError):
-            raise JobError(f"{key}: expected a filament slot number, got {value!r}")
+        num = _slot(key, value)
         if num != 0 and not 1 <= num <= n_filaments:
             raise JobError(f"{key}: filament {num} is not 0 (default) or one of the template's 1..{n_filaments}")
         return str(num)
@@ -202,6 +199,19 @@ def has_values(template_cfg: dict) -> bool:
     """True for a project saved by Bambu Studio (full settings); False for a names-only
     template from bambu_template.py, whose values come from the installed presets."""
     return "layer_height" in template_cfg
+
+
+def _slot(what: str, value) -> int:
+    """A filament slot number: a whole number, never a truncated 2.7."""
+    if isinstance(value, bool):
+        raise JobError(f"{what}: expected a filament slot number, got {value!r}")
+    try:
+        num = float(value)
+    except (TypeError, ValueError):
+        raise JobError(f"{what}: expected a filament slot number, got {value!r}")
+    if not math.isfinite(num) or num != int(num):
+        raise JobError(f"{what}: expected a whole filament slot number, got {value!r}")
+    return int(num)
 
 
 def filament_count(template_cfg: dict) -> int:
@@ -423,12 +433,16 @@ def read_parts(job: dict, cfg: dict) -> list:
         verts, faces = indexed(tris)
         hint = hints.get(name) or {}
         filament = raw.get("filament", hint.get("filament"))
+        if filament is not None:
+            filament = _slot(f"part '{name}' filament", filament)
         obj = str(raw.get("object") or hint.get("object") or name).strip()
         plate = raw.get("plate")
-        if plate is not None and int(plate) < 1:
-            raise JobError(f"part '{name}': plate numbers start at 1")
+        if plate is not None:
+            plate = _slot(f"part '{name}' plate", plate)
+            if plate < 1:
+                raise JobError(f"part '{name}': plate numbers start at 1")
         parts.append({"name": name, "object": obj, "verts": verts, "faces": faces,
-                      "filament": None if filament is None else int(filament), "plate": None if plate is None else int(plate),
+                      "filament": filament, "plate": plate,
                       "settings": raw.get("settings") or {}, "reasons": raw.get("reasons") or {}})
     for p in parts:
         if p["filament"] is not None and not 1 <= p["filament"] <= n_filaments:
@@ -594,7 +608,11 @@ def build(job: dict) -> dict:
             fc = len(p["faces"])
             pm = [f'      <metadata key="name" value={quoteattr(p["name"])}/>',
                   f'      <metadata key="matrix" value="{_matrix16(p["offset"])}"/>']
-            if len(o["parts"]) > 1:
+            # A part without its own "extruder" follows the object's (GUI_ObjectList.cpp shows the
+            # object's filament for it, and setting the object's filament erases the parts' own), so
+            # only a part with a different filament gets one: recolouring the object then recolours
+            # the parts that were not given their own colour.
+            if p["filament"] != o["filament"]:
                 pm.append(f'      <metadata key="extruder" value="{p["filament"]}"/>')
             part_xml.append(
                 f'    <part id="{p["sub_id"]}" subtype="normal_part">\n' + "\n".join(pm) + "\n"

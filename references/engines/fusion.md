@@ -19,9 +19,9 @@ Paste the file above your `run()` or exec it from a file (below). It gives you:
 
 | Call | Does |
 |---|---|
-| `B = Builder(design)`; `B.clear()` | Deletes the timeline, last entity first: every run rebuilds from scratch |
+| `B = Builder(design)`; `B.clear()` | Deletes the timeline, last entity first (a direct-modelling document has none: its bodies and sketches are deleted instead): every run rebuilds from scratch |
 | `P = B.params({"w": 60, "wall": 2})` | One **user parameter** per `params.json` key (`p_w`, `p_wall`, in mm), created or updated; returns the names |
-| `B.sketch(name)`, `B.rect(sk, x0, y0, w, d, w_expr=P["w"])`, `B.circle(sk, cx, cy, r, d_expr=...)`, `B.rounded_rect(sk, ...)`, `B.polygon(sk, pts)` | Sketches on the XY plane in mm with **real circles and arcs**; `*_expr` adds a sketch dimension driven by a parameter |
+| `B.sketch(name)`, `B.rect(sk, x0, y0, w, d, w_expr=P["w"])`, `B.circle(sk, cx, cy, r, d_expr=...)`, `B.rounded_rect(sk, ...)`, `B.polygon(sk, pts)` | Sketches on the XY plane in mm with **real circles and arcs** (the rounded rectangle is a rectangle with `addFillet` corners, one connected profile); `*_expr` adds a sketch dimension driven by a parameter |
 | `B.extrude(sk, z0, z1, name, operation="new"\|"join"\|"cut"\|"intersect", target=...)` | Every closed profile from `z0` to `z1`, numbers or **expressions** (`P["h"] + " - p_floor"`), so the feature follows the parameters |
 | `B.revolve(sk, axis_line, name)` | Full revolve of the first profile about a sketch line |
 | `B.frame(origin, x_axis, y_axis)`, `B.move(bodies, matrix)` | Right-handed frame (z = x × y, perpendicularity checked) and a free move |
@@ -54,7 +54,8 @@ Fusion API reference, and note it here.
   the traceback: without it the tool returns nothing useful.
 - **Units.** The API works in centimetres. The Builder converts (`cm()`, `mm()`); outside it,
   pass lengths as strings with units (`createByString("40 mm")`) or convert explicitly, and
-  remember that everything read back (`boundingBox`, `volume`) is in cm and cm³.
+  remember that everything read back (`boundingBox`, `volume`) is in cm and cm³. A literal in
+  an expression needs its unit too (`P["h"] + " + 1 mm"`): a bare `1` takes the document's units.
 - **Parameters must drive features.** Creating user parameters and then building with
   `createByReal(number)` leaves the parameters decorative (the field test did exactly this).
   Use the names in expressions: extents, offsets, sketch dimensions.

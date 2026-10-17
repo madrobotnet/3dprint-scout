@@ -220,7 +220,7 @@ class GroupedObjects(Base):
         self.assertEqual([p.get("subtype") for p in parts], ["normal_part"] * 3)
         pm = [{m.get("key"): m.get("value") for m in p.findall("metadata")} for p in parts]
         self.assertEqual([m["name"] for m in pm], ["lid", "label", "latch"])
-        self.assertEqual([m["extruder"] for m in pm], ["1", "2", "1"])
+        self.assertEqual([m.get("extruder") for m in pm], [None, "2", None])     # only a part with its own colour
         self.assertEqual(len(pm[0]["matrix"].split()), 16)
         self.assertEqual(int(o.find("metadata[@face_count]").get("face_count")), 36)
         self.assertEqual([p.get("id") for p in parts], [c.get("objectid") for c in comps])
@@ -239,6 +239,13 @@ class GroupedObjects(Base):
         os.remove(self.out)
         with self.assertRaisesRegex(bambu3mf.JobError, "settings go on the first part"):
             bambu3mf.build(self.job(self.parts(settings={"wall_loops": 2})))
+        for bad in (2.7, "two", True):
+            with self.assertRaisesRegex(bambu3mf.JobError, "filament slot", msg=bad):
+                bambu3mf.build(self.job(self.parts(filament=bad)))
+        with open(prm, "w") as f:
+            json.dump({"_parts": {"label": {"object": "lid", "filament": "x"}}}, f)
+        with self.assertRaisesRegex(bambu3mf.JobError, "filament slot"):
+            bambu3mf.build(self.job(parts, params=prm))
 
     def test_nozzle_areas_narrow_the_layout_only_when_needed(self):
         """X2D: tool 1 reaches x >= 20.5 only. A multi-part object or a second filament lays out
@@ -289,7 +296,7 @@ class Settings(Base):
         self.assertIn('<metadata key="support_interface_filament" value="2"/>', self.read()["Metadata/model_settings.config"].decode())
         os.remove(self.out)
         for key, value in (("support_interface_filament", 9), ("support_filament", -1), ("support_top_z_distance", 5),
-                           ("support_interface_filament", "PLA")):
+                           ("support_interface_filament", "PLA"), ("support_filament", 2.7)):
             with self.assertRaises(bambu3mf.JobError, msg=key):
                 bambu3mf.build(self.job([{"name": "box", "stl": self.box, "settings": {key: value}}]))
 

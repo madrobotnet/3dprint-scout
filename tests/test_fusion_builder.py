@@ -145,9 +145,29 @@ def fake_adsk():
         def item(self, i):
             return self.items[i]
 
-    root = types.SimpleNamespace(bRepBodies=Bodies(), xYConstructionPlane="XY")
+    class Entity:
+        def __init__(self, log):
+            self.isValid, self.log = True, log
+
+        def deleteMe(self):
+            self.isValid = False
+            self.log.append(self)
+
+    class Deletable(list):
+        """A collection whose items can deleteMe (bodies, sketches of a direct document)."""
+        @property
+        def count(self):
+            return len(self)
+
+        def item(self, i):
+            return self[i]
+
+    root = types.SimpleNamespace(bRepBodies=Bodies(), xYConstructionPlane="XY", sketches=Deletable())
     root.features = types.SimpleNamespace(combineFeatures=Combine(root))
-    design = types.SimpleNamespace(rootComponent=root, userParameters=Params(), timeline=Timeline(), exportManager=Export())
+    design = types.SimpleNamespace(rootComponent=root, userParameters=Params(), timeline=Timeline(), exportManager=Export(),
+                                   designType="parametric")
+    fusion.DesignTypes = types.SimpleNamespace(ParametricDesignType="parametric", DirectDesignType="direct")
+    fusion._Entity, fusion._Deletable = Entity, Deletable
     fusion.FeatureOperations = types.SimpleNamespace(NewBodyFeatureOperation="new", JoinFeatureOperation="join",
                                                      CutFeatureOperation="cut", IntersectFeatureOperation="intersect")
     fusion.MeshRefinementSettings = types.SimpleNamespace(MeshRefinementHigh="high", MeshRefinementMedium="medium",
@@ -251,6 +271,33 @@ class WithFakeFusion(unittest.TestCase):
         self.fusion._design.rootComponent.features.combineFeatures.add = lambda inp: None   # Fusion did nothing
         with self.assertRaisesRegex(ValueError, "still there"):
             self.B.cut(body, [ghost])
+
+    def test_clear_handles_parametric_and_direct_documents(self):
+        log = []
+        tl = self.design.timeline
+        tl.items = [types.SimpleNamespace(entity=self.fusion._Entity(log)) for _ in range(3)]
+        tl.items[1].entity.isValid = False                              # already gone: skipped
+        self.B.clear()
+        self.assertEqual(len(log), 2)
+        self.design.designType = "direct"                              # no timeline to walk: delete bodies and sketches
+        body = self.body("b", [0, 0, 0], [1, 1, 1])
+        body.deleteMe = lambda: self.design.rootComponent.bRepBodies.remove(body)
+        sk = types.SimpleNamespace(deleteMe=lambda: self.design.rootComponent.sketches.clear())
+        self.design.rootComponent.sketches.append(sk)
+        self.B.clear()
+        self.assertEqual(self.B.bodies(), {})
+        self.assertEqual(len(self.design.rootComponent.sketches), 0)
+
+    def test_line_through_picks_the_side_by_geometry(self):
+        def line(a, b):
+            return types.SimpleNamespace(startSketchPoint=types.SimpleNamespace(geometry=types.SimpleNamespace(x=a[0], y=a[1])),
+                                         endSketchPoint=types.SimpleNamespace(geometry=types.SimpleNamespace(x=b[0], y=b[1])))
+        lines = [line((0, 0), (6, 0)), line((6, 0), (6, 4)), line((6, 4), (0, 4)), line((0, 4), (0, 0))]   # cm: 60 x 40 mm
+        self.assertIs(self.B._line_through(lines, (30, 0)), lines[0])
+        self.assertIs(self.B._line_through(lines, (60, 20)), lines[1])
+        self.assertIs(self.B._line_through(lines, (0, 39)), lines[3])
+        with self.assertRaises(ValueError):
+            self.B._line_through(lines, (30, 20))
 
     def test_export_writes_one_stl_per_body_and_a_summary(self):
         self.body("body", [0, 0, 0], [60, 40, 3])

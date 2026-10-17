@@ -24,7 +24,7 @@ parameter in Fusion's Change Parameters dialog rebuilds the model.
         body = B.extrude(sk, 0, P["h"], "body")     # z0, z1: mm numbers or expressions
         sk2 = B.sketch("pocket")
         B.rect(sk2, 2, 2, PARAMS["w"] - 4, PARAMS["d"] - 4)
-        B.extrude(sk2, P["wall"], P["h"] + " + 1", "pocket", operation="cut", target=body)
+        B.extrude(sk2, P["wall"], P["h"] + " + 1 mm", "pocket", operation="cut", target=body)   # units on every literal
         print(B.export(r"C:\\path\\to\\out", ["body"]))  # one STL per body, JSON summary
 
 Derived from the Builder that ran in the 2026-10-17 field test (X2D exhaust adapter); this
@@ -132,12 +132,18 @@ class Builder:
 
     # ----- housekeeping ---------------------------------------------------- #
     def clear(self):
-        """Delete every timeline entity, last first, so each run rebuilds from scratch."""
-        tl = self.design.timeline
-        for i in range(tl.count - 1, -1, -1):
-            ent = tl.item(i).entity
-            if ent is not None and ent.isValid:
-                ent.deleteMe()
+        """Delete every timeline entity, last first, so each run rebuilds from scratch. A direct
+        modelling document has no timeline: then the root's bodies and sketches are deleted."""
+        tl = getattr(self.design, "timeline", None)
+        if tl is not None and self.design.designType == adsk.fusion.DesignTypes.ParametricDesignType:
+            for i in range(tl.count - 1, -1, -1):
+                ent = tl.item(i).entity
+                if ent is not None and ent.isValid:
+                    ent.deleteMe()
+            return
+        for coll in (self.root.bRepBodies, self.root.sketches):
+            for i in range(coll.count - 1, -1, -1):
+                coll.item(i).deleteMe()
 
     def params(self, values):
         """Create or update one user parameter per entry (mm). Returns {key: parameter name}:
@@ -218,21 +224,33 @@ class Builder:
         return c
 
     def rounded_rect(self, sk, x0, y0, w, d, r):
-        """Rectangle with four real quarter-circle corners of radius r."""
+        """Rectangle with four real quarter-circle corners of radius r: a two-point rectangle
+        whose corners are filleted with sketchArcs.addFillet, which trims the lines and joins the
+        arcs to them (one connected profile, unlike separate arcs drawn next to the lines)."""
         if r <= 0 or 2 * r > min(w, d):
             raise ValueError(f"corner radius {r} does not fit a {w} x {d} rectangle")
-        lines, arcs = sk.sketchCurves.sketchLines, sk.sketchCurves.sketchArcs
+        lines = sk.sketchCurves.sketchLines.addTwoPointRectangle(self._pt(x0, y0), self._pt(x0 + w, y0 + d))
+        items = [lines.item(i) for i in range(lines.count)]
+        arcs = sk.sketchCurves.sketchArcs
         x1, y1 = x0 + w, y0 + d
-        # Edges, counter-clockwise, then an arc at every corner from the end of one edge to the start of the next.
-        edges = [lines.addByTwoPoints(self._pt(x0 + r, y0), self._pt(x1 - r, y0)),
-                 lines.addByTwoPoints(self._pt(x1, y0 + r), self._pt(x1, y1 - r)),
-                 lines.addByTwoPoints(self._pt(x1 - r, y1), self._pt(x0 + r, y1)),
-                 lines.addByTwoPoints(self._pt(x0, y1 - r), self._pt(x0, y0 + r))]
-        centres = [(x1 - r, y0 + r), (x1 - r, y1 - r), (x0 + r, y1 - r), (x0 + r, y0 + r)]
-        for i, (ccx, ccy) in enumerate(centres):
-            start = edges[i].endSketchPoint
-            arcs.addByCenterStartSweep(self._pt(ccx, ccy), start, math.pi / 2)
-        return edges
+        eps = min(r, w, d) / 4                                      # a point on each line near the corner
+        for cx, cy, sx, sy in ((x0, y0, 1, 1), (x1, y0, -1, 1), (x1, y1, -1, -1), (x0, y1, 1, -1)):
+            horizontal = self._line_through(items, (cx + sx * eps, cy))
+            vertical = self._line_through(items, (cx, cy + sy * eps))
+            arcs.addFillet(horizontal, self._pt(cx + sx * eps, cy), vertical, self._pt(cx, cy + sy * eps), cm(r))
+        return items
+
+    @staticmethod
+    def _line_through(lines, point, tol=1e-6):
+        """The sketch line (cm geometry) that passes through a (x, y) mm point."""
+        px, py = cm(point[0]), cm(point[1])
+        for ln in lines:
+            a, b = ln.startSketchPoint.geometry, ln.endSketchPoint.geometry
+            cross = (b.x - a.x) * (py - a.y) - (b.y - a.y) * (px - a.x)
+            within = min(a.x, b.x) - tol <= px <= max(a.x, b.x) + tol and min(a.y, b.y) - tol <= py <= max(a.y, b.y) + tol
+            if abs(cross) < tol and within:
+                return ln
+        raise ValueError(f"no sketch line through {point}")
 
     # ----- features -------------------------------------------------------- #
     def _profiles(self, sk):

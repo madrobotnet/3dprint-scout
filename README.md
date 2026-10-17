@@ -134,12 +134,13 @@ the X2D and H2D, objects that need both nozzles are placed where both can reach.
 **v0.3.0 (unreleased; latest release v0.2.1).** Adds parts grouped into objects with their own
 checks and grouped 3MF writers, a Fusion Builder skeleton, a measuring tool for supplied files, a
 rotation sweep in the fit check, and the process fixes from a field test on 2026-10-17 (a
-tool-free exhaust adapter designed in Fusion, printed on an X2D). v0.2.1 and v0.1.0 were tested
+tool-free exhaust adapter designed in Fusion, printed on an X2D). v0.1.0 and v0.2.0 were tested
 end to end on a Bambu Lab X2D with Bambu Studio 02.08.02.61, with OpenSCAD 2021.01 and manifold3d
 3.5.4; generated templates were also checked against the A1 mini, A1, P1S, X1C, H2D and H2C
-profiles. Not yet tested in the app: a Bambu object with several parts, the support interface
-settings, the v0.2.1 six-filament template fix, the cleaned Fusion Builder, and OrcaSlicer.
-Planned: a printer-profile importer, bridge and minimum-feature checks. FDM only; no resin.
+profiles. Not yet opened in the app: the v0.2.1 six-filament template fix, the v0.3 Bambu
+projects with several parts in one object and the support interface settings; not yet run in
+Fusion: the cleaned Builder; not yet tested at all: OrcaSlicer. Planned: a printer-profile
+importer, bridge and minimum-feature checks. FDM only; no resin.
 
 ## Development
 

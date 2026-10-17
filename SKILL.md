@@ -113,7 +113,9 @@ search; previews via OpenSCAD."
    Offer "show 4 more" as well.
 
 References give ideas and dimensions only, read from the page and its images. Do not download
-model files or reverse-engineer meshes. If the license is NC or ND and the result will look close to
+model files or reverse-engineer meshes. The one exception is a file the **user** supplies (a
+manufacturer's kit, a model they downloaded): measure its interface dimensions with `measure.py`
+(Phase 2), never copy its geometry. If the license is NC or ND and the result will look close to
 the reference, tell the user. When a page does not show its license in what you can read, write
 "not shown" in the table; never guess one.
 
@@ -418,8 +420,9 @@ internal error. A failed artifact has `artifact_sane: false` and `artifact_error
 ## Unattended runs
 
 When nobody is there to answer, take the default at each stop (reference choice C, the first
-concept variant, purpose general), record every assumption in `_assumptions` in `params.json`, and
-repeat them at the top of the deliverable. If the printer and slicer are unknown, deliver STL per part plus a core 3MF, mark D2
+concept variant, purpose general; at the Phase 3 stop, go on with the base shape as built and put
+its preview, sizes and verdicts at the top of the next message), record every assumption and every
+stop taken alone in `_assumptions` in `params.json`, and repeat them at the top of the deliverable. If the printer and slicer are unknown, deliver STL per part plus a core 3MF, mark D2
 UNVERIFIED, and say at the top that the printer was not confirmed. Two exceptions: if a dimension
 the part must fit cannot be sourced, stop rather than guess; and never overwrite an existing file.
 

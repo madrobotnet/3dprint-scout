@@ -139,7 +139,10 @@ file written this way in Bambu Studio 02.08.02.61 is still to be confirmed:
 - `Metadata/model_settings.config`: `<object id=wrapper>` with `name`, `extruder` (the main
   filament), the object-level settings and `face_count` (sum over parts), then one
   `<part id=sub subtype="normal_part">` per part with `name`, `matrix` (4 × 4, row-major,
-  the same translation), `extruder` when the object has several parts, and `mesh_stat`.
+  the same translation), `extruder` only when the part's filament differs from the object's,
+  and `mesh_stat`. A part without its own `extruder` follows the object (`GUI_ObjectList.cpp`
+  shows it the object's filament and erases the parts' own when the object's is changed), so
+  recolouring the object recolours every part that was not given a colour of its own.
 - On load (`_generate_volumes_new`) a part's mesh is centred again and its transform
   becomes component transform × centring, so positions survive; `matrix` only becomes the
   part's source transform.
