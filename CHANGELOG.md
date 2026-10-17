@@ -80,7 +80,7 @@ housing to a 100 mm duct, designed in Fusion through MCP, fit-tested and printed
   print-in-place slider latch, grouped into one object; its README shows the object checks, the
   fit check and the expected P2 warning for the latch's bridged underside.
 - Tests: assembly, grouped writers, nozzle areas, the new allowlist keys, measure.py, the sweep,
-  the Fusion Builder against an API stand-in, and the new example (177 tests).
+  the Fusion Builder against an API stand-in, and the new example (183 tests).
 
 Not yet tested in the app: a Bambu object with several parts, the support interface keys, the
 v0.2.1 six-filament template fix, whether the slicing preview shows no inner wall between two
