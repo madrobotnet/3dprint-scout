@@ -41,6 +41,7 @@ import re
 import sys
 import xml.etree.ElementTree as ET
 import zipfile
+from xml.sax.saxutils import unescape
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -106,15 +107,16 @@ def _bambu_names(z):
         xml = z.read("Metadata/model_settings.config").decode("utf-8", "replace")
     except KeyError:
         return names
+    ents = {"&quot;": '"', "&apos;": "'"}
     for m in re.finditer(r'<part id="(\d+)"[^>]*>(.*?)</part>', xml, re.S):
         nm = re.search(r'key="name" value="([^"]*)"', m.group(2))
         if nm:
-            names[m.group(1)] = nm.group(1)
+            names[m.group(1)] = unescape(nm.group(1), ents)
     for m in re.finditer(r'<object id="(\d+)"[^>]*>(.*?)</object>', xml, re.S):
         own = m.group(2).split("<part", 1)[0]                  # the object's own metadata comes first
         nm = re.search(r'key="name" value="([^"]*)"', own)
         if nm:
-            names[m.group(1)] = nm.group(1)
+            names[m.group(1)] = unescape(nm.group(1), ents)
     return names
 
 
@@ -130,22 +132,23 @@ def load_3mf(path):
             main = ET.fromstring(z.read("3D/3dmodel.model"))
         except KeyError:
             raise MeasureError(f"{path} has no 3D/3dmodel.model")
-        scale = UNIT_MM.get(main.get("unit", "millimeter"), 1.0)
         bambu = _bambu_names(z)
-        cache = {}
+        cache, scales = {}, {}
 
         def objects_of(entry):
             if entry not in cache:
                 root = main if entry == "3D/3dmodel.model" else ET.fromstring(z.read(entry))
                 cache[entry] = {o.get("id"): o for o in root.iter(CORE_NS + "object")}
+                scales[entry] = UNIT_MM.get(root.get("unit", "millimeter"), 1.0)   # each model file has its own unit
             return cache[entry]
 
-        def mesh_of(el):
+        def mesh_of(el, entry):
             m = el.find(CORE_NS + "mesh")
             if m is None:
                 return None
             vs = m.find(CORE_NS + "vertices")
             ts = m.find(CORE_NS + "triangles")
+            scale = scales[entry]
             V = np.array([[float(v.get("x")), float(v.get("y")), float(v.get("z"))] for v in vs], dtype=np.float64) * scale
             F = np.array([[int(t.get("v1")), int(t.get("v2")), int(t.get("v3"))] for t in ts], dtype=np.int64)
             return V, F
@@ -164,7 +167,7 @@ def load_3mf(path):
                     sub_entry = (c.get(PROD_NS + "path") or "").lstrip("/") or entry
                     Mc = M @ _matrix(c.get("transform"))
                     out += resolve(sub_entry, c.get("objectid"), Mc, depth + 1)
-            mesh = mesh_of(el)
+            mesh = mesh_of(el, entry)
             if mesh is not None:
                 V, F = mesh
                 out.append((bambu.get(oid) or el.get("name") or f"object_{oid}", _apply(M, V), F))
@@ -289,7 +292,9 @@ def parse_levels(text):
 
 
 def plane_loops(V, F, axis, level):
-    """Closed loops (lists of 2D points on the two other axes) where the mesh crosses axis = level."""
+    """Loops where the mesh crosses axis = level: [(points, closed)], points as 2D (u, w) on
+    the two other axes, one point per welded vertex. `closed` is False for an open chain (a
+    mesh with a hole in its surface, or a non-manifold junction)."""
     np = _np()
     a = "xyz".index(axis)
     u, w = [i for i in range(3) if i != a]
@@ -299,7 +304,8 @@ def plane_loops(V, F, axis, level):
     d = np.where(np.abs(d) < 1e-9, 1e-9, d)
     sgn = d > 0
     cross = sgn.any(axis=1) & (~sgn).any(axis=1)
-    segs = []
+    key = lambda p: (round(p[0] / WELD), round(p[1] / WELD))      # noqa: E731
+    point, adj, seen = {}, {}, set()
     for t in np.nonzero(cross)[0]:
         pts = []
         for i in range(3):
@@ -308,33 +314,41 @@ def plane_loops(V, F, axis, level):
                 s = d[t, i] / (d[t, i] - d[t, j])
                 p = T[t, i] + s * (T[t, j] - T[t, i])
                 pts.append((float(p[u]), float(p[w])))
-        if len(pts) == 2:
-            segs.append(pts)
-    if not segs:
-        return []
-    key = lambda p: (round(p[0] / WELD), round(p[1] / WELD))      # noqa: E731
-    adj = {}
-    for p, q in segs:
-        adj.setdefault(key(p), []).append((key(q), p, q))
-        adj.setdefault(key(q), []).append((key(p), q, p))
+        if len(pts) != 2:
+            continue
+        kp, kq = key(pts[0]), key(pts[1])
+        if kp == kq or (kp, kq) in seen or (kq, kp) in seen:   # zero-length, or the same edge twice
+            continue
+        seen.add((kp, kq))
+        point.setdefault(kp, pts[0])
+        point.setdefault(kq, pts[1])
+        adj.setdefault(kp, []).append(kq)
+        adj.setdefault(kq, []).append(kp)
     used, loops = set(), []
     for start in adj:
         if start in used:
             continue
-        loop, cur, prev = [], start, None
+        loop, cur, prev, closed = [], start, None, False
         while True:
             used.add(cur)
-            nxt = [(k, p, q) for k, p, q in adj[cur] if k != prev and k not in used]
-            if not nxt:
+            loop.append(point[cur])
+            nxt = None
+            for k in adj[cur]:
+                if k == prev:
+                    continue
+                if k == start and len(loop) >= 3:
+                    closed = True
+                    break
+                if k not in used:
+                    nxt = k
+                    break
+            if closed or nxt is None:
                 break
-            k, p, q = nxt[0]
-            loop.append(p)
-            prev, cur = cur, k
-            if cur == start:
-                loop.append(q)
-                break
+            prev, cur = cur, nxt
         if len(loop) >= 3:
-            loops.append(loop)
+            loops.append((loop, closed))
+        elif len(loop) == 2 and not closed:
+            loops.append((loop, False))
     return loops
 
 
@@ -397,22 +411,25 @@ def cmd_slice(args):
            "shift_mm": shift, **box_info(V), "levels": []}
     for level in parse_levels(args.z):
         loops = []
-        for pts in plane_loops(V, F, axis, level):
+        for pts, closed in plane_loops(V, F, axis, level):
             xs, ys = [p[0] for p in pts], [p[1] for p in pts]
             bounds = [min(xs), min(ys), max(xs), max(ys)]
-            area = polygon_area(pts)
-            entry = {"points": len(pts), "bounds": [round(b, 3) for b in bounds],
+            area = polygon_area(pts) if closed else 0.0
+            entry = {"points": len(pts), "closed": closed, "bounds": [round(b, 3) for b in bounds],
                      "size": [round(bounds[2] - bounds[0], 3), round(bounds[3] - bounds[1], 3)],
-                     "area_mm2": round(abs(area), 2),
+                     "area_mm2": round(abs(area), 2) if closed else None,
                      "centroid": [round(sum(xs) / len(xs), 3), round(sum(ys) / len(ys), 3)]}
+            if not closed:
+                out.setdefault("warnings", []).append(f"level {level}: an open chain of {len(pts)} points (the mesh is not "
+                                                      "closed there, or surfaces cross); bounds only")
             fit = circle_fit(pts)
             if fit:
                 entry["circle_fit"] = fit
-                entry["is_circle"] = fit["rms_mm"] < 0.01 * fit["radius_mm"]
-            if not entry.get("is_circle") and len(pts) >= 4:
+                entry["is_circle"] = len(pts) >= 8 and fit["rms_mm"] < 0.01 * fit["radius_mm"]   # 4 corners also lie on a circle
+            if closed and not entry.get("is_circle") and len(pts) >= 4:
                 entry["corner_radii_mm"] = corner_radii(pts, bounds)
             loops.append(entry)
-        loops.sort(key=lambda e: -e["area_mm2"])
+        loops.sort(key=lambda e: -(e["area_mm2"] or 0.0))
         out["levels"].append({"level": level, "loops": loops[: args.max_loops]})
     return out
 
@@ -501,7 +518,34 @@ def cmd_raymap(args):
 # --------------------------------------------------------------------------- #
 # CLI
 # --------------------------------------------------------------------------- #
+NEGATIVE_OK = ("--z", "--u", "--v")      # options whose value may start with a minus sign
+
+
+def join_negative_values(argv, options=NEGATIVE_OK):
+    """argparse reads `--u -30:-12:1` as two options; turn it into `--u=-30:-12:1` so the documented
+    form works. Only a value that looks like numbers, colons and commas is joined."""
+    out, i = [], 0
+    while i < len(argv):
+        tok = argv[i]
+        if tok in options and i + 1 < len(argv) and re.fullmatch(r"-[0-9.,:+-]*", argv[i + 1]):
+            out.append(f"{tok}={argv[i + 1]}")
+            i += 2
+        else:
+            out.append(tok)
+            i += 1
+    return out
+
+
+def utf8_stdout():
+    """Windows consoles and pipes may not be UTF-8; names in a 3MF may be. Best effort."""
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+    except (AttributeError, ValueError, OSError):
+        pass
+
+
 def main(argv=None):
+    utf8_stdout()
     out = {"schema": SCHEMA, "ran": False, "warnings": [], "errors": []}
     try:
         ap = _JsonArgParser(description="measure interface dimensions in an STL or 3MF (numbers only, never geometry)")
@@ -525,7 +569,7 @@ def main(argv=None):
         p_ray.add_argument("--max-depth", type=float, default=6.0, help="deeper hits count as 'through' (mm)")
         p_ray.add_argument("--object")
         p_ray.add_argument("--center", action="store_true")
-        args = ap.parse_args(sys.argv[1:] if argv is None else argv)
+        args = ap.parse_args(join_negative_values(sys.argv[1:] if argv is None else argv))
         if args.cmd is None:
             raise MeasureError("usage error: choose a subcommand: info, slice, raymap")
         out.update({"info": cmd_info, "slice": cmd_slice, "raymap": cmd_raymap}[args.cmd](args))

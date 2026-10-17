@@ -26,9 +26,10 @@ python3 "$SKILL_DIR/scripts/measure.py" raymap ref_mesh/obj_15_housing.stl --axi
   and names, units converted to mm) and lists every placed object with its parts; with
   manifold3d it adds volume and watertightness. `--extract` writes one STL per object so
   the other commands and `preview.py` can work on it.
-- `slice` gives the closed loops at each level: bounds, size, area, centroid, a circle fit
-  (`is_circle` when the rms residual is under 1 % of the radius) and the four corner radii
-  of a rounded outline. Slice a range (`--z 0:70:2`) to find where a profile changes
+- `slice` gives the loops at each level: bounds, size, area, centroid, a circle fit
+  (`is_circle` when at least eight points fit within 1 % of the radius) and the four corner
+  radii of a rounded outline. `closed: false` marks an open chain (a hole in the surface, or
+  crossing surfaces); it gets bounds only and a warning, never a made-up area. Slice a range (`--z 0:70:2`) to find where a profile changes
   (a lip, a step, the start of a chamfer), then single levels for the numbers. `--center`
   puts the XY centre of the box at the origin, which is how mating parts are dimensioned.
   `--axis x` or `y` slices across.
