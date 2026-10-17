@@ -13,20 +13,26 @@ Studio, that is a project file with the print settings already set per object.
 
 1. **References** — four existing models from Printables, Thingiverse, MakerWorld and others, with
    their licenses. You pick: **A** reference one, **B** mix ideas, **C** original, **D** use as is.
-2. **Printer and slicer** — asked in plain words ("Which printer do you have, and which program do
+2. **Concepts** — for B and C, two or three quick low-detail variants with preview images, so you
+   choose the direction before the detailed work starts.
+3. **Printer and slicer** — asked in plain words ("Which printer do you have, and which program do
    you open print files in? It's fine if you don't know the program."). Sensible defaults when you don't know.
-3. **Dimensions** — a table of every dimension with its source (your caliper, an official spec,
+4. **Dimensions** — a table of every dimension with its source (your caliper, an official spec,
    or two secondary sources that agree). Nothing is invented. For parts that must fit an object of
-   uncertain shape, it offers a small fit-test piece first.
-4. **Modeling** — the engine is chosen by the shape: Fusion (through MCP), then OpenSCAD, for
+   uncertain shape, it makes small fit-test pieces first (three clearance steps, marked 1, 2, 3).
+5. **Modeling** — the engine is chosen by the shape: Fusion (through MCP), then OpenSCAD, for
    mechanical parts; Python ([manifold3d](https://github.com/elalish/manifold)) for organic shapes,
-   and as the fallback.
-5. **Verification** — every part is checked: size, bed fit, watertight mesh, overhangs, wall
-   thickness, fresh evidence (the STL must match the current source and parameters).
-6. **Delivery** — STL per part plus a 3MF that fits your slicer, with print-setting changes and the
+   and as the fallback. The Python engine comes with a tested part library (rounded and chamfered
+   boxes, screw and insert holes, teardrop holes, bosses, snap hooks, a print-in-place hinge, text,
+   threads) and a signed-distance-function toolkit for smooth, blended, organic shapes.
+6. **Verification** — every part is checked: size, bed fit, watertight mesh, overhangs, wall
+   thickness, fresh evidence (the STL must match the current source and parameters). Mating parts
+   are checked against each other: overlap, play, gap and contact area. Every part gets a preview
+   image (iso, front, right, top) rendered without a display.
+7. **Delivery** — STL per part plus a 3MF that fits your slicer, with print-setting changes and the
    reason for each.
 
-The agent stops for your choice after references and after the dimension table.
+The agent stops for your choice after references, after the concepts, and after the dimension table.
 
 ## Install
 
@@ -61,11 +67,14 @@ PCB"*, *"X2D 프린터 문 손잡이를 만들고 싶어"*.
 
 ## Requirements
 
-- Python 3.9 or newer (tested on 3.9 and 3.13). The scripts use the standard library only, except where noted.
+- Python 3.9 or newer (tested on 3.9 and 3.13). The validator and the 3MF writers use the standard
+  library only.
 - One modeling engine: **Fusion** with an MCP connection, **OpenSCAD** (2021.01 or a newer build
   with the Manifold backend), or `pip install manifold3d`.
-- Optional: `numpy` and `rtree` for the wall-thickness check (skipped and reported as unverified
-  without them).
+- `numpy` for preview images and the contact-area part of the fit check; `manifold3d` for the fit
+  check, the fit-test pieces, the part library and the SDF toolkit; `rtree` (with numpy) for the
+  wall-thickness check. Text on parts needs `matplotlib`, or `fonttools` plus a font file. Each
+  is optional: what is missing is reported as unverified or as a clear error, never faked.
 
 ## Bambu Studio
 
@@ -91,15 +100,17 @@ allowlist with range checks. Keys that can run programs or rewrite G-code are ne
 | `.3dprint/params.json` | Every dimension, with assumptions taken when you weren't asked |
 | `.3dprint/printers.json` | Your printer: bed, nozzles, slicer, template (no serials, access codes or IPs) |
 | `.3dprint/templates/` | Bambu Studio template. A saved one holds your account ID: keep it private |
-| `out/` | Working folder, rewritten on every build: STLs, build manifests, a core 3MF |
+| `out/` | Working folder, rewritten on every build: STLs, build manifests, a core 3MF, preview images, fit-test pieces |
 | a new delivery folder | Final files. Existing files are never overwritten |
 
 ## Status
 
-**v0.1.0.** Tested end to end on a Bambu Lab X2D with Bambu Studio 02.08.02.61, with OpenSCAD
-2021.01 and manifold3d 3.5.4. Generated templates were also checked against the A1 mini, A1, P1S,
-X1C, H2D and H2C profiles. Not yet tested in the app: OrcaSlicer. Planned: a preview script, a
-printer-profile importer, bridge and minimum-feature checks. FDM only; no resin.
+**v0.2.0 (unreleased).** Adds the design reference with sourced numbers, the part library, the
+SDF toolkit for organic shapes, fit-test pieces, the fit check between mating parts, the preview
+renderer and the concept step. v0.1.0 was tested end to end on a Bambu Lab X2D with Bambu Studio
+02.08.02.61, with OpenSCAD 2021.01 and manifold3d 3.5.4; generated templates were also checked
+against the A1 mini, A1, P1S, X1C, H2D and H2C profiles. Not yet tested in the app: OrcaSlicer.
+Planned: a printer-profile importer, bridge and minimum-feature checks. FDM only; no resin.
 
 ## Development
 

@@ -287,6 +287,9 @@ def _pyrun(source, params_file, out_dir, parts_csv):
     import manifold3d as m3d
     src_dir = os.path.dirname(source)
     sys.path.insert(0, src_dir)
+    # The skill's own libraries (parts.py, sdf.py) are importable by name from any generator.
+    # The generator's folder comes first, so a local module of the same name wins.
+    sys.path.append(HERE)
     with open(params_file, encoding="utf-8") as f:
         params = json.load(f)
     spec = importlib.util.spec_from_file_location("_generator", source)
@@ -312,9 +315,16 @@ def _pyrun(source, params_file, out_dir, parts_csv):
         mesh = man.to_mesh()
         write_binary_stl(stl, mesh.vert_properties[:, :3].tolist(), mesh.tri_verts.tolist())
         out.append({"name": name, "stl": stl, "seconds": round(time.time() - t0, 2)})
+    # Freshness (R3): every .py the generator imported from its own folder, plus any library it
+    # imported from the skill's scripts folder (parts.py, sdf.py), is hashed into the manifest.
+    # build.py's own imports (validate, threemf) were loaded before the generator and are not
+    # part of what the generator depends on.
+    norm = lambda p: os.path.normcase(os.path.abspath(p))     # noqa: E731 - Windows paths differ in case
+    own = {norm(os.path.join(HERE, n)) for n in ("build.py", "validate.py", "threemf.py")}
+    roots = (norm(src_dir) + os.sep, norm(HERE) + os.sep)
     deps = sorted({os.path.abspath(m.__file__) for m in list(sys.modules.values())
-                   if getattr(m, "__file__", None) and os.path.abspath(m.__file__).startswith(os.path.abspath(src_dir) + os.sep)
-                   and m.__file__.endswith(".py")})
+                   if getattr(m, "__file__", None) and m.__file__.endswith(".py")
+                   and norm(m.__file__).startswith(roots) and norm(m.__file__) not in own})
     print("@@3DPS " + json.dumps({"parts": out, "deps": deps, "version": getattr(m3d, "__version__", "unknown")}))
 
 
