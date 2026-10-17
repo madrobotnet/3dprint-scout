@@ -1,0 +1,36 @@
+{
+  "_assumptions": [
+    "example: eight AA cells (4 x 2), reference choice C (original), purpose general",
+    "printer: Bambu Lab X2D, tool 0; hole compensation left to the slicer, so pockets carry fit clearance only"
+  ],
+  "_parts": {
+    "box": {
+      "expect": [
+        71.2,
+        37.8,
+        33.6
+      ]
+    },
+    "lid": {
+      "expect": [
+        71.2,
+        37.8,
+        26.6
+      ]
+    }
+  },
+  "cell_d": 14.5,
+  "cell_h": 50.5,
+  "pocket_clear": 0.3,
+  "cols": 4,
+  "rows": 2,
+  "rib": 1.6,
+  "wall": 3.0,
+  "floor_t": 1.6,
+  "pocket_depth": 32,
+  "lip_h": 6,
+  "lip_inset": 1.6,
+  "slide": 0.2,
+  "lid_top": 1.6,
+  "headroom": 0.5
+}

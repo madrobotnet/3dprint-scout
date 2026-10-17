@@ -1,0 +1,137 @@
+{
+  "schema": "3dprint-scout.fit/1",
+  "ran": true,
+  "gate": "PASS",
+  "parts": {
+    "a": {
+      "path": "out/box.stl",
+      "triangles": 3836,
+      "volume_mm3": 42575.496,
+      "bbox_mm": [
+        71.2,
+        37.8,
+        33.6
+      ],
+      "bbox_min_mm": [
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    "b": {
+      "path": "out/lid.stl",
+      "triangles": 28,
+      "volume_mm3": 11740.163,
+      "bbox_mm": [
+        71.2,
+        37.8,
+        26.6
+      ],
+      "bbox_min_mm": [
+        0.0,
+        0.0,
+        27.6
+      ]
+    }
+  },
+  "placement": {
+    "a": {
+      "rotate_deg": [
+        0.0,
+        0.0,
+        0.0
+      ],
+      "translate_mm": [
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    "b": {
+      "rotate_deg": [
+        180.0,
+        0.0,
+        0.0
+      ],
+      "translate_mm": [
+        0.0,
+        37.8,
+        54.2
+      ]
+    },
+    "note": "rotation about the part's own origin, X then Y then Z, then the translation"
+  },
+  "checks": {
+    "F3": {
+      "state": "PASS",
+      "kind": "hard",
+      "value": {
+        "interference_mm3": 0.0,
+        "min_gap_mm": 0.0,
+        "min_play_mm": 0.1999,
+        "contact_area_mm2": 300.313
+      },
+      "note": "no overlap; first contact after 0.000 mm; play along 4 directions: 0.200, 0.200, 0.200, 0.200 mm"
+    }
+  },
+  "metrics": {
+    "interference_mm3": 0.0,
+    "min_gap_mm": 0.0,
+    "min_gap_method": "exact between the two meshes (manifold3d min_gap); 0 when they touch or overlap",
+    "search_mm": 5.0,
+    "contact_tol_mm": 0.02,
+    "max_interference_mm3": 0.001,
+    "min_clearance_mm": 0.2,
+    "play": [
+      {
+        "direction": [
+          1.0,
+          0.0,
+          0.0
+        ],
+        "play_mm": 0.1999,
+        "contact": true
+      },
+      {
+        "direction": [
+          -1.0,
+          0.0,
+          0.0
+        ],
+        "play_mm": 0.1999,
+        "contact": true
+      },
+      {
+        "direction": [
+          0.0,
+          1.0,
+          0.0
+        ],
+        "play_mm": 0.1999,
+        "contact": true
+      },
+      {
+        "direction": [
+          0.0,
+          -1.0,
+          0.0
+        ],
+        "play_mm": 0.1999,
+        "contact": true
+      }
+    ],
+    "play_method": "B moved along each direction until the boolean overlap exceeds 0.001 mm3, bisection to 0.001 mm; a direction without contact within 5.0 mm reports that length with contact false",
+    "contact_area_mm2": 300.313,
+    "contact_area_from_a_mm2": 299.759,
+    "contact_area_from_b_mm2": 300.868,
+    "samples_per_part": 20000,
+    "samples_within_cutoff": [
+      1414,
+      2215
+    ],
+    "sampled_min_gap_mm": 0.0,
+    "contact_method": "20000 random surface points per part, within 0.02 mm of the other part, area-weighted; relative error about 1/sqrt(points in contact)"
+  },
+  "warnings": [],
+  "errors": []
+}

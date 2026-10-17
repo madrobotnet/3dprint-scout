@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+- `examples/`: four parts built with the skill's scripts: an AA battery box (OpenSCAD), a snap-fit
+  box (`parts.py`), a leaf door handle (`sdf.py`) and fit-test rings (`fit_test.py`). Each has its
+  source, parameters, preview images, fit-check results where parts mate, and the commands that
+  rebuild it. `examples/place.py` moves a copy of an STL for side-by-side or assembled previews.
+- `tests/test_examples.py` runs every example's README commands in CI and checks the results the
+  READMEs state.
+- README: an examples gallery; the status line no longer calls v0.2.0 unreleased.
+
 ## 0.2.0 — 2026-10-17
 
 - `references/design.md`: design for FDM printing with sources for every number — bed-edge

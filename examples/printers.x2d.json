@@ -1,0 +1,85 @@
+{
+  "schema": "3dprint.printers/1",
+  "default": "x2d",
+  "printers": {
+    "x2d": {
+      "vendor": "Bambu Lab",
+      "model": "X2D",
+      "process": "fdm",
+      "slicer": {
+        "name": "bambu-studio"
+      },
+      "bed": {
+        "area": [
+          [
+            0,
+            0
+          ],
+          [
+            256,
+            0
+          ],
+          [
+            256,
+            256
+          ],
+          [
+            0,
+            256
+          ]
+        ],
+        "height": 261,
+        "exclude": [],
+        "source": "slicer-profile"
+      },
+      "tools": [
+        {
+          "area": [
+            [
+              0,
+              0
+            ],
+            [
+              256,
+              0
+            ],
+            [
+              256,
+              256
+            ],
+            [
+              0,
+              256
+            ]
+          ],
+          "height": 261
+        },
+        {
+          "area": [
+            [
+              20.5,
+              0
+            ],
+            [
+              256,
+              0
+            ],
+            [
+              256,
+              256
+            ],
+            [
+              20.5,
+              256
+            ]
+          ],
+          "height": 256
+        }
+      ],
+      "compensation": {
+        "holes": "slicer",
+        "elephant_foot": "slicer"
+      }
+    }
+  }
+}
