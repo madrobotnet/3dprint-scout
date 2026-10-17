@@ -39,11 +39,13 @@
 <a href="examples/snap-box/"><img src="examples/snap-box/thumb.png" width="200" alt="snap-fit box, part library"></a>
 <a href="examples/leaf-handle/"><img src="examples/leaf-handle/thumb.png" width="200" alt="leaf door handle, SDF"></a>
 <a href="examples/fit-test/"><img src="examples/fit-test/thumb.png" width="200" alt="fit-test rings"></a>
+<a href="examples/latch-box/"><img src="examples/latch-box/thumb.png" width="200" alt="latch box, colour part and print-in-place latch"></a>
 </p>
 
 AA 건전지 상자(OpenSCAD), 스냅핏 상자(부품 라이브러리), 나뭇잎 문 손잡이(SDF 도구), 끼워보기
-링을 스킬의 스크립트로 만들었어요. 예제마다 소스, 매개변수, 검사 결과, 다시 빌드하는 명령이 들어
-있어요. [examples/](examples/)를 보세요.
+링, 그리고 색을 따로 줄 수 있는 라벨 부품과 한 번에 출력하는 걸쇠가 달린 걸쇠 상자를 스킬의
+스크립트로 만들었어요. 예제마다 소스, 매개변수, 검사 결과, 다시 빌드하는 명령이 들어 있어요.
+[examples/](examples/)를 보세요.
 
 ## 설치
 

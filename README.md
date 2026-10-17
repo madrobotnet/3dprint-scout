@@ -41,11 +41,13 @@ The agent stops for your choice after references, after the concepts, and after 
 <a href="examples/snap-box/"><img src="examples/snap-box/thumb.png" width="200" alt="snap-fit box, part library"></a>
 <a href="examples/leaf-handle/"><img src="examples/leaf-handle/thumb.png" width="200" alt="leaf door handle, SDF"></a>
 <a href="examples/fit-test/"><img src="examples/fit-test/thumb.png" width="200" alt="fit-test rings"></a>
+<a href="examples/latch-box/"><img src="examples/latch-box/thumb.png" width="200" alt="latch box, colour part and print-in-place latch"></a>
 </p>
 
-An AA battery box (OpenSCAD), a snap-fit box (part library), a leaf door handle (SDF toolkit) and
-fit-test rings, built with the skill's scripts. Each comes with its source, parameters, check
-results and the commands that rebuild it: see [examples/](examples/).
+An AA battery box (OpenSCAD), a snap-fit box (part library), a leaf door handle (SDF toolkit),
+fit-test rings and a latch box with a separate colour part and a print-in-place latch, built with
+the skill's scripts. Each comes with its source, parameters, check results and the commands that
+rebuild it: see [examples/](examples/).
 
 ## Install
 

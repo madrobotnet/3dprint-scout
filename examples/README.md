@@ -1,6 +1,6 @@
 # Examples
 
-Four parts built with the skill's own scripts, one per engine or tool. Each folder has the
+Five parts built with the skill's own scripts, one per engine or tool. Each folder has the
 source, its parameters and a preview, and rebuilds with the commands in its README. Sizes are
 example values, not measured against your objects.
 
@@ -10,6 +10,7 @@ example values, not measured against your objects.
 | <img src="snap-box/thumb.png" width="240"> | [snap-box](snap-box/) | Python, `parts.py` | Rounded box, bed-edge chamfer, insert bosses, snap hooks with a strain check, `fit.py` |
 | <img src="leaf-handle/thumb.png" width="240"> | [leaf-handle](leaf-handle/) | Python, `sdf.py` | An organic shape: a leaf dome and a round grip blended into one watertight part |
 | <img src="fit-test/thumb.png" width="240"> | [fit-test](fit-test/) | `fit_test.py` | Three test rings in clearance steps, marked 1, 2, 3, to print before the real part |
+| <img src="latch-box/thumb.png" width="240"> | [latch-box](latch-box/) | Python, `parts.py`, object checks | A lid with a separate label part (colour) and a captive print-in-place latch: parts grouped into one object, A1/A2 checks, grouped 3MF |
 
 ## Running them
 
