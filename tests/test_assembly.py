@@ -115,6 +115,34 @@ class ObjectChecks(unittest.TestCase):
         self.assertEqual(rep["parts"]["inlay"]["checks"]["A1"]["state"], "FAIL")
         self.assertGreater(rep["parts"]["inlay"]["checks"]["A1"]["value"]["pairs"][0]["overlap_mm3"], 30)
 
+    def test_main_part_with_only_free_partners(self):
+        """A body with its print-in-place latch, or a hinge's two leaves: the main part has no
+        fused partner, so A1 is N/A, not a failure; and a 0.298 mm gap from tessellation is
+        not a WARN against 0.3."""
+        import parts
+        from build import write_binary_stl
+        h = parts.hinge()
+        stls = {}
+        for name, man in h.items():
+            p = os.path.join(self.d, name + ".stl")
+            mesh = man.to_mesh()
+            write_binary_stl(p, mesh.vert_properties[:, :3].tolist(), mesh.tri_verts.tolist())
+            stls[name] = p
+        specs = {"leaf_a": {"object": "hinge"}, "leaf_b": {"object": "hinge", "role": "free"}}
+        rep = assembly.check_object(assembly.group_parts(specs)[0], stls, specs)
+        self.assertEqual(rep["parts"]["leaf_a"]["checks"]["A1"]["state"], "N/A")
+        self.assertIn("free", rep["parts"]["leaf_a"]["checks"]["A1"]["note"])
+        a2 = rep["parts"]["leaf_b"]["checks"]["A2"]
+        self.assertEqual(a2["state"], "PASS", a2)
+        self.assertGreaterEqual(a2["value"]["pairs"][0]["gap_mm"], 0.29)
+        self.assertEqual(assembly.object_gate(rep), "INCOMPLETE")                      # only D2 is open: no bed given
+        # A fused label that touches only the free latch is still floating.
+        stls["tag"] = os.path.join(self.d, "tag.stl"); write_stl(stls["tag"], box(5, 5, 1, 0, 0, 30))
+        specs["tag"] = {"object": "hinge", "role": "fused"}
+        rep = assembly.check_object(assembly.group_parts(specs)[0], stls, specs)
+        self.assertEqual(rep["parts"]["tag"]["checks"]["A1"]["state"], "FAIL")
+        self.assertEqual(rep["parts"]["leaf_a"]["checks"]["A1"]["state"], "FAIL")      # now it has a fused partner it does not touch
+
     def test_shared_faces_are_not_overhangs(self):
         """A label on the lid's top: alone, its underside is 100 % overhang; as part of the
         object the shared face vanishes and P2 passes."""
@@ -250,12 +278,34 @@ class BuildIntegration(unittest.TestCase):
         self.assertEqual(code, 0, out.get("errors"))
         self.assertEqual([p["name"] for p in out["parts"]], ["latch", "keeper"])
         self.assertEqual(sorted(f for f in os.listdir(os.path.join(self.d, "mech")) if f.endswith(".stl")), ["keeper.stl", "latch.stl"])
-        buf = io.StringIO()
-        with redirect_stdout(buf):
-            code = build.main(["run", src, "--params", prm, "--out", os.path.join(self.d, "mech2"), "--only", "latch,hinge"])
-        out = json.loads(buf.getvalue())
+        self.assertEqual(out["objects"][0]["parts"], ["latch", "keeper"])              # a partial object: both free, checked
+        self.assertNotEqual(out["gate"], "FAIL", out["warnings"])
+
+        def run_only(only, folder):
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                code = build.main(["run", src, "--params", prm, "--out", os.path.join(self.d, folder), "--only", only, "--no-wall-check"])
+            return code, json.loads(buf.getvalue())
+        code, out = run_only("latch,hinge", "m2")
         self.assertEqual(code, 1)
+        self.assertIn("--only", out["errors"][0])
         self.assertIn("hinge", out["errors"][0])
+        code, out = run_only(",", "m3")
+        self.assertEqual(code, 1)
+        self.assertIn("--only names no part", out["errors"][0])
+        code, out = run_only("keeper,body", "m4")                                       # _parts order wins: body is the main part
+        self.assertEqual([p["name"] for p in out["parts"]], ["body", "keeper"])
+        self.assertEqual(out["objects"][0]["main"], "body")
+        parts = {p["name"]: p for p in out["parts"]}
+        self.assertEqual(parts["body"]["assembly"]["checks"]["A1"]["state"], "N/A")      # main + free: nothing to share faces with
+        self.assertEqual(parts["keeper"]["assembly"]["checks"]["A2"]["state"], "PASS")
+        self.assertNotEqual(out["gate"], "FAIL", out["warnings"])                        # INCOMPLETE: no expect, no printer
+        code, out = run_only("latch", "m5")                                             # a free part alone: no object, a note
+        self.assertEqual(code, 0, out["errors"])
+        self.assertEqual(out["errors"], [])
+        self.assertIsNone(out["parts"][0]["role"])
+        self.assertTrue(any("built alone with --only" in w for w in out["warnings"]))
+        self.assertNotEqual(out["gate"], "FAIL")
 
     def test_help_describes_the_output(self):
         for argv in (["--help"], ["record", "--help"], ["run", "--help"]):

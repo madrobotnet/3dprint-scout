@@ -25,8 +25,9 @@ Schema (params.json, metadata keys never reach the engine):
 Checks (IDs continue the SKILL.md table):
   per object (only when it has several parts): D2, P1, P2 on the union of its parts, so
     a fused part that floats or overhangs on its own is judged as part of the whole;
-  per part: A1 (fused: shares faces with another part, no overlap; hard) and A2 (free:
-    FAIL on contact or overlap, WARN below the clearance, like fit.py's F3; hard).
+  per part: A1 (fused: shares faces with another fused part, no overlap; hard; N/A when its
+    only partners are free parts) and A2 (free: FAIL on contact or overlap, WARN below the
+    clearance less a 0.01 mm / 2 % tessellation slack, like fit.py's F3; hard).
 
 The union and the gap measurements need manifold3d; without it the object's D2 and P1
 come from the concatenated triangles and P2, A1 and A2 stay UNVERIFIED. Nothing is faked.
@@ -219,11 +220,18 @@ def check_object(obj: dict, stls: dict, specs: dict, bed=None, bed_source=None, 
                           "shared_area_mm2": round(shared, 2), "allowed_overlap_mm3": round(allowed, 4),
                           "overlaps": overlap > allowed, "touches": overlap <= allowed and (overlap > 0 or gap <= TOUCH_EPS)})
         overlapping = [p for p in pairs if p["overlaps"]]
-        touching = [p for p in pairs if p["touches"]]
+        fused_partners = [p for p in pairs if part_role(specs.get(p["part"]) or {}) == "fused"]
+        touching = [p for p in fused_partners if p["touches"]]      # a fused part shares faces with fused parts
         nearest = min(pairs, key=lambda p: p["gap_mm"]) if pairs else None
         value = {"pairs": pairs}
         if role == "fused":
-            if overlapping:
+            if not fused_partners and not overlapping:
+                # Only print-in-place partners (a body with its latch, a hinge's other leaf): nothing
+                # to share faces with, and nothing wrong with that.
+                entry["checks"]["A1"] = validate.chk("N/A", "hard", value,
+                                                     "no other fused part in this object; its partners are free "
+                                                     "(print-in-place) parts, so there is nothing to share faces with")
+            elif overlapping:
                 who = ", ".join(f"{p['part']} ({p['overlap_mm3']} mm3)" for p in overlapping)
                 entry["checks"]["A1"] = validate.chk(
                     "FAIL", "hard", value, f"overlaps {who}, more than a {SKIN} mm skin over the shared area: a fused "
@@ -246,8 +254,9 @@ def check_object(obj: dict, stls: dict, specs: dict, bed=None, bed_source=None, 
                 entry["checks"]["A2"] = validate.chk(
                     "FAIL", "hard", value, f"touches or overlaps {who}: a print-in-place part would fuse to it; "
                     f"keep {clearance} mm all round", "phase4")
-            elif nearest and nearest["gap_mm"] < clearance - 1e-6:
-                # Like fit.py's F3: a hard check that WARNs when the clearance is short.
+            elif nearest and nearest["gap_mm"] < clearance - max(TOUCH_EPS, 0.02 * clearance):
+                # Like fit.py's F3: a hard check that WARNs when the clearance is short. The slack
+                # (0.01 mm or 2 %) is what tessellation of a round part takes off the gap.
                 entry["checks"]["A2"] = validate.chk(
                     "WARN", "hard", value, f"only {nearest['gap_mm']} mm to {nearest['part']}, below the "
                     f"{clearance} mm this joint needs (tolerances.md): it may fuse on a less tuned printer")

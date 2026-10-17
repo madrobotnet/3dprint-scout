@@ -69,17 +69,23 @@ P1/P2, not the part's.
 ## Printing the mechanism first
 
 When `strength.py` gives a short margin, or there is no proven reference to compare with,
-print only the risky member and the minimum of its mating part before the full part:
+print the risky member and the part it mates with before the full part:
 
 ```bash
 python3 "$SKILL_DIR/scripts/build.py" run model.py --params .3dprint/params.json --out out/mech --only latch,keeper
 ```
 
-`--only` builds the named `_parts` and nothing else (into its own `--out`, so the full
-build's manifests stay fresh); the object checks run on what was built, so include the part
-the member touches or slides in. For a Bambu project, list only those parts in the
-`bambu3mf.py` job. A few grams, printed with the final filament and preset; the user tries
-it and reports back (offer to record the result, `calibration.md`).
+`--only` builds the named `_parts` whole, in `_parts` order, and nothing else (into its own
+`--out`, so the full build's manifests stay fresh). An empty list or an unknown name is an
+error. The object checks run on what was built: a part whose object partners were left out
+is built alone, with a warning, and its A1 / A2 and the object's D2 are skipped; a main part
+whose only remaining partners are free parts gets A1 `N/A` (nothing to share faces with).
+For a Bambu project, list the same parts in the `bambu3mf.py` job.
+
+Whole parts can still be big. For "the minimum of the mating part" (the knuckles without
+the lid, a slot without the box) add a coupon part to `_parts`, or keep a separate params
+file with the coupon's sizes, and build that. A few grams, printed with the final filament
+and preset; the user tries it and reports back (offer to record the result, `calibration.md`).
 
 ## `build.py` output
 

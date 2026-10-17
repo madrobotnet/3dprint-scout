@@ -561,12 +561,25 @@ def cmd_run(args) -> dict:
             raise ValueError("cannot infer engine from file extension; pass --engine")
     stem = os.path.splitext(os.path.basename(source))[0]
     specs = part_specs(params, stem)
-    if args.only:
+    only_notes = []
+    if args.only is not None:
         wanted = [n.strip() for n in args.only.split(",") if n.strip()]
+        if not wanted:
+            raise ValueError("--only names no part; give a comma list of _parts names")
         unknown = [n for n in wanted if n not in specs]
         if unknown:
-            raise ValueError(f"--only names parts that are not in _parts: {unknown} (known: {sorted(specs)})")
-        specs = {n: specs[n] for n in wanted}
+            raise ValueError(f"--only names parts that are not in _parts: {unknown} (known: {list(specs)})")
+        full = specs
+        specs = {n: dict(spec or {}) for n, spec in full.items() if n in wanted}      # _parts order, not --only order
+        def object_of(m):
+            return (full.get(m) or {}).get("object") or m
+        for n, spec in specs.items():
+            obj = spec.get("object")
+            if obj and not any(m != n and object_of(m) == obj for m in specs):
+                spec.pop("object", None)
+                spec.pop("role", None)
+                only_notes.append(f"{n}: built alone with --only, the other parts of object '{obj}' were not; "
+                                  "object checks (A1 / A2, D2 of the whole) skipped")
     os.makedirs(args.out, exist_ok=True)
     out = {"schema": SCHEMA, "ran": True, "engine": engine, "source": source, "gate": None,
            "warnings": [], "errors": []}
@@ -584,6 +597,7 @@ def cmd_run(args) -> dict:
     out["engine_info"] = info
     args.source_main = source
     out = finish(out, parts, sources, params, args.params, specs, args, engine)
+    out["warnings"] += only_notes
     out["seconds"] = round(time.time() - t0, 2)
     return out
 
