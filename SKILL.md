@@ -175,11 +175,19 @@ the first variant and record it in `_assumptions`.
    - With several saved printers, ask which one in a single line.
 2. **Purpose** — decorative, general, or load-bearing. Default: general.
 3. **Real-world dimensions** for anything the part must fit (ports, PCBs, screws, a device it wraps).
-   Priority: the user's caliper measurement > the official spec > secondary sources, and secondary
-   sources need two that agree. Record the source as a comment next to the parameter. A file the
-   user supplies (a manufacturer's kit 3MF, a reference model) is measured with `measure.py`
-   (`references/measure.md`): interface numbers only, never its geometry (licences); an official
-   file counts as "official file, measured", another maker's model as a secondary source.
+   Priority: the user's caliper measurement or their own calibration log > the official spec >
+   secondary sources (two that agree) > the starting points in `references/`. Record the source
+   as a comment next to the parameter. Read `.3dprint/calibration.json` first when it exists
+   (`calibration.py lookup`, `references/calibration.md`): a clearance that fit on this printer
+   beats every table. A file the user supplies (a manufacturer's kit 3MF, a reference model) is
+   measured with `measure.py` (`references/measure.md`): interface numbers only, never its
+   geometry (licences); an official file counts as "official file, measured", another maker's
+   model as a secondary source.
+   **Members that carry load** (pins, knuckles, links, levers, hooks, brackets, handles): when a
+   proven reference's file is at hand (supplied by the user, or their own earlier project that
+   works), measure its corresponding members with `measure.py` and put them in the table next to
+   ours as a "reference member" note. The field-test latch would have shown up as six times
+   thinner than the official buckle beside it.
 4. **Compensation lives in one place.** If the slicer is Bambu Studio or OrcaSlicer with circle
    compensation on, model holes at nominal size and record `compensation.holes = "slicer"`.
    Otherwise add the radial compensation from `references/tolerances.md` in the model.
@@ -209,7 +217,8 @@ Write one generator script:
   colours: split, give every part the main filament, say so at delivery (`references/parts.md`).
 - **Members that carry load** (pins, knuckles, levers, links, hooks, latch bars) are sized by
   `references/design.md`, "Mechanisms that carry load", not by P3's 1.2 mm, which is only what
-  prints: list each with its section in the dimension table (P7).
+  prints: list each with its section in the dimension table (P7), beside the reference member
+  when one was measured, and run `strength.py` on it (Phase 4).
 
 - Design to the recommended values in `references/tolerances.md`, not to the minimums: a wall
   planned at exactly 1.2 mm can fail its own check through floating-point rounding.
@@ -272,7 +281,23 @@ python3 "$SKILL_DIR/scripts/fit.py" out/box.stl out/lid.stl --b-rotate 180,0,0 \
 ```
 
 Every pin, knuckle, lever and latch bar is checked against the mechanism minimums (P7) before
-the fit, not after the print. `fit.py` places part B as assembled (rotation about its origin, then translation), then measures
+the fit, not after the print, and gets a hand calculation:
+
+```bash
+python3 "$SKILL_DIR/scripts/strength.py" pin --d 3.2 --engagement 10 --shear double --load finger_push \
+  --material pla_basic --orientation xy
+```
+
+(`pin`, `beam`, `link`, `bearing`; loads from a cited hand-force table or `--load N`, materials
+from Bambu Lab data sheets, `--orientation xy|z` for the layer direction, `--sf` 2 by default;
+`references/materials.md`.) Record the load in `_assumptions`. FAIL → redesign; WARN, or no
+proven reference to compare with → **print the mechanism first**: `build.py run --only
+latch,keeper --out out/mech` builds just the member and the bit of its mating part it needs,
+a few grams, and the user tries it before the full part (the same idea as the fit test; a
+Bambu job lists only those parts). The calculation is a sizing aid: it flagged the failed
+field latch's arms, not its pins, so the minimums and the test print decide.
+
+`fit.py` places part B as assembled (rotation about its origin, then translation), then measures
 the overlap volume, how far B can move sideways before it touches A (`play`, the real clearance of
 a seated part), the smallest gap and the contact area, and prints a verdict in the validate.py
 style: FAIL on overlap, WARN when the play is below `--min-clearance` or the parts bind, PASS
@@ -352,7 +377,9 @@ overwrite an existing path: if it exists, ask and stop (the scripts refuse as we
    named colours, they are already applied; never ask about colours.
 5. Sources of the references used in Phase 1.
 6. Verdicts, repeated at every delivery, also after a fix: FAIL, WARN and UNVERIFIED items, every
-   dimension that is still unverified, and `_assumptions` in full. If all hard checks pass, say so
+   dimension that is still unverified, and `_assumptions` in full. When the user later reports
+   a print result (a ring that fit, a latch that held or broke), offer **once** to record it
+   with `calibration.py add` in `.3dprint/calibration.json`; never write it without their yes. If all hard checks pass, say so
    in one line. When a fit test was offered and skipped, update `_assumptions` first ("latch
    window clearance 0.3 mm: not confirmed by a fit test") so that the delivery says what is
    unconfirmed, never that a test confirmed it.
@@ -378,7 +405,7 @@ overwrite an existing path: if it exists, ask and stop (the scripts refuse as we
 | P4 | Unsupported bridges | soft | not in v1 (UNVERIFIED) | user |
 | P5 | Minimum feature size | soft | not in v1 (UNVERIFIED) | user |
 | P6 | No fillet on edges that touch the bed (chamfer, or sharp with slicer elephant-foot compensation) | soft | you, from the preview.py image | user |
-| P7 | Load-carrying mechanism members meet the minimums in `design.md` (pin ≥ 3.2, pin wall ≥ 2.2, member ≥ 2.5 mm) | soft | you, from the dimension table | user |
+| P7 | Load-carrying mechanism members meet the minimums in `design.md` (pin ≥ 3.2, pin wall ≥ 2.2, member ≥ 2.5 mm), are compared with a proven reference when one is at hand, and reach the safety factor in `strength.py` | soft | you, from the dimension table and strength.py | user: redesign, or print the member first |
 | F1 | Hole compensation applied in exactly one place | hard | you | Phase 4 |
 | F2 | Each fit has the clearance for its kind | hard | you | Phase 4 |
 | F3 | Every joint checked from both sides: no overlap, the play of the fit kind | hard | fit.py | Phase 4 |
@@ -439,6 +466,8 @@ the part must fit cannot be sourced, stop rather than guess; and never overwrite
 | `scripts/build.py` | `detect` (Phase 0), `run` (OpenSCAD / Python), `record` (parts built in Fusion); groups parts into objects |
 | `scripts/assembly.py` | Parts grouped into objects: D2 / P1 / P2 of the whole, A1 / A2 per part (used by build.py) |
 | `scripts/measure.py` | Measure a supplied STL / 3MF: objects and parts, slices with circle and corner fits, ray depth maps of a wall |
+| `scripts/strength.py` | Hand calculations for pins, beams, links and pin walls from Bambu Lab data-sheet values and a cited hand-force table |
+| `scripts/calibration.py` | The user's own print results per printer and material in `.3dprint/calibration.json`: `add`, `show`, `lookup` |
 | `scripts/preview.py` | Iso / front / right / top PNG of one or more STLs, numpy only, with the G4 image check |
 | `scripts/fit.py` | F3: overlap, play, gap and contact between two placed STLs, verdict JSON; `--sweep-*` for a rotating part |
 | `scripts/fit_test.py` | Fit-test pieces of a mating profile in clearance steps, marked 1/2/3 |
@@ -450,6 +479,8 @@ the part must fit cannot be sourced, stop rather than guess; and never overwrite
 | `references/engines/fusion.md`, `openscad.md`, `python.md` | Engine-specific rules and pitfalls; `fusion_builder.py` is the Builder to paste into Fusion scripts |
 | `references/parts.md` | `_parts` schema (object, role), the object checks, build.py's JSON, how Bambu Studio treats touching parts |
 | `references/measure.md` | Measuring a supplied file (numbers only) and building a proxy of the mating part |
+| `references/materials.md` | Data-sheet values and hand forces behind `strength.py`, with sources and what the model does not see |
+| `references/calibration.md` | The calibration log: when to read it, when to ask before writing, the schema |
 | `references/design.md` | Design for FDM: chamfers, overhangs, walls, orientation, snap fits, screws and inserts, part seams, print-in-place, text, with sources |
 | `references/tolerances.md` | Fits and clearances, each marked radial or diameter |
 | `references/bambu-process.md` | Templates (generated or saved), where settings live, allowed keys, tuning rules |

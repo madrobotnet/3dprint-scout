@@ -148,9 +148,14 @@ not a standard):
 | Material per latch | ~640 mm³ | ~3 820 mm³ (about 6×) |
 
 The agent checks every load-carrying member against these numbers in the dimension table
-(checklist P7), the same way it checks walls against P3. `parts.hinge()` refuses a pin wall
-under 2.2 mm, a leaf under 2.5 mm or a knuckle under 4 mm unless `decorative=True` says the
-hinge carries nothing.
+(checklist P7), the same way it checks walls against P3, in three steps: compare with the
+corresponding member of a proven reference when its file is at hand (SKILL.md, Phase 2);
+run `strength.py` on it with a cited load and the data-sheet values (`materials.md`); and
+when the margin is short or there is no reference, print the mechanism alone first
+(`parts.md`, "Printing the mechanism first"). The user's own results go into the
+calibration log (`calibration.md`) and beat every table here. `parts.hinge()` refuses a pin
+wall under 2.2 mm, a leaf under 2.5 mm or a knuckle under 4 mm unless `decorative=True`
+says the hinge carries nothing.
 
 ## Colour and function seams: split into parts
 

@@ -32,6 +32,9 @@ A missing printers.json is a warning (D2 stays UNVERIFIED), not a failure.
 
 `--out` (default out/) is the build's working folder: every run rewrites its STLs,
 manifests and <source>.3mf. Deliverables are copied elsewhere as new files (SKILL.md).
+`run --only latch,keeper` builds only those parts: a few-gram test print of a mechanism
+before the whole part (SKILL.md, Phase 4). Use a separate --out so the full build's
+artifacts stay fresh.
 
 Output (one JSON document, schema 3dprint-scout.build/1; references/parts.md has the
 full description):
@@ -558,6 +561,12 @@ def cmd_run(args) -> dict:
             raise ValueError("cannot infer engine from file extension; pass --engine")
     stem = os.path.splitext(os.path.basename(source))[0]
     specs = part_specs(params, stem)
+    if args.only:
+        wanted = [n.strip() for n in args.only.split(",") if n.strip()]
+        unknown = [n for n in wanted if n not in specs]
+        if unknown:
+            raise ValueError(f"--only names parts that are not in _parts: {unknown} (known: {sorted(specs)})")
+        specs = {n: specs[n] for n in wanted}
     os.makedirs(args.out, exist_ok=True)
     out = {"schema": SCHEMA, "ran": True, "engine": engine, "source": source, "gate": None,
            "warnings": [], "errors": []}
@@ -642,6 +651,8 @@ def main(argv=None):
     r.add_argument("source", help="generator: model.scad or model.py")
     r.add_argument("--engine", default="auto", choices=["auto", "openscad", "python"])
     r.add_argument("--timeout", type=int, default=900, help="seconds per generator run (default 900)")
+    r.add_argument("--only", help="build only these _parts (comma list), e.g. the mechanism and the bit of its mating "
+                                  "part it needs, for a test print before the full part")
     _common(r)
     rec = sub.add_parser("record", help="record STLs built elsewhere (Fusion): manifests, core 3MF, validation",
                          epilog=("Each STL is one part named after its file (out/lid.stl -> part 'lid'); with\n"

@@ -67,7 +67,9 @@ mouth at z = 0 going down, overshooting the face by 0.1 mm). Defaults follow `de
 
 Every function's docstring names its defaults and sources. Letters of `text()` are separate
 bodies until they sit on a face; `thread()` is a twisted extrusion with flat crest and root, no
-tolerance class, and the agent says so when delivering.
+tolerance class, and the agent says so when delivering. Members that carry load get the
+`strength.py` check and, when the margin is short, a test print of the mechanism alone
+(`build.py run --only ...`, `references/parts.md`).
 
 ## Organic and freeform shapes: `sdf.py`
 

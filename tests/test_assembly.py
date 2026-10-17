@@ -230,6 +230,33 @@ class BuildIntegration(unittest.TestCase):
         self.assertFalse(d1.get("copied_expect"))
         self.assertFalse(any("copied" in w for w in out["warnings"]))
 
+    @unittest.skipUnless(HAS_M3D, "manifold3d not installed")
+    def test_only_builds_a_subset(self):
+        """A test print of the mechanism alone: --only builds the named parts and nothing else."""
+        src = os.path.join(self.d, "gen.py")
+        with open(src, "w") as f:
+            f.write("import manifold3d as m3d\n"
+                    "def build(p):\n"
+                    "    return {'body': m3d.Manifold.cube([40, 30, 10]), 'latch': m3d.Manifold.cube([10, 4, 3]).translate([0, 0, 10]),\n"
+                    "            'keeper': m3d.Manifold.cube([12, 6, 5]).translate([0, 0, 13.3])}\n")
+        prm = os.path.join(self.d, "params.json")
+        with open(prm, "w") as f:
+            json.dump({"_parts": {"body": {}, "latch": {"object": "body", "role": "free"}, "keeper": {"object": "body", "role": "free"}}}, f)
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            code = build.main(["run", src, "--params", prm, "--out", os.path.join(self.d, "mech"), "--only", "latch,keeper",
+                               "--no-wall-check"])
+        out = json.loads(buf.getvalue())
+        self.assertEqual(code, 0, out.get("errors"))
+        self.assertEqual([p["name"] for p in out["parts"]], ["latch", "keeper"])
+        self.assertEqual(sorted(f for f in os.listdir(os.path.join(self.d, "mech")) if f.endswith(".stl")), ["keeper.stl", "latch.stl"])
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            code = build.main(["run", src, "--params", prm, "--out", os.path.join(self.d, "mech2"), "--only", "latch,hinge"])
+        out = json.loads(buf.getvalue())
+        self.assertEqual(code, 1)
+        self.assertIn("hinge", out["errors"][0])
+
     def test_help_describes_the_output(self):
         for argv in (["--help"], ["record", "--help"], ["run", "--help"]):
             buf = io.StringIO()

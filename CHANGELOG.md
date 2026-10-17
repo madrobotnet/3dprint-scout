@@ -87,11 +87,32 @@ housing to a 100 mm duct, designed in Fusion through MCP, fit-tested and printed
   not a standard. `parts.hinge()` now defaults to them (pin 3.2, knuckle 8.4, leaf 2.6) and
   refuses thinner values unless `decorative=True`; `examples/latch-box` thickens its bar, rail
   lips and lug ceiling accordingly.
+- **Judging load-carrying members without new field data.** Three steps in SKILL.md (P7):
+  compare the member with the corresponding one of a proven reference when its file is at
+  hand (measured with `measure.py`, the user's own working project or a supplied file, never a
+  download); run `scripts/strength.py` (pin in single or double shear and bending, beam or
+  lever bending and deflection, link in tension with the bending a bow adds, bearing and
+  tear-out of a pin wall; standard library; materials from Bambu Lab's technical data sheets
+  for PLA Basic, PLA Matte, PLA Pure, PETG Basic, PETG HF, ABS and ASA with X-Y and Z values,
+  loads from a cited hand-force study, safety factor 2 with its rationale, every assumption
+  printed; `references/materials.md`); and when the margin is short or there is no reference,
+  print the mechanism alone first (`build.py run --only latch,keeper`). Honest result of
+  running the field comparison through the calculation: it flags the failed latch's 1.2 mm
+  curved arms (factor 0.2) and bars, but its Ø2.6 stub pins and 1.3 mm pin walls pass on paper
+  with a factor of about 4 and broke anyway (impact at snap-over, lever ratio and corners are
+  not in a static hand calculation), so the minimums in `design.md` stay the primary rule.
+- **Calibration log.** `scripts/calibration.py` keeps the user's own results in the project's
+  `.3dprint/calibration.json` (never in the skill): fit-test outcomes, measured clearances and
+  holes, mechanism members that held or broke with their load; schema-checked, numbers only,
+  fields and notes that could identify a person or a machine refused. Read in Phase 2 (a
+  value there beats the official spec and every starting point); written only after the
+  user says yes to one offer (`references/calibration.md`).
 - `examples/latch-box`: a box whose lid carries a separate label part (colour) and a captive
   print-in-place slider latch, grouped into one object; its README shows the object checks, the
   fit check and the expected P2 warning for the latch's bridged underside.
 - Tests: assembly, grouped writers, nozzle areas, the new allowlist keys, measure.py, the sweep,
-  the Fusion Builder against an API stand-in, and the new example (183 tests).
+  the Fusion Builder against an API stand-in, strength.py (formulas and the field
+  comparison), calibration.py and the new example (198 tests).
 
 Not yet tested in the app: a Bambu object with several parts, the support interface keys, the
 v0.2.1 six-filament template fix, whether the slicing preview shows no inner wall between two

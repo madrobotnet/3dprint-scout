@@ -33,7 +33,11 @@ Studio, that is a project file with the print settings already set per object.
    made of several parts is checked as a whole (bed fit, overhang on the union, that fused parts
    touch and free parts keep their gap). Mating parts are checked against each other: overlap,
    play, gap and contact area, and a moving part is swept through its travel to find where it
-   hits. Every part gets a preview image (iso, front, right, top) rendered without a display.
+   hits. Pins, levers and latches that carry load are compared with a proven reference when you
+   have one, run through a hand calculation (`strength.py`, with values from Bambu Lab's data
+   sheets and a cited hand-force table), and when the margin is short the mechanism alone is
+   printed first, a few grams. Every part gets a preview image (iso, front, right, top)
+   rendered without a display.
 7. **Delivery** — STL per part plus a 3MF that fits your slicer, with print-setting changes and the
    reason for each, and one line naming the separate parts and how to recolour them.
 
@@ -125,6 +129,7 @@ the X2D and H2D, objects that need both nozzles are placed where both can reach.
 |---|---|
 | `.3dprint/params.json` | Every dimension, with assumptions taken when you weren't asked |
 | `.3dprint/printers.json` | Your printer: bed, nozzles, slicer, template (no serials, access codes or IPs) |
+| `.3dprint/calibration.json` | Your own print results (which fit-test ring fit, which latch held or broke), written only after you say yes; a value here beats every table |
 | `.3dprint/templates/` | Bambu Studio template. A saved one holds your account ID: keep it private |
 | `out/` | Working folder, rewritten on every build: STLs, build manifests, a core 3MF, preview images, fit-test pieces |
 | a new delivery folder | Final files. Existing files are never overwritten |
@@ -133,8 +138,9 @@ the X2D and H2D, objects that need both nozzles are placed where both can reach.
 
 **v0.3.0 (unreleased; latest release v0.2.1).** Adds parts grouped into objects with their own
 checks and grouped 3MF writers, a Fusion Builder skeleton, a measuring tool for supplied files, a
-rotation sweep in the fit check, and the process fixes from a field test on 2026-10-17 (a
-tool-free exhaust adapter designed in Fusion, printed on an X2D). v0.1.0 and v0.2.0 were tested
+rotation sweep in the fit check, strength calculations and a calibration log for members that
+carry load, and the process fixes from a field test on 2026-10-17 (a tool-free exhaust adapter
+designed in Fusion, printed on an X2D, whose print-in-place latches broke). v0.1.0 and v0.2.0 were tested
 end to end on a Bambu Lab X2D with Bambu Studio 02.08.02.61, with OpenSCAD 2021.01 and manifold3d
 3.5.4; generated templates were also checked against the A1 mini, A1, P1S, X1C, H2D and H2C
 profiles. Not yet opened in the app: the v0.2.1 six-filament template fix, the v0.3 Bambu

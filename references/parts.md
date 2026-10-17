@@ -66,6 +66,21 @@ The gate of the build is the worst of every part and every object. A part's own 
 take its lowest face as the bed, so for a part that sits on another one read the object's
 P1/P2, not the part's.
 
+## Printing the mechanism first
+
+When `strength.py` gives a short margin, or there is no proven reference to compare with,
+print only the risky member and the minimum of its mating part before the full part:
+
+```bash
+python3 "$SKILL_DIR/scripts/build.py" run model.py --params .3dprint/params.json --out out/mech --only latch,keeper
+```
+
+`--only` builds the named `_parts` and nothing else (into its own `--out`, so the full
+build's manifests stay fresh); the object checks run on what was built, so include the part
+the member touches or slides in. For a Bambu project, list only those parts in the
+`bambu3mf.py` job. A few grams, printed with the final filament and preset; the user tries
+it and reports back (offer to record the result, `calibration.md`).
+
 ## `build.py` output
 
 One JSON document, schema `3dprint-scout.build/1`, also for `record`:
