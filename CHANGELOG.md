@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.2.1 — 2026-10-17
 
 - Fix: `bambu_template.py` projects with more than one filament opened in Bambu Studio with
   filaments 2..n as project presets named after the file ("(part.3mf)", "1(part.3mf)", ...)
