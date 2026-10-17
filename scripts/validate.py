@@ -570,6 +570,15 @@ def wall_thickness(tris, min_wall, samples=2000):
 # --------------------------------------------------------------------------- #
 # Checks
 # --------------------------------------------------------------------------- #
+def _decimals(x: float) -> int:
+    """Decimals a number was written with (71.2004 -> 4, 70.0 -> 0); scientific notation counts as many."""
+    text = repr(float(x))
+    if "e" in text or "E" in text:
+        return 9
+    _, _, frac = text.partition(".")
+    return len(frac.rstrip("0"))
+
+
 def chk(state, kind, value=None, note="", return_to=None):
     d = {"state": state, "kind": kind}
     if value is not None:
@@ -592,6 +601,12 @@ def run_checks(path, tris, m, args, bed, bed_source):
         ok = all(d <= args.tol for d in diffs)
         c["D1"] = chk("PASS" if ok else "FAIL", "hard", {"bbox": bbox, "expect": exp, "tol": args.tol},
                       "" if ok else "bounding box differs from the expected size", "phase2")
+        if ok and max(diffs) <= 1e-3 and any(_decimals(e) >= 3 for e in exp):
+            # A designed size has one or two decimals; a value copied from a measured box has more.
+            c["D1"]["note"] = ("expect has three or more decimals and matches the mesh to 0.001 mm: it looks copied "
+                               "from a measured bounding box. expect comes from the dimension table (design intent); "
+                               "a copied value proves nothing")
+            c["D1"]["copied_expect"] = True
         ratios = [bbox[i] / exp[i] for i in range(3) if exp[i] > 0]
         unit = None
         for r, label in UNIT_RATIOS.items():
@@ -782,7 +797,7 @@ def main(argv=None):
     out["gate"] = gate_of(out["files"]) if out["ran"] else "FAIL"
     for f in out["files"]:
         for cid, ck in f.get("checks", {}).items():
-            if ck["state"] == "WARN":
+            if ck["state"] == "WARN" or ck.get("copied_expect"):
                 out["warnings"].append(f"{os.path.basename(f['path'])} {cid}: {ck.get('note', '')}")
     print(json.dumps(out, indent=2))
     if not out["ran"]:

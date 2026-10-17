@@ -4,10 +4,15 @@ threemf.py - write a core-spec 3MF (ISO/IEC 25422) from STL parts. Standard libr
 
 One <object> per part, triangle winding copied unchanged from the STL (some third-party
 writers flip the winding of internal cavities; this one never reorders vertices).
-Each part is laid out side by side on the bed with a build-item transform; the mesh
-coordinates themselves are not modified. When the usable bed size is known, a part
+Objects are laid out side by side on the bed with a build-item transform; the mesh
+coordinates themselves are not modified. When the usable bed size is known, an object
 that only fits rotated is placed with the Z rotation the D2 check found (validate.py),
 so the file and the verdict agree.
+
+Parts grouped into one object (params.json `_parts` with "object", see assembly.py) are
+written as mesh objects referenced by one parent object through <components>, each with
+the identity transform, so they keep their assembled positions; the layout moves the
+parent. A slicer that understands components shows one object with several parts.
 
 This is the slicer-neutral 3MF. Bambu Studio project files (plates, filaments,
 per-object settings) are produced by bambu3mf.py from a template instead.
@@ -42,6 +47,7 @@ RELS = (
     'Type="http://schemas.microsoft.com/3dmanufacturing/2013/01/3dmodel"/>'
     "</Relationships>"
 )
+IDENTITY = "1 0 0 0 1 0 0 0 1"
 
 
 def indexed(tris):
@@ -66,7 +72,7 @@ def _fmt(x: float) -> str:
 
 
 def _rotation(verts, bed):
-    """Z rotation (deg, counter-clockwise) a part needs to fit a (w, d) bed; 0 if none or unknown."""
+    """Z rotation (deg, counter-clockwise) a footprint needs to fit a (w, d) bed; 0 if none or unknown."""
     if not bed:
         return 0
     xy = [(v[0], v[1]) for v in verts]
@@ -78,38 +84,71 @@ def _rotation(verts, bed):
     return deg if ok else 0
 
 
-def write_core_3mf(parts, out_path, spacing=10.0, title=None, bed=None):
-    """parts: list of (name, stl_path); bed: usable (width, depth) in mm or None.
-    Returns {name: {"triangles": n, "rotation_deg": deg}}."""
-    objects, items, info = [], [], {}
-    cursor = 0.0
-    for oid, (name, stl) in enumerate(parts, start=1):
-        try:
-            verts, faces = indexed(read_stl(stl))
-        except ArtifactError as exc:
-            raise ArtifactError(f"{name}: {exc}") from exc
-        deg = _rotation(verts, bed)
+def _groups(parts, objects):
+    """[(object name, [(part name, stl)])]: `objects` is [{"name", "parts": [names]}] or None."""
+    by_name = {name: stl for name, stl in parts}
+    if not objects:
+        return [(name, [(name, stl)]) for name, stl in parts]
+    out, seen = [], set()
+    for obj in objects:
+        members = [(n, by_name[n]) for n in obj["parts"] if n in by_name]
+        if members:
+            out.append((obj["name"], members))
+            seen.update(n for n, _ in members)
+    out += [(name, [(name, stl)]) for name, stl in parts if name not in seen]
+    return out
+
+
+def write_core_3mf(parts, out_path, spacing=10.0, title=None, bed=None, objects=None):
+    """parts: list of (name, stl_path); bed: usable (width, depth) in mm or None;
+    objects: optional grouping [{"name": ..., "parts": [part names]}] (assembly.group_parts).
+    Returns {part name: {"triangles": n, "rotation_deg": deg, "object": object name}}."""
+    resources, items, info = [], [], {}
+    cursor, next_id = 0.0, 1
+    for obj_name, members in _groups(parts, objects):
+        meshes = []
+        for name, stl in members:
+            try:
+                verts, faces = indexed(read_stl(stl))
+            except ArtifactError as exc:
+                raise ArtifactError(f"{name}: {exc}") from exc
+            meshes.append((name, verts, faces))
+        all_verts = [v for _n, verts, _f in meshes for v in verts]
+        deg = _rotation(all_verts, bed)
         cs, sn = math.cos(math.radians(deg)), math.sin(math.radians(deg))
-        xs = [v[0] * cs - v[1] * sn for v in verts]      # footprint after the rotation
-        ys = [v[0] * sn + v[1] * cs for v in verts]
-        zs = [v[2] for v in verts]
-        vx = "".join(f'<vertex x="{_fmt(v[0])}" y="{_fmt(v[1])}" z="{_fmt(v[2])}"/>' for v in verts)
-        tr = "".join(f'<triangle v1="{a}" v2="{b}" v3="{c}"/>' for a, b, c in faces)
-        objects.append(f'<object id="{oid}" type="model" name={quoteattr(name)}>'
-                       f"<mesh><vertices>{vx}</vertices><triangles>{tr}</triangles></mesh></object>")
-        # Place each part on the bed (z = 0) next to the previous one. The 3MF transform is
+        xs = [v[0] * cs - v[1] * sn for v in all_verts]      # footprint after the rotation
+        ys = [v[0] * sn + v[1] * cs for v in all_verts]
+        zs = [v[2] for v in all_verts]
+        mesh_ids = []
+        for name, verts, faces in meshes:
+            vx = "".join(f'<vertex x="{_fmt(v[0])}" y="{_fmt(v[1])}" z="{_fmt(v[2])}"/>' for v in verts)
+            tr = "".join(f'<triangle v1="{a}" v2="{b}" v3="{c}"/>' for a, b, c in faces)
+            resources.append(f'<object id="{next_id}" type="model" name={quoteattr(name)}>'
+                             f"<mesh><vertices>{vx}</vertices><triangles>{tr}</triangles></mesh></object>")
+            mesh_ids.append(next_id)
+            info[name] = {"triangles": len(faces), "rotation_deg": deg, "object": obj_name}
+            next_id += 1
+        if len(meshes) == 1:
+            item_id = mesh_ids[0]
+        else:
+            # Parts keep their modelled (assembled) positions: identity component transforms.
+            comps = "".join(f'<component objectid="{i}" transform="{IDENTITY} 0 0 0"/>' for i in mesh_ids)
+            resources.append(f'<object id="{next_id}" type="model" name={quoteattr(obj_name)}>'
+                             f"<components>{comps}</components></object>")
+            item_id = next_id
+            next_id += 1
+        # Place the object on the bed (z = 0) next to the previous one. The 3MF transform is
         # row-vector: x' = x*m00 + y*m10 + z*m20 + m30, so a CCW rotation is "c s 0 -s c 0 0 0 1".
-        rot = "1 0 0 0 1 0 0 0 1" if not deg else f"{_fmt(cs)} {_fmt(sn)} 0 {_fmt(-sn)} {_fmt(cs)} 0 0 0 1"
+        rot = IDENTITY if not deg else f"{_fmt(cs)} {_fmt(sn)} 0 {_fmt(-sn)} {_fmt(cs)} 0 0 0 1"
         tx, ty, tz = cursor - min(xs), -min(ys), -min(zs)
-        items.append(f'<item objectid="{oid}" transform="{rot} {_fmt(tx)} {_fmt(ty)} {_fmt(tz)}"/>')
+        items.append(f'<item objectid="{item_id}" transform="{rot} {_fmt(tx)} {_fmt(ty)} {_fmt(tz)}"/>')
         cursor += (max(xs) - min(xs)) + spacing
-        info[name] = {"triangles": len(faces), "rotation_deg": deg}
     model = (
         '<?xml version="1.0" encoding="UTF-8"?>\n'
         f'<model unit="millimeter" xml:lang="en-US" xmlns="{CORE_NS}">'
         f'<metadata name="Title">{escape(title or os.path.splitext(os.path.basename(out_path))[0])}</metadata>'
         '<metadata name="Application">3dprint-scout</metadata>'
-        f"<resources>{''.join(objects)}</resources><build>{''.join(items)}</build></model>"
+        f"<resources>{''.join(resources)}</resources><build>{''.join(items)}</build></model>"
     )
     os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
     with zipfile.ZipFile(out_path, "w", zipfile.ZIP_DEFLATED) as z:

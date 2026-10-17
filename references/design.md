@@ -108,7 +108,8 @@ heads ISO 10642 (theoretical dk, 90°) [14]; M2/M2.5 countersink values are star
 ## Print-in-place joints
 
 - Clearance 0.3 mm per side between moving surfaces, 0.4–0.5 mm on a less tuned printer
-  (`tolerances.md`, print-in-place row) [1][2][6].
+  (`tolerances.md`, print-in-place row) [1][2][6]. Model the moving piece as its own part
+  with `role: free` so `build.py` measures the gap (A2) and the slicer keeps it a part.
 - A horizontal pin prints as a teardrop or diamond so its top is self-supporting; the first
   layer of the upper part bridges the gap, so keep gaps a whole number of layer heights (0.2
   or 0.4 mm at 0.2 mm layers) where a surface sits above another (starting point).
@@ -116,6 +117,24 @@ heads ISO 10642 (theoretical dk, 90°) [14]; M2/M2.5 countersink values are star
   such a hinge; validate it with `--shells 2` (two bodies that never touch).
 - After the print, free the joint with a few firm twists before the parts cool completely
   (PLA is still soft) — tell the user.
+
+## Colour and function seams: split into parts
+
+- A region with its own job or a likely different colour (latches, levers, labels, signs,
+  inserts, logos) is a **separate body that touches the main body** (shared faces, no
+  boolean union), recorded in `params.json` with `"object"` and `"role"` (`parts.md`).
+  The slicer shows it as its own part, so the user recolours it by selecting it. Never
+  ask about colours: split, give every part the main filament, say so at delivery.
+- Same filament on both sides: Bambu Studio merges touching parts of one object into
+  one region per layer, so the walls run through and the seam costs nothing (`parts.md`,
+  source reading). Different filaments: two sets of perimeters meet at the seam, a
+  wall-to-wall bond, weaker than continuous extrusion (starting point: treat it like a
+  layer bond, half of XY strength, the orientation rule above).
+- So keep seams in low-stress places: split a lever's handle, not its pivot; a label on
+  a face, not through a wall; never at the root of a snap hook or across a boss. Both
+  sides of a seam are the same material (PLA to PLA); PLA on PETG does not bond.
+- Print-in-place moving parts are separate parts with `role: free` and their clearance
+  (below); they are never merged.
 
 ## Text, logos, cosmetic faces
 
