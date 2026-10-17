@@ -59,9 +59,12 @@ housing to a 100 mm duct, designed in Fusion through MCP, fit-tested and printed
   `references/measure.md`: the licence rule (an official file is "official file, measured",
   never copied; another maker's model is a secondary source) and the pattern for a small
   watertight proxy of the mating part.
-- **`fit.py --sweep-axis / --sweep-pivot / --sweep-angles`.** Rotates part B about an axis
-  through a pivot step by step and reports interference and gap per angle, the first angle with
-  an overlap, the free travel before it, and an `F3_sweep` verdict.
+- **`fit.py --sweep-axis / --sweep-pivot / --sweep-angles / --sweep-travel`.** Rotates part B
+  about an axis through a pivot, step by step from its placed pose in one direction (`0:90:2`
+  counter-clockwise, `-40:0:2` clockwise), and reports interference and gap per angle, the stop
+  angle, the free travel before it and an `F3_sweep` verdict: PASS when nothing is hit or the
+  part is free through `--sweep-travel`, FAIL when it hits before that travel, WARN when it hits
+  and no travel was required.
 - **Process fixes in SKILL.md.** Every user-facing line, progress notes included, in the user's
   language. In a disposable sandbox `pip install` of the listed libraries is fine and said in one
   line; on the user's machine ask first; never `apt`/`brew` for OpenSCAD in a sandbox. Reference

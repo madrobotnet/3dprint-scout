@@ -259,41 +259,66 @@ class Sweep(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
-    def test_first_overlap_angle_and_table(self):
+    def test_stop_angle_table_and_travel_verdicts(self):
         code, out = run_fit(self.stop, self.lever, "--play", "none", "--sweep-axis", "z", "--sweep-pivot", "0,0,0",
                             "--sweep-angles", "0:90:2")
         self.assertEqual(code, 0, out["errors"])
         self.assertEqual(out["checks"]["F3"]["state"], "PASS")              # the placed pose is clear
         sw = out["metrics"]["sweep"]
-        self.assertEqual(out["checks"]["F3_sweep"]["state"], "FAIL")
-        self.assertEqual(out["gate"], "FAIL")
         # The bar's far corner (15, 1) reaches y = 5 when 15 sin(t) + cos(t) = 5: t is about 15.5 deg.
         self.assertTrue(14 <= sw["first_overlap_deg"] <= 18, sw["first_overlap_deg"])
         self.assertEqual(sw["free_until_deg"], sw["first_overlap_deg"] - 2)
+        self.assertEqual(sw["free_travel_deg"], sw["free_until_deg"])
+        self.assertEqual(sw["direction"], "counter-clockwise")
         self.assertEqual(len(sw["table"]), 46)
         self.assertEqual(sw["table"][0], {"angle_deg": 0.0, "interference_mm3": 0.0, "min_gap_mm": 4.0})
         gaps = [r["min_gap_mm"] for r in sw["table"][: sw["table"].index(next(r for r in sw["table"] if r["interference_mm3"] > 0))]]
         self.assertEqual(gaps, sorted(gaps, reverse=True))                  # closing in step by step
         self.assertGreater(max(r["interference_mm3"] for r in sw["table"]), 10)   # deep inside the block mid-sweep
         self.assertEqual(sw["table"][-1]["interference_mm3"], 0.0)                 # at 90 deg the bar has passed it
-
-    def test_free_sweep_passes_and_reports_closest_approach(self):
-        code, out = run_fit(self.stop, self.lever, "--play", "none", "--sweep-axis", "0,0,1", "--sweep-pivot", "0,0,0",
-                            "--sweep-angles=-90:0:5")                      # '=' form: the value starts with '-'
-
+        # A stop within the range is not a failure by itself: WARN until the needed travel is known.
+        self.assertEqual(out["checks"]["F3_sweep"]["state"], "WARN")
+        self.assertEqual(out["gate"], "WARN")
+        self.assertTrue(any("--sweep-travel" in w for w in out["warnings"]))
+        # Required travel below the stop: PASS and the stop is reported; above it: FAIL.
+        code, out = run_fit(self.stop, self.lever, "--play", "none", "--sweep-angles", "0:90:2", "--sweep-travel", "10")
         self.assertEqual(out["checks"]["F3_sweep"]["state"], "PASS")
         self.assertEqual(out["gate"], "PASS")
-        sw = out["metrics"]["sweep"]
-        self.assertIsNone(sw["first_overlap_deg"])
-        self.assertEqual(sw["closest"]["angle_deg"], 0.0)
-        self.assertEqual(sw["closest"]["min_gap_mm"], 4.0)
-        self.assertIn("closest approach", out["checks"]["F3_sweep"]["note"])
+        self.assertIn("stops at", out["checks"]["F3_sweep"]["note"])
+        code, out = run_fit(self.stop, self.lever, "--play", "none", "--sweep-angles", "0:90:2", "--sweep-travel", "30")
+        self.assertEqual(out["checks"]["F3_sweep"]["state"], "FAIL")
+        self.assertEqual(out["gate"], "FAIL")
+        self.assertEqual(out["checks"]["F3_sweep"]["return_to"], "phase4")
+
+    def test_direction_matches_the_reversed_axis(self):
+        """-40:0:2 about +z is the clockwise sweep from the placed pose: the bar swings away from
+        the block and stays free, exactly like 0:40:2 about -z; and 0:40:2 about +z hits where
+        -40:0:2 about -z hits, at the same magnitude."""
+        cw_z = run_fit(self.stop, self.lever, "--play", "none", "--sweep-axis", "z", "--sweep-angles", "-40:0:2")[1]
+        ccw_negz = run_fit(self.stop, self.lever, "--play", "none", "--sweep-axis", "0,0,-1", "--sweep-angles", "0:40:2")[1]
+        for out in (cw_z, ccw_negz):
+            self.assertEqual(out["checks"]["F3_sweep"]["state"], "PASS", out["checks"]["F3_sweep"])
+            self.assertIsNone(out["metrics"]["sweep"]["first_overlap_deg"])
+            self.assertEqual(out["metrics"]["sweep"]["closest"]["angle_deg"], 0.0)
+        self.assertEqual(cw_z["metrics"]["sweep"]["direction"], "clockwise")
+        self.assertEqual([r["angle_deg"] for r in cw_z["metrics"]["sweep"]["table"][:3]], [0.0, -2.0, -4.0])
+        self.assertEqual([r["min_gap_mm"] for r in cw_z["metrics"]["sweep"]["table"]],
+                         [r["min_gap_mm"] for r in ccw_negz["metrics"]["sweep"]["table"]])
+        ccw_z = run_fit(self.stop, self.lever, "--play", "none", "--sweep-axis", "z", "--sweep-angles", "0:40:2")[1]
+        cw_negz = run_fit(self.stop, self.lever, "--play", "none", "--sweep-axis", "0,0,-1", "--sweep-angles", "0:-40:2")[1]
+        self.assertEqual(cw_negz["metrics"]["sweep"]["first_overlap_deg"], -ccw_z["metrics"]["sweep"]["first_overlap_deg"])
+        self.assertEqual(cw_negz["metrics"]["sweep"]["free_travel_deg"], ccw_z["metrics"]["sweep"]["free_travel_deg"])
+        self.assertEqual([r["interference_mm3"] for r in cw_negz["metrics"]["sweep"]["table"]],
+                         [r["interference_mm3"] for r in ccw_z["metrics"]["sweep"]["table"]])
 
     def test_sweep_usage_errors(self):
-        for argv in (["--sweep-angles", "0:90"], ["--sweep-angles", "90:0:5"], ["--sweep-axis", "0,0,0", "--sweep-angles", "0:9:1"]):
+        for argv in (["--sweep-angles", "0:90"], ["--sweep-angles", "0:90:0"], ["--sweep-angles", "-20:20:5"],
+                     ["--sweep-axis", "0,0,0", "--sweep-angles", "0:9:1"]):
             code, out = run_fit(self.stop, self.lever, *argv)
             self.assertEqual(code, 1, argv)
             self.assertFalse(out["ran"])
+        self.assertEqual(fit.parse_angles("40:0:-5"), [0.0, 5.0, 10.0, 15.0, 20.0, 25.0, 30.0, 35.0, 40.0])
+        self.assertEqual(fit.parse_angles("-10:0:5"), [0.0, -5.0, -10.0])
 
 
 class PointTriangle(unittest.TestCase):

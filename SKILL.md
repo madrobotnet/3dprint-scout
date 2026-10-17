@@ -270,9 +270,11 @@ the overlap volume, how far B can move sideways before it touches A (`play`, the
 a seated part), the smallest gap and the contact area, and prints a verdict in the validate.py
 style: FAIL on overlap, WARN when the play is below `--min-clearance` or the parts bind, PASS
 otherwise. A press fit fails by design; compare its overlap with the intended one instead. A
-moving part gets a sweep (`--sweep-axis z --sweep-pivot x,y,z --sweep-angles 0:90:2`): the first
-angle at which it hits, and its free travel. Build a small proxy of the mating housing from
-measured numbers when there is no closed mesh of it (`references/measure.md`).
+moving part gets a sweep (`--sweep-axis z --sweep-pivot x,y,z --sweep-angles 0:90:2
+--sweep-travel 40`): the angle at which it hits its stop and the free travel before it; PASS when
+it is free through the travel the part needs (give it, or the sweep only WARNs). Build a small
+proxy of the mating housing from measured numbers when there is no closed mesh of it
+(`references/measure.md`).
 
 **Fit test first** when the part must fit an existing object whose shape is not known exactly (no
 caliper numbers, no official drawing): make test pieces of the mating profile, a few grams each,
