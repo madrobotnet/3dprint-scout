@@ -143,8 +143,9 @@ not a standard):
 | Pin | Ø2.6 stub pins, single-ended, in ~2 mm plates | one Ø3.2 through pin formed on the lever, both ends in 4.25 mm rails |
 | Hole and clearance | Ø3.45 teardrop, ~0.42 mm radial | Ø3.9, ~0.33 mm radial |
 | Wall around the pin | ~1.3 mm (knuckle ring OD 6.0) | ≥ 2.2 mm (2.4 mm to the bed), block 8.3 × 10.8 × 18.4 |
-| Load-carrying arms | 1.2 × ~2.2 mm, curved | rails 4.25 wide, 2.5 mm at the thinnest notch, 3.6–7.4 elsewhere |
-| Bars | 1.7 × 2.6 and 2.2 × 2.4 mm | lever plate 20 × 2.6 mm at its thinnest |
+| Load-carrying arms | two, 1.2 × ~2.2 mm, curved (2.5 mm bow) | rails 4.25 wide, 2.5 mm at the thinnest notch, 3.6–7.4 elsewhere |
+| Bars | 1.7 × 2.6 (12 mm long) and 2.2 × 2.4 mm | lever plate 20 × 2.6 mm at its thinnest |
+| Lever ratio | not measured | not measured |
 | Material per latch | ~640 mm³ | ~3 820 mm³ (about 6×) |
 
 The agent checks every load-carrying member against these numbers in the dimension table

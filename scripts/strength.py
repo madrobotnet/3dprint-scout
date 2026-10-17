@@ -3,7 +3,8 @@
 strength.py - quick hand calculations for members that carry load: pins, beams and levers,
 links, the wall around a pin hole. Standard library only; one JSON document per call.
 
-  python3 strength.py pin --d 3.2 --engagement 10 --shear double --load finger_push --material pla_basic --orientation xy
+  python3 strength.py pin --d 3.2 --engagement 4 --gap 0.3 --shear double --support stub --load finger_push --material pla_basic --orientation xy
+  python3 strength.py pin --d 3.2 --engagement 10 --support-t 4 --gap 0.3 --shear double --load finger_push --material pla_basic --orientation xy
   python3 strength.py beam --b 6 --h 3 --length 20 --support cantilever --load 70 --material petg_basic --orientation z
   python3 strength.py link --b 4 --h 2.5 --length 15 --bow 0 --load finger_push --material pla_basic --orientation xy
   python3 strength.py bearing --d 3.3 --t 8 --edge 2.2 --load finger_push --material pla_basic --orientation xy
@@ -11,9 +12,23 @@ links, the wall around a pin hole. Standard library only; one JSON document per 
   python3 strength.py loads                # the hand-force table with its source
 
 Cases
-  pin      shear (single or double), and bending: a through pin simply supported at both
-           ends with the load spread over its engagement (M = F L / 8), or a stub pin as a
-           cantilever with the load spread over its engagement (M = F L / 2).
+  pin      transverse shear on one plane (--shear single) or two (double), peak 4/3 of the
+           average over the circle: tau = 4/3 F / (n pi d^2 / 4). Bending by support type:
+           --support stub   a pin that grows out of one part and sits in the other: a cantilever
+                            from its root face, its load spread evenly over the engagement L
+                            inside the mating part, with the gap g between the root face and
+                            the mating part added to the lever arm: M = F' (g + L / 2). With
+                            --shear double both ends are stubs and each carries F' = F / 2
+                            (a pin formed on a lever, its ends in two rails: L = rail thickness).
+           --support through  a loose pin through two supports of thickness a (--support-t),
+                            loaded by the member of width b (--engagement) between them, with
+                            the gap g on each side: the clevis formula M = F (b + 2 a + 4 g) / 8,
+                            every bearing load spread evenly (a load concentrated at the
+                            centre would give up to F (b + 2 a) / 4: narrow the member, not
+                            the formula). A through pin is in double shear.
+           Bending stress 32 M / (pi d^3). --load-across-layers: the pin lies flat and its
+           load crosses the layers, so the shear slides layer on layer and uses the Z strength
+           while bending keeps --orientation; --orientation z (a pin standing up) uses Z for both.
   beam     rectangular section b x h: bending stress M c / I and tip deflection, cantilever
            with an end load (M = F L, d = F L^3 / 3 E I) or simply supported with a centre
            load (M = F L / 4, d = F L^3 / 48 E I).
@@ -45,11 +60,13 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import re
 import sys
 
 SCHEMA = "3dprint-scout.strength/1"
 RETRIEVED = "2026-10-18"
 SHEAR_RATIO = 0.58          # tau_allow = 0.58 x tensile (von Mises); not on the data sheets
+SHEAR_PEAK = 4.0 / 3.0      # transverse shear in a solid round section peaks at 4/3 of the average (neutral axis)
 BEARING_RATIO = 1.0         # bearing allowable = tensile strength; conservative, not on the data sheets
 DEFAULT_SF = 2.0
 
@@ -117,10 +134,14 @@ LOADS = {
     "finger_pull": {"what": "index fingertip pull, 90 deg distal pad", "mean": 60.09, "sd": 25.24, "male_mean": 70.84, "male_sd": 27.16},
     "pinch_lateral": {"what": "lateral (key) pinch, thumb and index", "mean": 80.93, "sd": 28.15, "male_mean": 97.02, "male_sd": 27.67},
     "pinch_palmar": {"what": "palmar pinch, thumb and index pads", "mean": 54.16, "sd": 18.84, "male_mean": 62.88, "male_sd": 19.20},
-    "grasp": {"what": "power grasp, whole hand", "mean": None, "sd": None, "male_mean": 452.44, "male_sd": 102.94},
+    "grasp": {"what": "power grasp, whole hand", "mean": 370.67, "sd": 117.73, "male_mean": 452.44, "male_sd": 102.94},
 }
 for _k, _v in LOADS.items():
     _v["design_N"] = round(_v["male_mean"] + _v["male_sd"], 1)
+
+
+CASE_INPUTS = {"pin": {"d", "engagement", "support_t", "gap", "shear", "support", "load_across_layers"},
+               "beam": {"b", "h", "length", "support"}, "link": {"b", "h", "length", "bow"}, "bearing": {"d", "t", "edge"}}
 
 
 class StrengthError(Exception):
@@ -159,13 +180,22 @@ def load_value(text) -> tuple:
     return n, f"{n} N given by the caller (record its source in _assumptions)"
 
 
-def positive(args, *names):
+def positive(args, *names, unit="mm"):
     for n in names:
         v = getattr(args, n)
         if v is None:
             raise StrengthError(f"--{n.replace('_', '-')} is required")
         if not math.isfinite(v) or v <= 0:
-            raise StrengthError(f"--{n.replace('_', '-')} must be a positive number (mm)")
+            raise StrengthError(f"--{n.replace('_', '-')} must be a positive number ({unit})")
+
+
+def non_negative(args, *names):
+    for n in names:
+        v = getattr(args, n)
+        if v is None:
+            continue
+        if not math.isfinite(v) or v < 0:
+            raise StrengthError(f"--{n.replace('_', '-')} must be zero or a positive number (mm)")
 
 
 def verdict(stress: float, strength: float, sf: float) -> tuple:
@@ -193,27 +223,52 @@ def check(name, stress, strength, sf, formula, basis):
 # --------------------------------------------------------------------------- #
 def case_pin(args, mat, F, o):
     positive(args, "d", "engagement")
-    d, L = args.d, args.engagement
+    non_negative(args, "gap")
+    d, L, g = args.d, args.engagement, args.gap or 0.0
     A = math.pi * d * d / 4
     n = 2 if args.shear == "double" else 1
-    tau = F / (n * A)
-    tau_allow = SHEAR_RATIO * mat["tensile"][o]
+    if args.support == "through" and n == 1:
+        raise StrengthError("a through pin is held at both ends, so it is in double shear: --shear double "
+                            "(a pin held at one end is --support stub)")
+    tau = SHEAR_PEAK * F / (n * A)
+    o_shear = "z" if (o == "z" or args.load_across_layers) else "xy"
+    tau_allow = SHEAR_RATIO * mat["tensile"][o_shear]
     if args.support == "through":
-        M = F * L / 8
-        how = "through pin simply supported at both ends, load spread over the engagement: M = F L / 8"
+        if args.support_t is None:
+            raise StrengthError("a through pin needs --support-t, the thickness of each support its ends sit in "
+                                "(--engagement is then the width of the loaded member between the supports)")
+        a = args.support_t
+        M = F * (L + 2 * a + 4 * g) / 8
+        how = (f"loose pin through two supports of thickness a = {a} mm, loaded by the member of width b = {L} mm "
+               f"between them, gap g = {g} mm on each side, every bearing load spread evenly: M = F (b + 2 a + 4 g) / 8")
+        arm_note = (f"lever arm: supports {a} mm thick react at their centres, {L / 2 + g + a / 2:.2f} mm from the pin's "
+                    "centre; a load concentrated at the centre of the member would give up to F (b + 2 a) / 4")
     else:
-        M = F * L / 2
-        how = "stub pin as a cantilever, load spread over the engagement: M = F L / 2 (resultant at mid-length)"
+        Fe = F / n
+        M = Fe * (g + L / 2)
+        how = (f"stub pin as a cantilever from its root face, the load spread evenly over the engagement L = {L} mm "
+               f"inside the mating part, gap g = {g} mm between root face and mating part: M = F' (g + L / 2)"
+               + (f", F' = F / 2 = {Fe:.1f} N per end (both ends are stubs)" if n == 2 else f", F' = F = {Fe:.1f} N"))
+        arm_note = f"lever arm from the root face to the resultant: g + L / 2 = {g + L / 2:.2f} mm"
     sigma = 32 * M / (math.pi * d ** 3)
     checks = {
-        "shear": check("shear", tau, tau_allow, args.sf, f"tau = F / ({n} x pi d^2 / 4)",
-                       f"{SHEAR_RATIO} x tensile {o.upper()} {mat['tensile'][o]} MPa"),
+        "shear": check("shear", tau, tau_allow, args.sf, f"tau = 4/3 F / ({n} x pi d^2 / 4) (peak at the neutral axis)",
+                       f"{SHEAR_RATIO} x tensile {o_shear.upper()} {mat['tensile'][o_shear]} MPa"),
         "bending": check("bending", sigma, mat["flex"][o], args.sf, f"sigma = 32 M / (pi d^3), {how}",
                          f"bending strength {o.upper()} {mat['flex'][o]} MPa"),
     }
-    notes = [f"{'double' if n == 2 else 'single'} shear: {'both ends held' if n == 2 else 'one end held'}",
-             "a short stub pin (engagement under 3 x d) also loads its root in bending; a through pin held at both ends does not",
+    notes = [f"{'double' if n == 2 else 'single'} shear: {'both ends held, two shear planes' if n == 2 else 'one end held, one shear plane'}",
+             arm_note, f"moment {M:.2f} N mm",
              f"engagement / d = {L / d:.1f} (design.md suggests about 3 or more)"]
+    if o_shear != o:
+        notes.append("shear uses the Z strength: the pin lies flat and the load crosses the layers, so the shear "
+                     "slides layer on layer; bending stress runs along the pin, in the layer plane")
+    elif o == "xy":
+        notes.append("shear uses the X-Y strength: the load is taken to act within the layer plane; pass "
+                     "--load-across-layers when a flat pin is pushed up or down (the shear then slides layer on layer)")
+    if not g:
+        notes.append("no --gap given: a print-in-place pin has 0.3 to 0.42 mm between its root face and the mating part "
+                     "(tolerances.md); it adds to the lever arm, pass it")
     return checks, notes
 
 
@@ -290,8 +345,13 @@ def run(args) -> dict:
     o = args.orientation
     if o not in ("xy", "z"):
         raise StrengthError("--orientation is xy (stress within the layer plane) or z (stress across layers)")
-    if args.sf < 1.0:
-        raise StrengthError("--sf must be at least 1.0")
+    if not math.isfinite(args.sf) or args.sf < 1.0:
+        raise StrengthError("--sf must be a number of at least 1.0")
+    for name in ("d", "engagement", "support_t", "b", "h", "length", "t", "edge"):
+        v = getattr(args, name)
+        if v is not None and (not math.isfinite(v) or v <= 0):
+            raise StrengthError(f"--{name.replace('_', '-')} must be a positive number (mm)")
+    non_negative(args, "gap", "bow")
     extra = {}
     if args.case == "pin":
         checks, notes = case_pin(args, mat, F, o)
@@ -312,10 +372,12 @@ def run(args) -> dict:
         + ("acts within the layer plane" if o == "xy" else "crosses the layers (layer adhesion)") + ("; z is the conservative default" if args.orientation_defaulted else ""),
         f"safety factor {args.sf}: data-sheet specimens are 100 % infill, dried and annealed; a part has walls, infill, "
         "corners and layer seams, PLA creeps under a held load, and a latch is snapped, not pressed slowly",
-        "static hand calculation on a solid section: no stress concentration at corners (fillet the roots), no fatigue, "
-        "no impact, no lever ratio (pass the amplified force when a lever multiplies the hand force)",
+        "static hand calculation on a solid section with the load spread evenly: no stress concentration at corners "
+        "(fillet the roots), no fatigue, no impact, no lever ratio (pass the amplified force when a lever multiplies "
+        "the hand force)",
     ] + notes
-    inputs = {k: v for k, v in vars(args).items() if k not in ("case", "orientation_defaulted") and v is not None}
+    keep = {"load", "material", "orientation", "sf"} | CASE_INPUTS[args.case]
+    inputs = {k: v for k, v in vars(args).items() if k in keep and v is not None and v is not False}
     return {"case": args.case, "inputs": inputs, "load_N": F, "material": {k: mat[k] for k in ("key", "name", "tds", "url", "retrieved")},
             "orientation": o, "checks": checks, "gate": gate,
             "worst": {"check": next(k for k, v in checks.items() if v is worst), "sf_achieved": worst["sf_achieved"]},
@@ -325,7 +387,31 @@ def run(args) -> dict:
             "assumptions": assumptions, **extra}
 
 
+def join_negative_values(argv):
+    """argparse reads `--bow -3` as an option with no value; turn `--opt -3` into `--opt=-3` so
+    the number reaches the sign check and the error names the option."""
+    out, i = [], 0
+    while i < len(argv):
+        tok = argv[i]
+        if tok.startswith("--") and "=" not in tok and i + 1 < len(argv) and re.fullmatch(r"-[0-9.][0-9.eE+-]*", argv[i + 1]):
+            out.append(f"{tok}={argv[i + 1]}")
+            i += 2
+        else:
+            out.append(tok)
+            i += 1
+    return out
+
+
+def utf8_stdout():
+    """Windows consoles and pipes may not be UTF-8; material names and notes are. Best effort."""
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+    except (AttributeError, ValueError, OSError):
+        pass
+
+
 def main(argv=None):
+    utf8_stdout()
     out = {"schema": SCHEMA, "ran": False, "warnings": [], "errors": []}
     try:
         ap = _JsonArgParser(description="hand calculations for load-carrying members (Bambu Lab data-sheet values)")
@@ -335,17 +421,22 @@ def main(argv=None):
         ap.add_argument("--orientation", help="xy (stress within the layer plane) or z (across layers; default)")
         ap.add_argument("--sf", type=float, default=DEFAULT_SF, help=f"required safety factor (default {DEFAULT_SF})")
         ap.add_argument("--d", type=float, help="pin or hole diameter (mm)")
-        ap.add_argument("--engagement", type=float, help="pin: length inside the mating part (mm)")
-        ap.add_argument("--shear", default="single", choices=["single", "double"], help="pin: ends that carry the load")
+        ap.add_argument("--engagement", type=float,
+                        help="pin: stub: length L inside the mating part (per end with --shear double); through: width b of the loaded member between the supports (mm)")
+        ap.add_argument("--support-t", type=float, dest="support_t", help="pin, through: thickness a of each support the pin's ends sit in (mm)")
+        ap.add_argument("--gap", type=float, default=0.0, help="pin: gap between the root face (stub) or each support (through) and the mating part (mm, default 0)")
+        ap.add_argument("--load-across-layers", action="store_true", dest="load_across_layers",
+                        help="pin lying flat whose load crosses the layers: shear uses the Z strength")
+        ap.add_argument("--shear", default="single", choices=["single", "double"], help="pin: shear planes, one end held or both")
         ap.add_argument("--support", default=None, choices=["through", "stub", "cantilever", "simple"],
-                        help="pin: through (both ends held) or stub; beam: cantilever or simple")
+                        help="pin: stub (grows out of a part; both ends with --shear double) or through (loose pin, needs --support-t); beam: cantilever or simple")
         ap.add_argument("--b", type=float, help="section width (mm)")
         ap.add_argument("--h", type=float, help="section thickness in the bending direction (mm)")
         ap.add_argument("--length", type=float, help="beam length / link length (mm)")
-        ap.add_argument("--bow", type=float, default=0.0, help="link: sagitta of a curved link (mm)")
+        ap.add_argument("--bow", type=float, default=0.0, help="link: sagitta of a curved link (mm, default 0)")
         ap.add_argument("--t", type=float, help="bearing: thickness the pin bears on (mm)")
         ap.add_argument("--edge", type=float, help="bearing: wall from the hole to the nearest edge (mm)")
-        args = ap.parse_args(sys.argv[1:] if argv is None else argv)
+        args = ap.parse_args(join_negative_values(sys.argv[1:] if argv is None else argv))
         args.orientation_defaulted = args.orientation is None
         if args.orientation is None:
             args.orientation = "z"

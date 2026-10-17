@@ -91,17 +91,25 @@ housing to a 100 mm duct, designed in Fusion through MCP, fit-tested and printed
 - **Judging load-carrying members without new field data.** Three steps in SKILL.md (P7):
   compare the member with the corresponding one of a proven reference when its file is at
   hand (measured with `measure.py`, the user's own working project or a supplied file, never a
-  download); run `scripts/strength.py` (pin in single or double shear and bending, beam or
-  lever bending and deflection, link in tension with the bending a bow adds, bearing and
-  tear-out of a pin wall; standard library; materials from Bambu Lab's technical data sheets
-  for PLA Basic, PLA Matte, PLA Pure, PETG Basic, PETG HF, ABS and ASA with X-Y and Z values,
-  loads from a cited hand-force study, safety factor 2 with its rationale, every assumption
-  printed; `references/materials.md`); and when the margin is short or there is no reference,
-  print the mechanism alone first (`build.py run --only latch,keeper`). Honest result of
-  running the field comparison through the calculation: it flags the failed latch's 1.2 mm
-  curved arms (factor 0.2) and bars, but its Ø2.6 stub pins and 1.3 mm pin walls pass on paper
-  with a factor of about 4 and broke anyway (impact at snap-over, lever ratio and corners are
-  not in a static hand calculation), so the minimums in `design.md` stay the primary rule.
+  download); run `scripts/strength.py` (pin in single or double shear, peak 4/3 of the mean,
+  and bending as a stub from its root face with the print-in-place gap, `--gap`, or as a loose
+  clevis pin with the support thickness, `--support-t`; beam or lever bending and deflection;
+  link in tension with the bending a bow adds; bearing and tear-out of a pin wall; standard
+  library; materials from Bambu Lab's technical data sheets for PLA Basic, PLA Matte, PLA
+  Pure, PETG Basic, PETG HF, ABS and ASA with X-Y and Z values, loads from a cited hand-force
+  study, safety factor 2 with its rationale, every assumption printed; `references/materials.md`);
+  and when the margin is short or there is no reference, print the mechanism alone first
+  (`build.py run --only latch,keeper` builds those parts whole; a coupon part for less).
+  Honest result of running the field comparison through the calculation, inputs stated
+  (finger push 70.6 N shared by the failed latch's two arms and two pins, 35.3 N each; the
+  arm's 2.5 mm bow and the bar's 12 mm length from its generator; root gaps as the radial
+  clearances; the lever ratio of either latch not measured, so the hand force applied 1:1):
+  it flags the failed latch's curved 1.2 mm arms (factor 0.42; 0.21 for one arm alone) and its
+  bar (0.11 as a cantilever, 0.44 as a span), while its Ø2.6 stub pins (bending 2.6, shear 3.4;
+  2.0, WARN, when the load crosses the layers) and 1.3 mm pin walls (4.4) pass on paper and
+  broke anyway. A lever ratio of 2 alone would make the pins WARN, 3 FAIL; impact at
+  snap-over and corners are not in a static hand calculation either. So the minimums in
+  `design.md` stay the primary rule.
 - **Calibration log.** `scripts/calibration.py` keeps the user's own results in the project's
   `.3dprint/calibration.json` (never in the skill): fit-test outcomes, measured clearances and
   holes, mechanism members that held or broke with their load; schema-checked, finite numbers
