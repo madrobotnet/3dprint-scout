@@ -103,10 +103,16 @@ housing to a 100 mm duct, designed in Fusion through MCP, fit-tested and printed
   not in a static hand calculation), so the minimums in `design.md` stay the primary rule.
 - **Calibration log.** `scripts/calibration.py` keeps the user's own results in the project's
   `.3dprint/calibration.json` (never in the skill): fit-test outcomes, measured clearances and
-  holes, mechanism members that held or broke with their load; schema-checked, numbers only,
-  fields and notes that could identify a person or a machine refused. Read in Phase 2 (a
-  value there beats the official spec and every starting point); written only after the
-  user says yes to one offer (`references/calibration.md`).
+  holes, mechanism members that held or broke with their load; schema-checked, finite numbers
+  under 10 000 only; what the script can recognise as identifying a person or a machine is
+  refused (field names with id, code, device, serial, account and the like; IPv4, IPv6 and MAC
+  addresses, e-mails, long digit runs and letter-digit tokens in notes; printers and materials
+  that are not short lowercase ids), which reduces the risk without guaranteeing it, so the
+  agent never writes a name. `lookup` keeps the newest value that worked apart from the
+  failed, tight and loose bounds. Read in Phase 2 (for how this printer prints, a value there
+  beats every starting point; the object's size still comes from the user's caliper or the
+  official spec); written only after the user says yes to one offer, never in an unattended
+  run (`references/calibration.md`).
 - `examples/latch-box`: a box whose lid carries a separate label part (colour) and a captive
   print-in-place slider latch, grouped into one object; its README shows the object checks, the
   fit check and the expected P2 warning for the latch's bridged underside.

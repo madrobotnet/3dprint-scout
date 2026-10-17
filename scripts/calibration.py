@@ -17,20 +17,27 @@ a value measured here beats the official spec and the starting points in design.
 Schema (3dprint.calibration/1): {"schema", "entries": [{"date", "printer", "material", "nozzle_mm",
 "layer_mm"?, "feature": fit | mechanism | clearance | hole | other, "result": fits | tight | loose |
 worked | failed | measured, "values": {name: number}, "load": number N or a strength.py key,
-"note"}]}. Values are numbers only. Fields that could identify a person or a machine are refused:
-serial numbers, IP addresses, access codes, account or user ids, e-mail addresses, tokens, names
-of people; the note is checked for an IP address or a serial-number-like string.
+"note"}]}. Values are finite numbers under 10 000 (mm, N, counts). What the script can recognise
+as identifying a person or a machine is refused: value names with id, uid, code, device, mac,
+serial, token, account, mail, ip, user, name, key or secret in them; notes with an IPv4, IPv6 or
+MAC address, an e-mail address, a run of six or more digits or a long mixed letter-digit token
+(serial numbers, access codes), or the words serial, access code, account, password; printers
+and materials must be short lowercase ids (x2d, pla_basic; "PLA Basic" is stored as pla_basic,
+the strength.py key), never a person's name. It cannot
+recognise a name in a note: the agent never writes one.
 
-`lookup` prints the matching entries newest first and, for every value name, the latest number
-("latest"), so a later ring that fit replaces an earlier one. Never written without the user's
-yes (SKILL.md): the agent asks once after a print result, then runs `add`. Prints one JSON
-document; exit 0 on success, 1 on error. Standard library only.
+`lookup` prints the matching entries newest first (date, then file order) and, per value name,
+"worked": the newest number from an entry that fit, worked or was measured, and "bounds": the
+newest failed, tight and loose numbers, kept apart so a failure is never read as a setting.
+Never written without the user's yes (SKILL.md): the agent asks once after a print result, then
+runs `add`. Prints one JSON document; exit 0 on success, 1 on error. Standard library only.
 """
 from __future__ import annotations
 
 import argparse
 import datetime
 import json
+import math
 import os
 import re
 import sys
@@ -38,12 +45,22 @@ import sys
 SCHEMA = "3dprint.calibration/1"
 FEATURES = ("fit", "mechanism", "clearance", "hole", "other")
 RESULTS = ("fits", "tight", "loose", "worked", "failed", "measured")
-FORBIDDEN_KEYS = re.compile(r"(serial|^sn$|_sn$|\bip\b|ip_?addr|access.?code|account|user.?id|owner|e-?mail|token|"
-                            r"password|passcode|phone|address|name$)", re.I)
-IP_RE = re.compile(r"\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b")
-SERIAL_RE = re.compile(r"\b[0-9A-Z]{2,4}[0-9]{2}[0-9A-Z]{8,}\b")      # long upper-case alphanumeric runs
+GOOD_RESULTS = ("fits", "worked", "measured")          # the only results a value is taken from
+MAX_VALUE = 1e4                                        # mm, N or counts: anything larger is not a print result
+# Tokens of a value name (split on _ and digits) that point at a person or a machine.
+FORBIDDEN_TOKENS = {"id", "ids", "uid", "uuid", "guid", "code", "codes", "dev", "device", "mac", "serial", "sn", "token",
+                    "account", "acct", "mail", "email", "ip", "ipv4", "ipv6", "user", "owner", "name", "key", "secret",
+                    "password", "passcode", "phone", "address", "login"}
+FORBIDDEN_WORDS = re.compile(r"(serial|access\s*code|account|password|passcode|\buid\b|\bsn\b|user\s*id|token)", re.I)
+IPV4_RE = re.compile(r"\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b")
+IPV6_RE = re.compile(r"\b(?:[0-9a-f]{1,4}:){2,7}[0-9a-f]{1,4}\b", re.I)
+MAC_RE = re.compile(r"\b(?:[0-9a-f]{2}[:-]){5}[0-9a-f]{2}\b", re.I)
+DIGITS_RE = re.compile(r"\d{6,}")
+MIXED_RE = re.compile(r"\b(?=[0-9a-z]*\d)(?=[0-9a-z]*[a-z])[0-9a-z]{10,}\b", re.I)     # long letter-digit tokens
 EMAIL_RE = re.compile(r"[\w.+-]+@[\w-]+\.[\w.]+")
+ID_RE = re.compile(r"[a-z0-9][a-z0-9._+-]{0,39}")
 LOAD_KEYS = ("finger_push", "finger_press", "finger_pull", "pinch_lateral", "pinch_palmar", "grasp")
+MATERIAL_KEYS = re.compile(r"(pla|petg|abs|asa|tpu|pa|pc|pet|pps|peek|ppa|pva|hips)(_[a-z0-9]{1,12}){0,3}")   # pla_basic, petg_hf, pla_cf
 
 
 class CalibrationError(Exception):
@@ -58,22 +75,51 @@ class _JsonArgParser(argparse.ArgumentParser):
 # --------------------------------------------------------------------------- #
 # Schema
 # --------------------------------------------------------------------------- #
-def _ident(what: str, value) -> str:
+def material_key(value):
+    """'PLA Basic' or 'pla-basic' -> pla_basic, the same spelling strength.py uses, so one log
+    serves both scripts; anything else is passed on unchanged to the id check."""
+    text = str(value or "").strip()
+    key = text.lower().replace("-", "_").replace(" ", "_")
+    return key if MATERIAL_KEYS.fullmatch(key) else text
+
+
+def normalize_id(what: str, value) -> str:
+    """A short lowercase id like x2d, a1_mini or pla_basic: no spaces, no capitals, so a person's
+    name or a free text is refused by shape (the script cannot tell a name from an id otherwise)."""
     text = str(value or "").strip()
     if not text:
         raise CalibrationError(f"{what} is required")
-    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9 ._+-]{0,39}", text):
-        raise CalibrationError(f"{what} must be a short identifier (letters, digits, space, . _ + -): {text!r}")
+    if not ID_RE.fullmatch(text):
+        raise CalibrationError(f"{what} must be a short lowercase id without spaces (x2d, a1_mini, pla_basic), as in "
+                               f"printers.json or strength.py: got {value!r}")
+    if FORBIDDEN_WORDS.search(text) or set(re.split(r"[^a-z0-9]+|(?<=[a-z])(?=\d)", text)) & FORBIDDEN_TOKENS:
+        raise CalibrationError(f"{what} {value!r} looks like an identifier of a person or a machine; use the printer model "
+                               "or the id from printers.json")
     return text
 
 
+def forbidden_key(key: str) -> bool:
+    tokens = {t for t in re.split(r"[^a-z]+", key.lower()) if t}
+    return bool(tokens & FORBIDDEN_TOKENS) or bool(re.search(r"(serial|token|account|passw|secret)", key, re.I))
+
+
 def check_private(text: str, where: str) -> None:
-    if IP_RE.search(text):
-        raise CalibrationError(f"{where} contains an IP address; calibration.json holds print results only")
-    if EMAIL_RE.search(text):
-        raise CalibrationError(f"{where} contains an e-mail address; calibration.json holds print results only")
-    if SERIAL_RE.search(text):
-        raise CalibrationError(f"{where} contains what looks like a serial number; leave it out")
+    """What the script can recognise: addresses, e-mail, long digit runs, serial-like tokens and
+    the words that announce them. It cannot recognise a person's name."""
+    for m in IPV4_RE.finditer(text):
+        parts = m.group(0).split(".")
+        # A version such as 02.08.02.61 has leading zeros; an address does not.
+        if all(p == "0" or not p.startswith("0") for p in parts) and all(int(p) <= 255 for p in parts):
+            raise CalibrationError(f"{where} contains an IP address; calibration.json holds print results only")
+    reasons = (
+        (MAC_RE, "a MAC address"), (IPV6_RE, "an IPv6 address"),
+        (EMAIL_RE, "an e-mail address"), (DIGITS_RE, "a run of six or more digits (a serial, code or account number)"),
+        (MIXED_RE, "a long letter-digit token (a serial number or access code)"),
+        (FORBIDDEN_WORDS, "a word that announces a serial number, access code, account or password"),
+    )
+    for rx, why in reasons:
+        if rx.search(text):
+            raise CalibrationError(f"{where} contains {why}; calibration.json holds print results only")
 
 
 def validate_entry(entry: dict) -> dict:
@@ -81,16 +127,16 @@ def validate_entry(entry: dict) -> dict:
     if not isinstance(entry, dict):
         raise CalibrationError("an entry must be an object")
     for key in entry:
-        if FORBIDDEN_KEYS.search(str(key)):
-            raise CalibrationError(f"field '{key}' is not allowed: no serials, IPs, access codes, accounts or names")
+        if forbidden_key(str(key)):
+            raise CalibrationError(f"field '{key}' is not allowed: no serials, IPs, access codes, accounts, ids or names")
     out = {}
     date = str(entry.get("date") or "").strip()
     try:
         out["date"] = datetime.date.fromisoformat(date).isoformat()
     except ValueError:
         raise CalibrationError(f"date must be YYYY-MM-DD, got {date!r}")
-    out["printer"] = _ident("printer", entry.get("printer"))
-    out["material"] = _ident("material", entry.get("material"))
+    out["printer"] = normalize_id("printer", entry.get("printer"))
+    out["material"] = normalize_id("material", material_key(entry.get("material")))
     for key in ("nozzle_mm", "layer_mm"):
         v = entry.get(key)
         if v is None:
@@ -101,7 +147,7 @@ def validate_entry(entry: dict) -> dict:
             v = float(v)
         except (TypeError, ValueError):
             raise CalibrationError(f"{key} must be a number in mm")
-        if not 0 < v < 5:
+        if not math.isfinite(v) or not 0 < v < 5:
             raise CalibrationError(f"{key} {v} is not a plausible size in mm")
         out[key] = v
     feature = str(entry.get("feature") or "").strip().lower()
@@ -119,14 +165,19 @@ def validate_entry(entry: dict) -> dict:
         k = str(k).strip()
         if not re.fullmatch(r"[A-Za-z][A-Za-z0-9_]{0,39}", k):
             raise CalibrationError(f"value name {k!r}: letters, digits and underscores, e.g. clearance_per_side_mm")
-        if FORBIDDEN_KEYS.search(k):
-            raise CalibrationError(f"value '{k}' is not allowed: no serials, IPs, access codes, accounts or names")
+        if forbidden_key(k):
+            raise CalibrationError(f"value '{k}' is not allowed: no serials, IPs, access codes, accounts, ids or names")
         if isinstance(v, bool):
             raise CalibrationError(f"value '{k}' must be a number")
         try:
             num = float(v)
         except (TypeError, ValueError):
             raise CalibrationError(f"value '{k}' must be a number (got {v!r}); put words in the note")
+        if not math.isfinite(num):
+            raise CalibrationError(f"value '{k}' must be a finite number")
+        if abs(num) >= MAX_VALUE or re.search(r"\d{6,}", str(v)):
+            raise CalibrationError(f"value '{k}' = {v!r} is too large for a print result (mm, N, counts under {MAX_VALUE:g}); "
+                                   "ids and codes do not belong here")
         clean[k] = num
     out["values"] = clean
     load = entry.get("load")
@@ -135,15 +186,16 @@ def validate_entry(entry: dict) -> dict:
             out["load"] = load.strip().lower()
         else:
             try:
-                out["load"] = float(load)
+                num = float(load)
             except (TypeError, ValueError):
                 raise CalibrationError(f"load is a force in N or one of {LOAD_KEYS}")
+            if not math.isfinite(num) or num <= 0 or num >= MAX_VALUE:
+                raise CalibrationError(f"load must be a positive force in N under {MAX_VALUE:g}")
+            out["load"] = num
     note = str(entry.get("note") or "").strip()
     if len(note) > 500:
         raise CalibrationError("note: 500 characters at most")
     check_private(note, "note")
-    for key in ("printer", "material"):
-        check_private(out[key], key)
     out["note"] = note
     return out
 
@@ -186,6 +238,11 @@ def parse_values(items) -> dict:
 
 def cmd_add(args) -> dict:
     data = load_file(args.file)
+    if args.printers:
+        with open(args.printers, encoding="utf-8") as f:
+            known = (json.load(f).get("printers") or {})
+        if args.printer not in known:
+            raise CalibrationError(f"printer '{args.printer}' is not in {args.printers} (known: {', '.join(sorted(known)) or 'none'})")
     entry = validate_entry({"date": args.date or datetime.date.today().isoformat(), "printer": args.printer,
                             "material": args.material, "nozzle_mm": args.nozzle, "layer_mm": args.layer,
                             "feature": args.feature, "result": args.result, "values": parse_values(args.value),
@@ -202,10 +259,10 @@ def cmd_show(args) -> dict:
 
 def matches(entry: dict, args) -> bool:
     def same(a, b):
-        return str(a).strip().lower() == str(b).strip().lower()
+        return normalize_id("query", a) == normalize_id("query", b)
     if args.printer and not same(entry["printer"], args.printer):
         return False
-    if args.material and not same(entry["material"], args.material):
+    if args.material and not same(entry["material"], material_key(args.material)):
         return False
     if args.nozzle is not None and abs(entry["nozzle_mm"] - args.nozzle) > 1e-6:
         return False
@@ -216,18 +273,33 @@ def matches(entry: dict, args) -> bool:
 
 def cmd_lookup(args) -> dict:
     data = load_file(args.file)
-    hits = [e for e in data["entries"] if matches(e, args)]
-    hits.sort(key=lambda e: e["date"], reverse=True)
-    latest = {}
-    for e in hits:                                   # newest first: the first value seen wins
+    hits = [(i, e) for i, e in enumerate(data["entries"]) if matches(e, args)]
+    hits.sort(key=lambda ie: (ie[1]["date"], ie[0]), reverse=True)      # newest date, then latest in the file
+    worked, bounds = {}, {}
+    for _i, e in hits:                                                  # the first value seen is the newest
         for k, v in e["values"].items():
-            latest.setdefault(k, {"value": v, "date": e["date"], "result": e["result"], "feature": e["feature"]})
+            stamp = {"value": v, "date": e["date"], "result": e["result"], "feature": e["feature"]}
+            if e["result"] in GOOD_RESULTS:
+                worked.setdefault(k, stamp)
+            else:
+                bounds.setdefault(k, {}).setdefault(e["result"], stamp)
     return {"file": args.file, "query": {k: getattr(args, k) for k in ("printer", "material", "nozzle", "feature") if getattr(args, k) is not None},
-            "entries": hits, "count": len(hits), "latest": latest,
-            "note": "a measured value here beats the official spec and design.md starting points (SKILL.md, Phase 2)"}
+            "entries": [e for _i, e in hits], "count": len(hits), "worked": worked, "bounds": bounds,
+            "note": "'worked' is the newest value from a result that fit, worked or was measured: it beats the official spec "
+                    "and design.md starting points (SKILL.md, Phase 2). 'bounds' are the newest failed, tight and loose "
+                    "values: stay above a failure, between tight and loose"}
+
+
+def utf8_stdout():
+    """Windows consoles and pipes may not be UTF-8; notes may be. Best effort."""
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+    except (AttributeError, ValueError, OSError):
+        pass
 
 
 def main(argv=None):
+    utf8_stdout()
     out = {"schema": "3dprint-scout.calibration/1", "ran": False, "warnings": [], "errors": []}
     try:
         ap = _JsonArgParser(description="the user's own print results per printer, material and nozzle")
@@ -241,6 +313,7 @@ def main(argv=None):
                 p.add_argument("--nozzle", type=float, required=(name == "add"), help="nozzle diameter in mm")
                 p.add_argument("--feature", choices=FEATURES, required=(name == "add"))
             if name == "add":
+                p.add_argument("--printers", help=".3dprint/printers.json: the printer must be one of its ids")
                 p.add_argument("--layer", type=float, help="layer height in mm")
                 p.add_argument("--result", choices=RESULTS, required=True)
                 p.add_argument("--value", action="append", help="name=number, repeatable, e.g. clearance_per_side_mm=0.3")
