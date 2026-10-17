@@ -1,0 +1,25 @@
+{
+  "_parts": {
+    "handle": {
+      "expect": [
+        88.0,
+        25.0,
+        7.3
+      ]
+    }
+  },
+  "_assumptions": [
+    "example: leaf size and grip length are example values, not measured on a door",
+    "height 7.3 mm: the finger pocket cuts away the top of the 8 mm dome (2 + 6 * (1 - (4/12)^2) at the pocket edge)"
+  ],
+  "leaf_len": 60.0,
+  "leaf_w": 24.0,
+  "dome_h": 6.0,
+  "base_t": 2.0,
+  "pocket_w": 20.0,
+  "pocket_d": 8.0,
+  "grip_r": 3.0,
+  "grip_len": 25.0,
+  "blend_k": 2.5,
+  "edge": 0.5
+}

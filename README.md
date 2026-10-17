@@ -34,6 +34,19 @@ Studio, that is a project file with the print settings already set per object.
 
 The agent stops for your choice after references, after the concepts, and after the dimension table.
 
+## Examples
+
+<p>
+<a href="examples/aa-battery-box/"><img src="examples/aa-battery-box/thumb.png" width="200" alt="AA battery box, OpenSCAD"></a>
+<a href="examples/snap-box/"><img src="examples/snap-box/thumb.png" width="200" alt="snap-fit box, part library"></a>
+<a href="examples/leaf-handle/"><img src="examples/leaf-handle/thumb.png" width="200" alt="leaf door handle, SDF"></a>
+<a href="examples/fit-test/"><img src="examples/fit-test/thumb.png" width="200" alt="fit-test rings"></a>
+</p>
+
+An AA battery box (OpenSCAD), a snap-fit box (part library), a leaf door handle (SDF toolkit) and
+fit-test rings, built with the skill's scripts. Each comes with its source, parameters, check
+results and the commands that rebuild it: see [examples/](examples/).
+
 ## Install
 
 **Claude (web and desktop).** Download `3dprint-scout-v<version>.zip` from the
@@ -105,7 +118,7 @@ allowlist with range checks. Keys that can run programs or rewrite G-code are ne
 
 ## Status
 
-**v0.2.0 (unreleased).** Adds the design reference with sourced numbers, the part library, the
+**v0.2.0.** Adds the design reference with sourced numbers, the part library, the
 SDF toolkit for organic shapes, fit-test pieces, the fit check between mating parts, the preview
 renderer and the concept step. v0.1.0 was tested end to end on a Bambu Lab X2D with Bambu Studio
 02.08.02.61, with OpenSCAD 2021.01 and manifold3d 3.5.4; generated templates were also checked
@@ -117,6 +130,8 @@ Planned: a printer-profile importer, bridge and minimum-feature checks. FDM only
 ```bash
 python3 -m unittest discover -s tests
 ```
+
+`tests/test_examples.py` rebuilds every example with the commands in its README.
 
 `SKILL.md` is the entry point. Engine rules, tolerances and the Bambu details live in
 `references/` and are read only when needed.

@@ -32,6 +32,19 @@
 
 레퍼런스를 고를 때, 콘셉트를 고를 때, 치수 표를 확인할 때는 멈추고 사용자의 답을 기다려요.
 
+## 예제
+
+<p>
+<a href="examples/aa-battery-box/"><img src="examples/aa-battery-box/thumb.png" width="200" alt="AA battery box, OpenSCAD"></a>
+<a href="examples/snap-box/"><img src="examples/snap-box/thumb.png" width="200" alt="snap-fit box, part library"></a>
+<a href="examples/leaf-handle/"><img src="examples/leaf-handle/thumb.png" width="200" alt="leaf door handle, SDF"></a>
+<a href="examples/fit-test/"><img src="examples/fit-test/thumb.png" width="200" alt="fit-test rings"></a>
+</p>
+
+AA 건전지 상자(OpenSCAD), 스냅핏 상자(부품 라이브러리), 나뭇잎 문 손잡이(SDF 도구), 끼워보기
+링을 스킬의 스크립트로 만들었어요. 예제마다 소스, 매개변수, 검사 결과, 다시 빌드하는 명령이 들어
+있어요. [examples/](examples/)를 보세요.
+
 ## 설치
 
 **Claude (웹·데스크톱).** [최신 릴리스](../../releases/latest)에서 `3dprint-scout-v<버전>.zip`을
@@ -98,7 +111,7 @@ Bambu Lab 프린터에서는 Bambu Studio 프로젝트 파일을 만들어요(**
 
 ## 현황
 
-**v0.2.0 (미공개).** 출처를 밝힌 숫자로 쓴 설계 참고 문서, 부품 라이브러리, 유기적인 모양을 위한 SDF
+**v0.2.0.** 출처를 밝힌 숫자로 쓴 설계 참고 문서, 부품 라이브러리, 유기적인 모양을 위한 SDF
 도구, 끼워보기 조각, 서로 끼워지는 부품의 끼움 검사, 미리보기 렌더러, 콘셉트 단계가 더해졌어요.
 v0.1.0은 Bambu Lab X2D + Bambu Studio 02.08.02.61, OpenSCAD 2021.01, manifold3d 3.5.4로 처음부터
 끝까지 시험했고, 자동 생성 템플릿은 A1 mini, A1, P1S, X1C, H2D, H2C 프로필로도 확인했어요. 앱에서
@@ -110,6 +123,8 @@ v0.1.0은 Bambu Lab X2D + Bambu Studio 02.08.02.61, OpenSCAD 2021.01, manifold3d
 ```bash
 python3 -m unittest discover -s tests
 ```
+
+`tests/test_examples.py`는 모든 예제를 각 README의 명령 그대로 다시 빌드해요.
 
 진입점은 `SKILL.md`예요. 엔진별 규칙, 공차, Bambu 관련 내용은 `references/`에 있고 필요할 때만
 읽어요.

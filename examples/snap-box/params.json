@@ -1,0 +1,6 @@
+{"_parts": {"box": {"expect": [70.0, 45.0, 30.0]}, "lid": {"expect": [70.0, 45.0, 19.0]}},
+ "_assumptions": ["demo sizes, not measured against a real object",
+                  "lid hooks are built along Z (print orientation), so their strain is held under half the PLA limit (design.md)"],
+ "w": 70.0, "d": 45.0, "h": 30.0, "wall": 2.0, "corner_r": 3.0, "bed_chamfer": 0.4,
+ "plate_t": 3.0, "plug_h": 5.0, "clearance": 0.2,
+ "hook_len": 16.0, "hook_t": 1.6, "hook_w": 6.0, "undercut": 0.5, "boss_h": 12.0}
