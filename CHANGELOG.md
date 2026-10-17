@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.2.0 — unreleased
+## 0.2.0 — 2026-10-17
 
 - `references/design.md`: design for FDM printing with sources for every number — bed-edge
   chamfers, the 45° rule and self-supporting shapes, teardrop holes, bridges, walls in nozzle
