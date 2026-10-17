@@ -73,7 +73,7 @@ housing to a 100 mm duct, designed in Fusion through MCP, fit-tested and printed
   public profiles at a matching tag, never a reseller page. A supplied file is measured, not
   copied. The Phase 3 base-shape stop is not skippable, least of all for multi-part or
   mechanism parts. `expect` comes from the dimension table, never from a measured box:
-  `validate.py` flags an `expect` with three or more decimals that matches the mesh to 0.001 mm.
+  `validate.py` flags an `expect` with four or more decimals that matches the mesh to 0.001 mm.
   Every delivery repeats unverified dimensions, `_assumptions` and open WARNs, and a skipped fit
   test is recorded as unconfirmed in `_assumptions` before delivery.
 - `examples/latch-box`: a box whose lid carries a separate label part (colour) and a captive

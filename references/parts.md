@@ -39,7 +39,7 @@ Where to put the seam (`design.md`, "Colour and function seams" has the numbers)
 
 | Key | Meaning |
 |---|---|
-| `expect` | Size `[x, y, z]` from the dimension table (design intent). Never a measured bounding box: `validate.py` flags an `expect` with three or more decimals that matches the mesh to 0.001 mm as copied |
+| `expect` | Size `[x, y, z]` from the dimension table (design intent). Never a measured bounding box: `validate.py` flags an `expect` with four or more decimals that matches the mesh to 0.001 mm as copied |
 | `object` | Parts with the same value form one object. Every part of an object is modelled in the **same frame** (Z-up, Z = 0 on the bed), so the STLs already hold the assembled positions. Without `object`, a part is an object of its own |
 | `role` | `fused` (default in a group): must share faces with at least one other part of the object, no overlap. `free`: print-in-place, must not touch any other part |
 | `clearance` | For `free` parts: the gap kept all round, mm per side (default 0.3) |

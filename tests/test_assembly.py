@@ -213,8 +213,8 @@ class BuildIntegration(unittest.TestCase):
         self.assertTrue(any("_parts" in e and "role" in e for e in out["errors"]), out["errors"])
 
     def test_copied_expect_is_flagged(self):
-        """expect with three or more decimals that matches the mesh to 0.001 mm looks copied
-        from a measured bounding box (D1 would be circular)."""
+        """expect with four or more decimals that matches the mesh to 0.001 mm looks copied from a
+        measured bounding box (D1 would be circular); inch-derived sizes (25.4, 3.175) are design."""
         odd = os.path.join(self.d, "odd.stl"); write_stl(odd, box(71.2004, 37.8, 33.6))
         code, out = self.run_record({"odd": {"expect": [71.2004, 37.8, 33.6]}}, [odd])
         d1 = out["parts"][0]["validate"]["files"][0]["checks"]["D1"]
@@ -223,6 +223,12 @@ class BuildIntegration(unittest.TestCase):
         self.assertTrue(any("copied" in w for w in out["warnings"]))
         code, out = self.run_record({"odd": {"expect": [71.2, 37.8, 33.6]}}, [odd])
         self.assertFalse(out["parts"][0]["validate"]["files"][0]["checks"]["D1"].get("copied_expect"))
+        inch = os.path.join(self.d, "inch.stl"); write_stl(inch, box(25.4, 12.7, 3.175))
+        code, out = self.run_record({"inch": {"expect": [25.4, 12.7, 3.175]}}, [inch])
+        d1 = out["parts"][0]["validate"]["files"][0]["checks"]["D1"]
+        self.assertEqual(d1["state"], "PASS")
+        self.assertFalse(d1.get("copied_expect"))
+        self.assertFalse(any("copied" in w for w in out["warnings"]))
 
     def test_help_describes_the_output(self):
         for argv in (["--help"], ["record", "--help"], ["run", "--help"]):

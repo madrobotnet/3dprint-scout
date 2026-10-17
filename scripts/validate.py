@@ -601,9 +601,10 @@ def run_checks(path, tris, m, args, bed, bed_source):
         ok = all(d <= args.tol for d in diffs)
         c["D1"] = chk("PASS" if ok else "FAIL", "hard", {"bbox": bbox, "expect": exp, "tol": args.tol},
                       "" if ok else "bounding box differs from the expected size", "phase2")
-        if ok and max(diffs) <= 1e-3 and any(_decimals(e) >= 3 for e in exp):
-            # A designed size has one or two decimals; a value copied from a measured box has more.
-            c["D1"]["note"] = ("expect has three or more decimals and matches the mesh to 0.001 mm: it looks copied "
+        if ok and max(diffs) <= 1e-3 and any(_decimals(e) >= 4 for e in exp):
+            # A designed size has up to three decimals (25.4, 3.175 mm from inches); a value copied from a
+            # measured bounding box has more.
+            c["D1"]["note"] = ("expect has four or more decimals and matches the mesh to 0.001 mm: it looks copied "
                                "from a measured bounding box. expect comes from the dimension table (design intent); "
                                "a copied value proves nothing")
             c["D1"]["copied_expect"] = True
