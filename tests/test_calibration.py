@@ -121,7 +121,7 @@ class Calibration(unittest.TestCase):
                            (base + ["--note", "mac 00:1A:2B:3C:4D:5E"], "MAC"),
                            (base + ["--note", "ask someone@example.com"], "e-mail"),
                            (base + ["--note", "SN 01P00A123456789"], "digits"),
-                           (base + ["--note", "sn 00m09a3b1000685"], "digits"),
+                           (base + ["--note", "sn 00m00a0a0000001"], "digits"),
                            (base + ["--note", "code x7k9q2m4p8w1"], "letter-digit"),
                            (base + ["--note", "access code 1234, uid 20938"], "announces"),
                            (base + ["--note", "the serial is on the back"], "announces"),
