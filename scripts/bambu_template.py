@@ -9,9 +9,16 @@ load_external_preset -> update_non_diff_values_to_base_config, checked in the
 02.08.02.61 source). So a project that only names system presets and lists no changes
 opens as those presets, with the values from the user's own installation.
 
+One value has to be written per filament all the same: filament_diameter. Before the
+presets are matched, Bambu Studio's Preset::normalize (Preset.cpp, 02.08.02.61) resizes
+every per-filament vector, filament_settings_id included, to the length of
+filament_diameter. A project without it gets the one-element default, so every filament
+after the first loses its preset name and opens as a project preset named after the file
+("(file.3mf)", "1(file.3mf)", ...). The nominal diameter is read from each filament preset.
+
 This script writes such a project. It copies no settings values: it reads only names
 and a few printer facts (printer model, nozzle count, bed area, default bed type,
-filament id and type) from a Bambu profile folder, which can be the user's installed
+filament id, type and nominal diameter) from a Bambu profile folder, which can be the user's installed
 Bambu Studio or Bambu's public profiles at the same version. bambu3mf.py then fills the
 project with parts.
 
@@ -44,6 +51,7 @@ import zlib
 SCHEMA = "3dprint-scout.bambu_template/1"
 VENDOR = "BBL"
 DEFAULT_COLOUR = "#FFFFFF"
+DEFAULT_DIAMETER = "1.75"   # used only when a filament preset chain names no filament_diameter
 # File-format interoperability constants: the values Bambu Studio itself writes for a project
 # that has never had its flush volumes edited (PrintConfig.cpp defaults for the off-diagonal
 # flush_volumes_matrix entries and for flush_volumes_vector). They are facts about the file
@@ -226,6 +234,7 @@ def project_settings(prof: Profiles, args) -> tuple[dict, dict]:
             raise TemplateError(f"'{name}' is not compatible with '{args.printer}'")
         fil.append({"name": name, "id": _first(f.get("filament_id")), "type": _first(f.get("filament_type")),
                     "vendor": _first(f.get("filament_vendor")),
+                    "diameter": _first(f.get("filament_diameter"), DEFAULT_DIAMETER),
                     "variant": _first(f.get("filament_extruder_variant"), "Direct Drive Standard")})
 
     nozzles = [str(x).strip() for x in _as_list(printer.get("nozzle_diameter"))]
@@ -252,6 +261,9 @@ def project_settings(prof: Profiles, args) -> tuple[dict, dict]:
         "filament_ids": [f["id"] for f in fil],
         "filament_type": [f["type"] for f in fil],
         "filament_vendor": [f["vendor"] for f in fil],
+        # Preset::normalize sizes every per-filament vector (filament_settings_id too) to this
+        # one; without it, filaments 2..n lose their preset names when the project opens.
+        "filament_diameter": [f["diameter"] for f in fil],
         # Nothing differs from the system presets: Bambu Studio fills every value from them.
         "inherits_group": [""] * (n + 2),
         "different_settings_to_system": [""] * (n + 2),
