@@ -20,7 +20,7 @@ Schema (params.json, metadata keys never reach the engine):
   - The first part listed for an object is its main part: its filament and settings go
     on the object in a Bambu project; the other parts take the main filament unless the
     user named colours.
-  - "filament": 1-based slot for Bambu projects (optional, default 1).
+  - "filament": 1-based slot for Bambu projects (optional; default: the main part's).
 
 Checks (IDs continue the SKILL.md table):
   per object (only when it has several parts): D2, P1, P2 on the union of its parts, so
@@ -45,9 +45,12 @@ import validate  # noqa: E402
 
 ROLES = ("fused", "free")
 DEFAULT_FREE_CLEARANCE = 0.3     # mm per side, print-in-place joint (references/tolerances.md)
-MAX_INTERFERENCE = 0.001         # mm3; coincident faces can leave slivers of this order (fit.py)
+MAX_INTERFERENCE = 0.001         # mm3; the absolute floor of the allowed overlap
+SKIN = 0.01                      # mm; bodies exported separately (Fusion, OpenSCAD) rarely share a
+#                                  tessellation: a 48-segment pin in a 64-segment hole overlaps by a
+#                                  few hundredths of a mm3. Allowed overlap = SKIN x shared area.
 GAP_SEARCH = 5.0                 # mm; a part farther than this from every other part "floats"
-TOUCH_EPS = 1e-6                 # mm; min_gap below this means the surfaces touch
+TOUCH_EPS = 0.01                 # mm; a gap below this means the surfaces touch (same tessellation slack)
 
 
 class AssemblyError(ValueError):
@@ -185,11 +188,10 @@ def check_object(obj: dict, stls: dict, specs: dict, bed=None, bed_source=None, 
                                            note="needs manifold3d to remove the faces the parts share")
     else:
         out["checks"]["P2"] = p2
-    hull = m.pop("_hull", None)
+    m.pop("_hull", None)
     out["metrics"] = {k: m[k] for k in ("triangles", "bbox_mm", "bbox_min_mm", "volume_mm3", "shells",
                                         "bed_contact_mm2", "overhang_area_mm2", "overhang_pct")}
     out["rotation_deg"] = (out["checks"]["D2"].get("value") or {}).get("rotation_deg", 0) or 0
-    del hull
 
     # A1 / A2 per part.
     for n in names:
@@ -209,17 +211,24 @@ def check_object(obj: dict, stls: dict, specs: dict, bed=None, bed_source=None, 
             inter = mans[n] ^ mans[q]
             overlap = inter.volume() if not inter.is_empty() else 0.0
             gap = mans[n].min_gap(mans[q], GAP_SEARCH)
-            pairs.append({"part": q, "overlap_mm3": round(overlap, 4), "gap_mm": round(gap, 4)})
-        overlapping = [p for p in pairs if p["overlap_mm3"] > MAX_INTERFERENCE]
-        touching = [p for p in pairs if p["overlap_mm3"] <= MAX_INTERFERENCE and p["gap_mm"] <= TOUCH_EPS]
+            # Faces the two parts share vanish in their union: the shared area is half of what the
+            # union loses. A skin of SKIN mm over that area is the overlap tessellation may produce.
+            shared = max(0.0, (mans[n].surface_area() + mans[q].surface_area() - (mans[n] + mans[q]).surface_area()) / 2)
+            allowed = MAX_INTERFERENCE + SKIN * shared
+            pairs.append({"part": q, "overlap_mm3": round(overlap, 4), "gap_mm": round(gap, 4),
+                          "shared_area_mm2": round(shared, 2), "allowed_overlap_mm3": round(allowed, 4),
+                          "overlaps": overlap > allowed, "touches": overlap <= allowed and (overlap > 0 or gap <= TOUCH_EPS)})
+        overlapping = [p for p in pairs if p["overlaps"]]
+        touching = [p for p in pairs if p["touches"]]
         nearest = min(pairs, key=lambda p: p["gap_mm"]) if pairs else None
         value = {"pairs": pairs}
         if role == "fused":
             if overlapping:
                 who = ", ".join(f"{p['part']} ({p['overlap_mm3']} mm3)" for p in overlapping)
                 entry["checks"]["A1"] = validate.chk(
-                    "FAIL", "hard", value, f"overlaps {who}: a fused part shares faces with its neighbour, it does not "
-                    "overlap it (the slicer would clip the overlap by its own rules)", "phase4")
+                    "FAIL", "hard", value, f"overlaps {who}, more than a {SKIN} mm skin over the shared area: a fused "
+                    "part shares faces with its neighbour, it does not overlap it (the slicer would clip the overlap "
+                    "by its own rules)", "phase4")
             elif touching:
                 value["touches"] = [p["part"] for p in touching]
                 entry["checks"]["A1"] = validate.chk("PASS", "hard", value,

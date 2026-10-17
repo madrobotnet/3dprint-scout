@@ -397,28 +397,31 @@ def overall_gate(reports) -> str:
     return "PASS"
 
 
-def printer_bed(args):
-    """(bed dict from validate.effective_bed, bed source) for the printer file and tool list of
-    this build, or (None, reason) when the printer is not known. Errors are left for
-    validate.py to report; here they only mean "no bed"."""
+def printer_bed(args, all_tools=False):
+    """(bed dict from validate.effective_bed, bed source, tool ids) for the printer file and tool
+    list of this build, or (None, reason, []) when the printer is not known. With all_tools the
+    bed is the intersection of every tool's area (what an object printed by several nozzles
+    needs). Errors are left for validate.py to report; here they only mean "no bed"."""
     if not args.printer:
-        return None, "no printer profile given"
+        return None, "no printer profile given", []
     if not os.path.isfile(args.printer):
-        return None, f"printer file not found: {args.printer}"
+        return None, f"printer file not found: {args.printer}", []
     try:
         _, printer = validate.load_printer(args.printer, args.printer_id)
         tool_ids = [int(x) for x in str(args.tools if args.tools is not None else "0").split(",") if x.strip()]
+        if all_tools and printer.get("tools"):
+            tool_ids = list(range(len(printer["tools"])))
         bed = validate.effective_bed(printer, tool_ids)
     except (ValueError, OSError, json.JSONDecodeError) as exc:
-        return None, str(exc)
-    return bed, printer.get("bed", {}).get("source", "user")
+        return None, str(exc), []
+    return bed, printer.get("bed", {}).get("source", "user"), tool_ids
 
 
 def usable_bed(args):
     """(width, depth) of the usable bed for the core 3MF layout, or None when unknown.
     Uses the same printer file and tool list as the D2 check, so an object that D2 passes
     "when rotated" is placed with that rotation."""
-    bed, source = printer_bed(args)
+    bed, source, _ = printer_bed(args)
     if bed is None or source == "default" or not bed.get("rect"):
         return None
     x0, y0, x1, y1 = bed["rect"]
@@ -487,7 +490,12 @@ def finish(out, parts, sources, params, params_path, specs, args, engine):
     # Objects with several parts: D2 / P1 / P2 of the whole, A1 / A2 per part.
     sane_names = {p["name"] for p in sane}
     by_name = {p["name"]: p for p in parts}
-    bed, bed_source = printer_bed(args)
+    # An object with several parts, or any object of a job that uses several filaments, may be
+    # printed by more than one nozzle: its D2 uses the intersection of every tool's area, as
+    # bambu3mf.py lays such jobs out (printers.json "tools"; a single-nozzle printer is unchanged).
+    filaments = {int((specs.get(p["name"]) or {}).get("filament") or 1) for p in parts}
+    multi_tool = any(len(g["parts"]) > 1 for g in groups) or len(filaments) > 1
+    bed, bed_source, tool_ids = printer_bed(args, all_tools=multi_tool)
     out["objects"] = []
     object_gates = []
     for g in groups:
@@ -503,6 +511,13 @@ def finish(out, parts, sources, params, params_path, specs, args, engine):
                     out["errors"].append(f"object '{g['name']}': {exc}")
                     entry["gate"] = "FAIL"
                 else:
+                    if bed is not None and multi_tool:
+                        rep["checks"]["D2"].setdefault("value", {})
+                        if isinstance(rep["checks"]["D2"]["value"], dict):
+                            rep["checks"]["D2"]["value"]["tools"] = tool_ids
+                        rep["checks"]["D2"]["note"] = (rep["checks"]["D2"].get("note", "") +
+                                                       f"; usable area = intersection of tools {tool_ids} (several parts or "
+                                                       "filaments may need every nozzle)").lstrip("; ")
                     entry.update(checks=rep["checks"], metrics=rep["metrics"], rotation_deg=rep["rotation_deg"],
                                  method=rep["method"], gate=assembly.object_gate(rep))
                     for n, pr in rep["parts"].items():

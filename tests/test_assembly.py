@@ -86,6 +86,35 @@ class ObjectChecks(unittest.TestCase):
         self.assertIn("overlaps lid", rep["parts"]["deep"]["checks"]["A1"]["note"])
         self.assertAlmostEqual(rep["parts"]["deep"]["checks"]["A1"]["value"]["pairs"][0]["overlap_mm3"], 25.0, places=2)
 
+    def test_mismatched_tessellations_still_count_as_touching(self):
+        """A 48-segment inlay in a 64-segment pocket overlaps by a few hundredths of a mm3 (the
+        polygons cross); that is tessellation, not a modelling error. Sunk 0.5 mm, it is."""
+        import manifold3d as m3d
+        from build import write_binary_stl
+
+        def save(man, name):
+            p = os.path.join(self.d, name)
+            mesh = man.to_mesh()
+            write_binary_stl(p, mesh.vert_properties[:, :3].tolist(), mesh.tri_verts.tolist())
+            return p
+        block = m3d.Manifold.cube([30, 30, 10]) - m3d.Manifold.cylinder(5.1, 5, 5, 64).translate([15, 15, 5])
+        inlay = m3d.Manifold.cylinder(5, 5, 5, 48).translate([15, 15, 5])
+        sunk = m3d.Manifold.cylinder(5, 5, 5, 48).translate([15, 15, 4.5])
+        stls = {"block": save(block, "block.stl"), "inlay": save(inlay, "inlay.stl")}
+        specs = {"block": {"object": "o"}, "inlay": {"object": "o"}}
+        rep = assembly.check_object(assembly.group_parts(specs)[0], stls, specs)
+        a1 = rep["parts"]["inlay"]["checks"]["A1"]
+        pair = a1["value"]["pairs"][0]
+        self.assertGreater(pair["overlap_mm3"], 0.001)                      # the polygons cross
+        self.assertLess(pair["overlap_mm3"], pair["allowed_overlap_mm3"])
+        self.assertGreater(pair["shared_area_mm2"], 70)                    # the bottom face at least (the sides only partly coincide)
+        self.assertEqual(a1["state"], "PASS", a1)
+        self.assertEqual(rep["parts"]["block"]["checks"]["A1"]["state"], "PASS")
+        stls["inlay"] = save(sunk, "sunk.stl")
+        rep = assembly.check_object(assembly.group_parts(specs)[0], stls, specs)
+        self.assertEqual(rep["parts"]["inlay"]["checks"]["A1"]["state"], "FAIL")
+        self.assertGreater(rep["parts"]["inlay"]["checks"]["A1"]["value"]["pairs"][0]["overlap_mm3"], 30)
+
     def test_shared_faces_are_not_overhangs(self):
         """A label on the lid's top: alone, its underside is 100 % overhang; as part of the
         object the shared face vanishes and P2 passes."""
@@ -136,6 +165,8 @@ class BuildIntegration(unittest.TestCase):
         self.assertEqual(objects["lid"]["parts"], ["lid", "label"])
         self.assertEqual(objects["lid"]["gate"], "PASS")
         self.assertEqual(objects["lid"]["checks"]["D2"]["state"], "PASS")
+        self.assertEqual(objects["lid"]["checks"]["D2"]["value"]["tools"], [0, 1])     # both nozzles must reach it
+        self.assertIn("intersection of tools", objects["lid"]["checks"]["D2"]["note"])
         self.assertEqual(objects["lid"]["checks"]["P2"]["state"], "PASS")
         self.assertEqual(objects["peg"]["parts"], ["peg"])
         self.assertNotIn("checks", objects["peg"])
@@ -148,6 +179,23 @@ class BuildIntegration(unittest.TestCase):
         import zipfile
         with zipfile.ZipFile(os.path.join(self.d, "out", "gen_fusion.3mf")) as z:
             self.assertIn("<components>", z.read("3D/3dmodel.model").decode())
+
+    @unittest.skipUnless(HAS_M3D, "manifold3d not installed")
+    def test_multi_part_object_is_checked_against_the_shared_nozzle_area(self):
+        """X2D: tool 1 reaches x >= 20.5 only, so the shared area is 235.5 mm wide. A 240 mm
+        two-part object passes D2 alone (--tools 0) but fails as an object."""
+        wide = os.path.join(self.d, "wide.stl"); write_stl(wide, box(240, 240, 5))
+        tag = os.path.join(self.d, "tag.stl"); write_stl(tag, box(10, 10, 2, 0, 0, 5))
+        printers = os.path.join(self.d, "printers.json")
+        with open(printers, "w") as f:
+            json.dump(X2D, f)
+        code, out = self.run_record({"wide": {}, "tag": {"object": "wide"}}, [wide, tag], ["--printer", printers, "--tools", "0"])
+        parts = {p["name"]: p for p in out["parts"]}
+        self.assertEqual(parts["wide"]["validate"]["files"][0]["checks"]["D2"]["state"], "PASS")   # full bed, tool 0
+        d2 = out["objects"][0]["checks"]["D2"]
+        self.assertEqual(d2["state"], "FAIL", d2)
+        self.assertEqual(d2["value"]["bed"], [235.5, 256])
+        self.assertEqual(out["gate"], "FAIL")
 
     @unittest.skipUnless(HAS_M3D, "manifold3d not installed")
     def test_floating_fused_part_fails_the_gate(self):

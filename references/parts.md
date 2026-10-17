@@ -43,7 +43,7 @@ Where to put the seam (`design.md`, "Colour and function seams" has the numbers)
 | `object` | Parts with the same value form one object. Every part of an object is modelled in the **same frame** (Z-up, Z = 0 on the bed), so the STLs already hold the assembled positions. Without `object`, a part is an object of its own |
 | `role` | `fused` (default in a group): must share faces with at least one other part of the object, no overlap. `free`: print-in-place, must not touch any other part |
 | `clearance` | For `free` parts: the gap kept all round, mm per side (default 0.3) |
-| `filament` | 1-based slot for a Bambu project (default: the main part's) |
+| `filament` | 1-based slot for a Bambu project (default: the main part's; the main part defaults to 1) |
 | `shells` | Bodies expected in this one STL (default 1), as before |
 
 The **first part listed** for an object is its main part: its filament, plate and print
@@ -57,9 +57,9 @@ gets, in `objects[]`:
 
 | ID | Check | Kind | Note |
 |---|---|---|---|
-| D2 | The whole object fits the usable bed | hard | One rotation for the whole object; the 3MF writers place the parent, never a part alone |
+| D2 | The whole object fits the usable bed | hard | One rotation for the whole object; the 3MF writers place the parent, never a part alone. For an object with several parts, or any object of a job that uses several filaments, the usable bed is the intersection of every tool's area in `printers.json` (`value.tools`), as `bambu3mf.py` lays such jobs out: on an X2D / H2D both nozzles may have to reach it |
 | P1, P2 | Bed contact and overhang of the union of the parts | soft | Needs manifold3d: shared faces vanish, so a label on a lid is no overhang. Without it P2 is UNVERIFIED |
-| A1 | `fused` part shares faces with another part, no overlap | hard | FAIL when it floats (nearest part named with its gap) or overlaps (the slicer would clip the overlap by its own rules) |
+| A1 | `fused` part shares faces with another part, no overlap | hard | FAIL when it floats (nearest part named with its gap) or overlaps (the slicer would clip the overlap by its own rules). Bodies exported separately rarely share a tessellation (a 48-segment pin in a 64-segment hole crosses it by a few hundredths of a mm³), so an overlap up to a 0.01 mm skin over the shared area counts as touching, and a gap up to 0.01 mm does too |
 | A2 | `free` part keeps its clearance | hard | FAIL on contact or overlap; WARN below the clearance (like F3) |
 
 The gate of the build is the worst of every part and every object. A part's own P1/P2

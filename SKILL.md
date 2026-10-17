@@ -235,7 +235,8 @@ python3 "$SKILL_DIR/scripts/build.py" run model.scad --params .3dprint/params.js
 
 `build.py run` builds every part in `_parts`, writes `<part>.stl.manifest.json`, writes a core 3MF
 (parts of an object under one parent), validates each part against its own `expect`, and checks
-every object with several parts as a whole (D2, P1, P2 on the union, A1 / A2 per part). For
+every object with several parts as a whole (D2 against the area every nozzle reaches, P1, P2 on
+the union, A1 / A2 per part). For
 Fusion, export one STL per part from Fusion and use `build.py record` instead
 (`references/engines/fusion.md`; its JSON is described in `build.py record --help` and
 `references/parts.md`). Render the built STLs with `preview.py` (Phase 0, step 3), report size,
