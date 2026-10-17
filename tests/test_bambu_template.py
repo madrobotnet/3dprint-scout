@@ -48,7 +48,8 @@ def make_profiles(root):
         "filament_list": {
             "Test PLA @base": {"type": "filament", "name": "Test PLA @base", "from": "system",
                                "instantiation": "false", "filament_id": "TST01", "filament_type": ["PLA"],
-                               "filament_vendor": ["Test Co"], "nozzle_temperature": ["220"]},
+                               "filament_vendor": ["Test Co"], "nozzle_temperature": ["220"],
+                               "filament_diameter": ["2.85"]},
             "Test PLA @Test": {"type": "filament", "name": "Test PLA @Test", "inherits": "Test PLA @base",
                                "from": "system", "instantiation": "true", "compatible_printers": [PRINTER],
                                "filament_extruder_variant": ["Direct Drive Standard"]},
@@ -126,13 +127,30 @@ class Content(Base):
         cfg = self.cfg()
         n, e = 2, 2
         for key in ("filament_settings_id", "filament_ids", "filament_colour", "filament_extruder_variant",
-                    "filament_self_index", "filament_map"):
+                    "filament_self_index", "filament_map", "filament_diameter"):
             self.assertEqual(len(cfg[key]), n, key)
         self.assertEqual(cfg["filament_colour"], ["#0ACC38", "#FFFFFF"])
         self.assertEqual(len(cfg["flush_volumes_matrix"]), e * n * n)
         self.assertEqual(cfg["flush_volumes_matrix"][:4], ["0", "280", "280", "0"])
         self.assertEqual(len(cfg["flush_multiplier"]), e)
         self.assertEqual(len(cfg["different_settings_to_system"]), n + 2)
+
+    def test_filament_names_survive_normalize(self):
+        # Bambu Studio's Preset::normalize resizes every per-filament vector, filament_settings_id
+        # included, to len(filament_diameter) before matching presets (Preset.cpp, 02.08.02.61).
+        # Without filament_diameter the default has one element and filaments 2..n open as
+        # project presets named after the file. Mirror that resize here.
+        names = ["Test PLA @Test", "Test PLA @Test", "Test PLA @Test"]
+        code, res = self.run_cli(*[a for n in names for a in ("--filament", n)])
+        self.assertEqual(code, 0, res["errors"])
+        cfg = self.cfg()
+        n = len(cfg.get("filament_diameter", ["1.75"]))
+        kept = (cfg["filament_settings_id"] + [""] * n)[:n]
+        self.assertEqual(kept, names)
+
+    def test_filament_diameter_is_read_through_inherits(self):
+        self.run_cli()
+        self.assertEqual(self.cfg()["filament_diameter"], ["2.85"])     # from "Test PLA @base"
 
     def test_package_parts(self):
         self.run_cli()

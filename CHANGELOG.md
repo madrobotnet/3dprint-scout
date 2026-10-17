@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+- Fix: `bambu_template.py` projects with more than one filament opened in Bambu Studio with
+  filaments 2..n as project presets named after the file ("(part.3mf)", "1(part.3mf)", ...)
+  instead of the named system presets. Bambu Studio's `Preset::normalize` resizes every
+  per-filament vector, `filament_settings_id` included, to the length of `filament_diameter`
+  before it matches presets, and the template did not write `filament_diameter`. It now writes
+  each filament's nominal diameter (read through `inherits`, default 1.75). Found on an X2D
+  with PETG Basic and five PLA Pure slots; a regression test mirrors the resize.
 - `examples/`: four parts built with the skill's scripts: an AA battery box (OpenSCAD), a snap-fit
   box (`parts.py`), a leaf door handle (`sdf.py`) and fit-test rings (`fit_test.py`). Each has its
   source, parameters, preview images, fit-check results where parts mate, and the commands that
