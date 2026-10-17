@@ -174,15 +174,33 @@ class SnapFits(PartCase):
 class Hinges(PartCase):
     def test_print_in_place_hinge(self):
         h = parts.hinge()
-        a = self.assertSolid(h["leaf_a"], bbox=[30, 20.3, 8])
-        b = self.assertSolid(h["leaf_b"], bbox=[30, 20.3, 8])
-        self.assertSolid(h["leaf_a"] + h["leaf_b"], shells=2, bbox=[30, 32.6, 8])
+        a = self.assertSolid(h["leaf_a"], bbox=[30, 20.7, 8.4])
+        b = self.assertSolid(h["leaf_b"], bbox=[30, 20.7, 8.4])
+        self.assertSolid(h["leaf_a"] + h["leaf_b"], shells=2, bbox=[30, 33.0, 8.4])
         self.assertEqual((h["leaf_a"] ^ h["leaf_b"]).volume(), 0.0)
         self.assertAlmostEqual(h["leaf_a"].min_gap(h["leaf_b"], 1.0), 0.3, delta=0.01)   # tolerances.md
         self.assertEqual(a["bbox_min_mm"][2], 0.0)                                      # both on the bed
         self.assertEqual(b["bbox_min_mm"][2], 0.0)
-        with self.assertRaises(ValueError):
-            parts.hinge(knuckle_d=5, pin_d=3)                                 # wall under 1.2 mm
+
+    def test_mechanism_minimums(self):
+        """design.md, Mechanisms that carry load: a pin wall under 2.2 mm, a leaf under 2.5 mm, a
+        knuckle under 4 mm or a pin under 3.2 mm is refused with the source named."""
+        cases = {"wall": dict(knuckle_d=7.0, pin_d=3.2),            # (7 - 3.8) / 2 = 1.6 mm
+                 "pin": dict(pin_d=2.6, knuckle_d=8.0),
+                 "leaf": dict(leaf_t=2.0),
+                 "knuckles": dict(length=12.0, knuckles=3)}         # (12 - 0.6) / 3 = 3.8 mm
+        for name, kw in cases.items():
+            with self.assertRaisesRegex(ValueError, "design.md", msg=name):
+                parts.hinge(**kw)
+        self.assertEqual(parts.MECHANISM, {"pin_d": 3.2, "pin_wall": 2.2, "member": 2.5, "knuckle_len": 4.0})
+        # The failed field latch's numbers: a 2.6 mm pin in a 6.0 mm knuckle is refused outright.
+        with self.assertRaisesRegex(ValueError, "minimum"):
+            parts.hinge(knuckle_d=6.0, pin_d=2.6)
+        # A hinge that carries nothing may go down to what still prints.
+        h = parts.hinge(length=16, knuckle_d=5.2, pin_d=2.0, leaf_t=1.6, knuckles=3, decorative=True)
+        self.assertSolid(h["leaf_a"] + h["leaf_b"], shells=2)
+        with self.assertRaisesRegex(ValueError, "tolerances.md"):
+            parts.hinge(knuckle_d=4.4, pin_d=2.0, decorative=True)       # wall 0.9 mm: does not print
 
 
 class Text(PartCase):

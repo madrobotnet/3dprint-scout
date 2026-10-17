@@ -28,7 +28,8 @@ parameter in Fusion's Change Parameters dialog rebuilds the model.
         print(B.export(r"C:\\path\\to\\out", ["body"]))  # one STL per body, JSON summary
 
 Derived from the Builder that ran in the 2026-10-17 field test (X2D exhaust adapter); this
-cleaned version has not yet been run in Fusion. Pure-Python helpers (frames, parameter names,
+cleaned version has not yet been run in Fusion. Size pins, knuckles and levers by design.md,
+"Mechanisms that carry load", not by the 1.2 mm printability minimum: that adapter's latches broke. Pure-Python helpers (frames, parameter names,
 box overlap, the summary) are unit-tested; the API calls are checked against the Fusion API
 reference only.
 """

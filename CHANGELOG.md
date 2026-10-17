@@ -76,6 +76,17 @@ housing to a 100 mm duct, designed in Fusion through MCP, fit-tested and printed
   `validate.py` flags an `expect` with four or more decimals that matches the mesh to 0.001 mm.
   Every delivery repeats unverified dimensions, `_assumptions` and open WARNs, and a skipped fit
   test is recorded as unconfirmed in `_assumptions` before delivery.
+- **Mechanism minimums** (`design.md`, "Mechanisms that carry load"; checklist P7). The field
+  test's adapter was printed and its print-in-place draw latches broke on first use: Ø2.6 stub
+  pins in ~2 mm plates, 1.3 mm of knuckle wall, 1.2 mm link arms, every member at the P3
+  printability minimum. A working print-in-place latch from an earlier project (one Ø3.2
+  through pin in 4.25 mm rails, ≥ 2.2 mm of wall around the hole, 2.5 mm at the thinnest
+  member, about 6× the material) gives the starting points: pin ≥ 3.2 mm, pin wall ≥ 2.2 mm,
+  load-carrying members ≥ 2.5 mm in the bending direction and ≥ 4 mm wide, one through pin
+  supported at both ends, 0.3–0.35 mm radial clearance. These are a one-pair field comparison,
+  not a standard. `parts.hinge()` now defaults to them (pin 3.2, knuckle 8.4, leaf 2.6) and
+  refuses thinner values unless `decorative=True`; `examples/latch-box` thickens its bar, rail
+  lips and lug ceiling accordingly.
 - `examples/latch-box`: a box whose lid carries a separate label part (colour) and a captive
   print-in-place slider latch, grouped into one object; its README shows the object checks, the
   fit check and the expected P2 warning for the latch's bridged underside.

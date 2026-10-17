@@ -114,9 +114,43 @@ heads ISO 10642 (theoretical dk, 90°) [14]; M2/M2.5 countersink values are star
   layer of the upper part bridges the gap, so keep gaps a whole number of layer heights (0.2
   or 0.4 mm at 0.2 mm layers) where a surface sits above another (starting point).
 - Knuckles get a flat on the bed side; the leaf plates lie flat. `parts.hinge(...)` builds
-  such a hinge; validate it with `--shells 2` (two bodies that never touch).
+  such a hinge to the mechanism minimums below; validate it with `--shells 2` (two bodies
+  that never touch).
 - After the print, free the joint with a few firm twists before the parts cool completely
   (PLA is still soft) — tell the user.
+
+## Mechanisms that carry load
+
+P3's 1.2 mm is a **printability** minimum, not a strength minimum. A latch, lever, pin,
+knuckle or link that is pushed, pulled or snapped by hand sees far more than a wall does.
+Starting points for members that carry load (field comparison, 2026-10, one failed and one
+working print-in-place latch, PLA or PETG, 0.4 mm nozzle, 0.2 mm layers; starting points,
+not a standard):
+
+- **Pins** Ø ≥ 3.2 mm; one **through pin supported at both ends** (double shear) rather than
+  short stub pins in thin plates; engagement length ≥ about 3 × Ø where the design allows.
+- **Wall around a pin hole** ≥ 2.2 mm (about five 0.45 mm lines) all round, including
+  towards the bed.
+- **Arms, links, levers, hooks** ≥ 2.5 mm in the bending direction and ≥ 4 mm wide; a
+  curved 1.2 mm link is a hinge, not a member.
+- **Radial clearance** 0.3–0.35 mm at the pin (`tolerances.md`); the failed latch's 0.42 mm
+  did not help it.
+- Flexures designed by the strain formula (snap hooks, living hinges) are exempt: they follow
+  the snap-fit check above. Their roots still must not double as the wall of a pin hole.
+
+| Member | Failed latch (broke on first use) | Working latch |
+|---|---|---|
+| Pin | Ø2.6 stub pins, single-ended, in ~2 mm plates | one Ø3.2 through pin formed on the lever, both ends in 4.25 mm rails |
+| Hole and clearance | Ø3.45 teardrop, ~0.42 mm radial | Ø3.9, ~0.33 mm radial |
+| Wall around the pin | ~1.3 mm (knuckle ring OD 6.0) | ≥ 2.2 mm (2.4 mm to the bed), block 8.3 × 10.8 × 18.4 |
+| Load-carrying arms | 1.2 × ~2.2 mm, curved | rails 4.25 wide, 2.5 mm at the thinnest notch, 3.6–7.4 elsewhere |
+| Bars | 1.7 × 2.6 and 2.2 × 2.4 mm | lever plate 20 × 2.6 mm at its thinnest |
+| Material per latch | ~640 mm³ | ~3 820 mm³ (about 6×) |
+
+The agent checks every load-carrying member against these numbers in the dimension table
+(checklist P7), the same way it checks walls against P3. `parts.hinge()` refuses a pin wall
+under 2.2 mm, a leaf under 2.5 mm or a knuckle under 4 mm unless `decorative=True` says the
+hinge carries nothing.
 
 ## Colour and function seams: split into parts
 

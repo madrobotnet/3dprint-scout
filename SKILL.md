@@ -207,6 +207,9 @@ Write one generator script:
   signs, inserts): separate bodies that touch the main body (shared faces, no union), seams in
   low-stress places; print-in-place pieces keep their clearance. Never ask the user about
   colours: split, give every part the main filament, say so at delivery (`references/parts.md`).
+- **Members that carry load** (pins, knuckles, levers, links, hooks, latch bars) are sized by
+  `references/design.md`, "Mechanisms that carry load", not by P3's 1.2 mm, which is only what
+  prints: list each with its section in the dimension table (P7).
 
 - Design to the recommended values in `references/tolerances.md`, not to the minimums: a wall
   planned at exactly 1.2 mm can fail its own check through floating-point rounding.
@@ -268,7 +271,8 @@ python3 "$SKILL_DIR/scripts/fit.py" out/box.stl out/lid.stl --b-rotate 180,0,0 \
   --b-translate 0,40,33 --min-clearance 0.2
 ```
 
-`fit.py` places part B as assembled (rotation about its origin, then translation), then measures
+Every pin, knuckle, lever and latch bar is checked against the mechanism minimums (P7) before
+the fit, not after the print. `fit.py` places part B as assembled (rotation about its origin, then translation), then measures
 the overlap volume, how far B can move sideways before it touches A (`play`, the real clearance of
 a seated part), the smallest gap and the contact area, and prints a verdict in the validate.py
 style: FAIL on overlap, WARN when the play is below `--min-clearance` or the parts bind, PASS
@@ -374,6 +378,7 @@ overwrite an existing path: if it exists, ask and stop (the scripts refuse as we
 | P4 | Unsupported bridges | soft | not in v1 (UNVERIFIED) | user |
 | P5 | Minimum feature size | soft | not in v1 (UNVERIFIED) | user |
 | P6 | No fillet on edges that touch the bed (chamfer, or sharp with slicer elephant-foot compensation) | soft | you, from the preview.py image | user |
+| P7 | Load-carrying mechanism members meet the minimums in `design.md` (pin ≥ 3.2, pin wall ≥ 2.2, member ≥ 2.5 mm) | soft | you, from the dimension table | user |
 | F1 | Hole compensation applied in exactly one place | hard | you | Phase 4 |
 | F2 | Each fit has the clearance for its kind | hard | you | Phase 4 |
 | F3 | Every joint checked from both sides: no overlap, the play of the fit kind | hard | fit.py | Phase 4 |

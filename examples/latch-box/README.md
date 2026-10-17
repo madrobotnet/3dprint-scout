@@ -21,6 +21,10 @@ between two lipped rails; pushed outwards, the latch enters a window in the keep
 - **Grouped 3MF.** The core 3MF puts the three lid parts under one parent object with identity
   component transforms; `bambu3mf.py` would write one Bambu object with three parts and a
   per-part filament (not built here: the example names no slicer template).
+- **Load-carrying members at the mechanism minimums.** The bar (3.0 mm tall in the direction the
+  lid-lift load bends it, 6 mm wide), the rail lips (1.6 mm at the tip, about 2.9 at the root) and
+  the lug ceiling over the window (2.5 mm) follow `references/design.md`, "Mechanisms that carry
+  load", not the 1.2 mm printability minimum: a field latch built at 1.2 mm broke.
 - **The fit check.** The lid drops into the recess inside the box rim: `fit.py` finds no overlap,
   the lid seated on the ledge, and 0.2 mm of play in ±X and ±Y.
 
@@ -40,6 +44,6 @@ rim (wall 2.8 − rim 1.6 = 1.2 mm ledge, 0.2 mm clearance per side, 3 mm deep s
 `fit_report.json` is the output of the second command.
 
 Expected: build gate `PASS` with exactly one soft warning, `P2` on the `lid` object: the latch's
-underside (144 mm², 2.5 %) is a bridge over the 0.4 mm gap, which is how print-in-place parts
+underside (144 mm², 2.4 %) is a bridge over the 0.4 mm gap, which is how print-in-place parts
 print. Fit gate `PASS`. At delivery the agent says: "label and latch are separate parts of the
 lid; to print the label in another colour, select it in the object list and change its filament."

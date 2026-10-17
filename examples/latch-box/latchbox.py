@@ -6,7 +6,9 @@ at the origin, Z = 0 on the bed): the lid plate with its two rails, the label pl
 sits on the lid (role fused: shared face, no union, so the slicer shows it as its own part
 and it can take another filament), and the latch bar that lies between the rails under
 their lips (role free: 0.3 mm to the rails, 0.4 mm = two layers above the plate, bridged).
-Pushed outwards, the bar enters a window in the keeper lug on the box wall.
+Pushed outwards, the bar enters a window in the keeper lug on the box wall. The bar, the
+rail lips and the lug ceiling carry the lid-lift load, so they follow design.md's mechanism
+minimums (>= 2.5 mm in the bending direction), not the 1.2 mm printability minimum.
 """
 import manifold3d as m3d
 import parts
@@ -28,14 +30,14 @@ DEFAULTS = {
     "pip": 0.3,             # mm per side, print-in-place gap (tolerances.md)
     "z_gap": 0.4,           # mm, latch above the lid: two 0.2 mm layers, bridged
     "bar_w": 6.0,           # mm, latch bar width
-    "bar_h": 2.5,           # mm, latch bar height to its flat top
+    "bar_h": 3.0,           # mm, latch bar height to its flat top (design.md mechanisms: >= 2.5 in bending)
     "bar_len": 24.0,        # mm
     "bar_chamfer": 1.2,     # mm, 45-degree chamfer on the bar's top edges (under the lips)
     "rail_w": 3.0,          # mm, rail width
-    "rail_h": 4.0,          # mm, rail height above the lid
+    "rail_h": 5.4,          # mm, rail height above the lid (z_gap + bar_h + pip + lip_t)
     "rail_len": 32.0,       # mm
     "lip": 1.2,             # mm, how far the lip reaches over the bar
-    "lip_t": 0.8,           # mm, lip thickness at its tip
+    "lip_t": 1.6,           # mm, lip thickness at its tip (the lip carries the lid-lift load; root about 2.9)
     "travel": 6.0,          # mm, how far the bar is pushed to lock (into the lug window)
     "label_w": 30.0,        # mm, label plate (colour part)
     "label_d": 8.0,         # mm
@@ -91,7 +93,7 @@ def build(params):
     # window the latch bar slides into (0.3 mm clearance all round, 0.1 mm above the rim).
     lo, lw = p["lug_out"], p["lug_w"]
     cy = d / 2
-    z_top = h + p["z_gap"] + p["bar_h"] + p["pip"] + 1.5
+    z_top = h + p["z_gap"] + p["bar_h"] + p["pip"] + 2.5             # 2.5 mm of lug above the window (design.md mechanisms)
     lug_pts = [(w - 0.01, h - lo * 1.1 - 6.0), (w + lo, h - 6.0), (w + lo, z_top), (w - 0.01, z_top)]
     lug = M.extrude(CS([lug_pts]), lw).rotate([90, 0, 0]).translate([0, cy + lw / 2, 0])
     box += lug
