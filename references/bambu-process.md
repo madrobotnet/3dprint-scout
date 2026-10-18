@@ -46,7 +46,7 @@ python3 "$SKILL_DIR/scripts/bambu_template.py" --profiles PROFILES \
      `BambuStudio`); the updated system profiles are in its `system` subfolder and the user's own
      presets under `user/<id>/` (`PresetBundle.cpp`, `PRESET_SYSTEM_DIR` / `PRESET_USER_DIR`). The copy
      shipped with the app is in `resources/profiles` of the install folder. Read the bed and nozzle
-     areas from there first (SKILL.md Phase 2), the manufacturer's spec page second, and the public
+     areas from there first (`references/phase-2-printer-dimensions.md`), the manufacturer's spec page second, and the public
      profiles below third; never a reseller page.
   2. Without access to the user's computer: Bambu's public profiles at the tag of the user's
      version (`v` + version), names and facts only:

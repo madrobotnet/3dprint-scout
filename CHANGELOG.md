@@ -5,6 +5,15 @@
 Driven by a field test on 2026-10-17: a tool-free adapter from the Bambu Lab X2D rear exhaust
 housing to a 100 mm duct, designed in Fusion through MCP, fit-tested and printed on the X2D.
 
+- **SKILL.md split into a router and phase files.** SKILL.md (under 300 lines) keeps what holds
+  at all times: the ground rules, the always-on rules (no model downloads or copied geometry,
+  never ask about colours, never overwrite, no identifiers stored, nothing executable in a 3MF,
+  no modelled supports), a skeleton per phase with its stop and its must-do rules, the full
+  checklist and gate, the unattended rules and the file map. The how-to of each phase moved
+  unchanged to `references/phase-0-detect.md` … `phase-6-deliver.md` (the `printers.json`
+  schema and defaults in the Phase 2 file), `validate.py`'s JSON to `references/checks.md`.
+  Every reference file is linked from SKILL.md with when to read it, one level deep, and the
+  ones over 100 lines start with a table of contents.
 - **Parts grouped into objects.** `params.json` `_parts` entries can name an `object` and a
   `role`: `fused` (a separate body that shares faces with the main body, no boolean union, so a
   latch, lever or label is its own part in the slicer and can take another filament) or `free`

@@ -142,7 +142,7 @@ adapt instead of guessing.
 ## Preview
 
 `python3 "$SKILL_DIR/scripts/preview.py" out/body.stl -o out/preview.png --overwrite` renders iso,
-front, right and top views (numpy only; see SKILL.md Phase 0). The numbers from `validate.py` stay the
+front, right and top views (numpy only; see `references/phase-0-detect.md`). The numbers from `validate.py` stay the
 evidence; the image is for the user and for P6.
 
 ## Pitfalls

@@ -192,7 +192,7 @@ under 4 mm unless `decorative=True` says the hinge carries nothing.
 
 ## Supports policy
 
-Never model support structures into a part (SKILL.md Phase 5). An overhang gets, in this
+Never model support structures into a part (SKILL.md, rules that hold in every phase). An overhang gets, in this
 order: a redesign (chamfer, 45° roof, teardrop, split and pegs [1]), a different print
 orientation, and only then the slicer's supports for that object (tree supports leave less
 marks). Surfaces above supports stay rough [1]: keep them away from fits and visible faces.

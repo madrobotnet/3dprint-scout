@@ -147,8 +147,9 @@ python3 -m unittest discover -s tests
 
 `tests/test_examples.py`는 모든 예제를 각 README의 명령 그대로 다시 빌드해요.
 
-진입점은 `SKILL.md`예요. 엔진별 규칙, 공차, Bambu 관련 내용은 `references/`에 있고 필요할 때만
-읽어요.
+진입점은 `SKILL.md`예요. 항상 지켜야 하는 규칙, 단계별 짧은 뼈대, 체크리스트가 거기에 있어요.
+각 단계의 진행 방법(`references/phase-0-detect.md`부터 `phase-6-deliver.md`까지), 엔진별 규칙, 공차,
+Bambu 관련 내용은 `references/`에 있고 그 단계에 들어갈 때 읽어요.
 
 ## 응원하기
 

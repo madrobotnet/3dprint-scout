@@ -108,7 +108,7 @@ One JSON document, schema `3dprint-scout.build/1`, also for `record`:
  "warnings": ["..."], "errors": []}
 ```
 
-- `parts[i].validate` is the full `validate.py` document for that part (SKILL.md shows
+- `parts[i].validate` is the full `validate.py` document for that part (`checks.md` shows
   its shape); the part's verdicts are at `parts[i].validate.files[0].checks`, its numbers
   at `...files[0].metrics`. `role` is `null` for a part alone in its object; `assembly`
   exists only for parts in a group.

@@ -156,8 +156,10 @@ python3 -m unittest discover -s tests
 
 `tests/test_examples.py` rebuilds every example with the commands in its README.
 
-`SKILL.md` is the entry point. Engine rules, tolerances and the Bambu details live in
-`references/` and are read only when needed.
+`SKILL.md` is the entry point: the rules that hold at all times, a short skeleton of each phase
+and the checklist. Each phase's how-to (`references/phase-0-detect.md` to `phase-6-deliver.md`),
+the engine rules, tolerances and the Bambu details live in `references/` and are read on
+entering the phase that names them.
 
 ## Support
 
