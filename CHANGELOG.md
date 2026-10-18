@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.0 — 2026-10-18
 
 Driven by a field test on 2026-10-17: a tool-free adapter from the Bambu Lab X2D rear exhaust
 housing to a 100 mm duct, designed in Fusion through MCP, fit-tested and printed on the X2D.
@@ -35,7 +35,8 @@ housing to a 100 mm duct, designed in Fusion through MCP, fit-tested and printed
   parts with the same filament and settings share one `PrintRegion` (`PrintApply.cpp`,
   `generate_print_object_regions`) and their slices are united per layer
   (`PrintObjectSlice.cpp`, `slices_to_regions`, `closing_ex`), so there is no inner wall between
-  them; different filaments meet as two sets of perimeters. Not yet opened in the app.
+  them; different filaments meet as two sets of perimeters. Confirmed in Bambu Studio
+  02.08.02.61 on 2026-10-18 with sample projects.
 - **Nozzle areas (X2D, H2D).** With `printer` in the job, `bambu3mf.py` lays objects out inside
   the intersection of the tools' reachable areas whenever an object has several parts or the
   job uses several filaments; otherwise the full bed, as before. `usable_area_reason` says
@@ -44,7 +45,8 @@ housing to a 100 mm duct, designed in Fusion through MCP, fit-tested and printed
 - **Allowlist.** `support_interface_filament`, `support_filament` (a slot or 0 = the object's
   own, checked against the template's filament count), `support_top_z_distance` and
   `support_bottom_z_distance` (0–1 mm), from `PrintConfig.cpp` 02.08.02.61, with a tuning row for
-  a PLA interface under a PETG part. Not yet checked in the app.
+  a PLA interface under a PETG part. Confirmed in the app: the values show in the object's
+  settings.
 - **Templates.** When the user has Bambu Studio open, the agent first suggests saving an empty
   project (it keeps their process tweaks and AMS set); the generated template is the fallback.
   The Bambu Studio data folders are named from `GUI_App.cpp` / `PresetBundle.cpp`
@@ -143,9 +145,11 @@ housing to a 100 mm duct, designed in Fusion through MCP, fit-tested and printed
   the Fusion Builder against an API stand-in, strength.py (formulas and the field
   comparison), calibration.py and the new example (200 tests).
 
-Not yet tested in the app: a Bambu object with several parts, the support interface keys, the
-v0.2.1 six-filament template fix, whether the slicing preview shows no inner wall between two
-same-filament touching parts, and the cleaned Fusion Builder in Fusion.
+Checked in Bambu Studio 02.08.02.61 on 2026-10-18 with five sample projects: a Bambu object with
+several parts (named parts at their assembled positions, filament per part, placed inside the
+area both X2D nozzles reach), the support interface keys, the v0.2.1 six-filament fix (all six
+slots on system presets), and no inner wall between same-filament touching parts (walls on both
+sides with two filaments). Not yet run in Fusion: the cleaned Builder.
 
 ## 0.2.1 — 2026-10-17
 

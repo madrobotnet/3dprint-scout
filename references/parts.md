@@ -149,8 +149,9 @@ One JSON document, schema `3dprint-scout.build/1`, also for `record`:
   wall between them**. Parts with different filaments are different regions, each with
   its own perimeters: the seam is a wall-to-wall bond.
 - Consequence for the modelling rule: a same-colour seam costs nothing; a two-colour seam
-  is a bond between two outer walls, so keep it in a low-stress place. What the
-  slicing preview shows for a same-filament pair has not yet been confirmed in the app.
+  is a bond between two outer walls, so keep it in a low-stress place. Confirmed in
+  Bambu Studio 02.08.02.61 (2026-10-18, an inlay in a pocket): no inner wall with one
+  filament, perimeters on both sides with two.
 - Per-part settings in `model_settings.config` (`<part>` metadata other than name,
   matrix and source keys, `bbs_3mf.cpp` `_generate_volumes_new`) are applied to the part;
   `bambu3mf.py` writes only `extruder` per part and keeps every other setting on the
