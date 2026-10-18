@@ -28,7 +28,23 @@ Usage (one JSON job file):
   {"template": ".3dprint/templates/x2d.3mf", "out": "out/aa_box_bambu.3mf",
    "parts": [{"name": "box", "stl": "out/box.stl", "plate": 1, "filament": 1,
               "settings": {"wall_loops": 4}, "reasons": {"wall_loops": "load-bearing"}},
-             {"name": "lid", "stl": "out/lid.stl", "plate": 1}]}
+             {"name": "lid", "stl": "out/lid.stl", "plate": 1},
+             {"name": "label", "stl": "out/label.stl", "object": "lid", "filament": 2}]}
+
+Every part is its own Bambu object unless it names an "object": parts with the same
+"object" value become one object with several parts (Bambu Studio's object list shows
+each part, with its own filament, selectable on its own), placed as modelled: the STL
+coordinates are the assembled positions. The first part listed for an object is its
+main part; its plate, settings and reasons apply to the whole object, and the other parts
+take the main filament unless they name their own. "params": ".3dprint/params.json" takes
+"object" and "filament" from _parts for parts that do not say.
+
+Objects are laid out on the plate's usable area. With "printer": ".3dprint/printers.json"
+(and "printer_id" when it holds several), the usable area is the intersection of every
+tool's reachable area whenever an object has several parts or the job uses several
+filaments (on an X2D / H2D one nozzle cannot reach a strip of the bed); otherwise, and
+without "printer", it is the template's printable area. "tools": [0, 1] or "all" forces
+the intersection of those tools.
 
 Prints one JSON document; exit 0 on success, 1 on error. Standard library only.
 """
@@ -44,6 +60,7 @@ from xml.sax.saxutils import quoteattr
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
+import validate  # noqa: E402
 from threemf import indexed  # noqa: E402
 from validate import ArtifactError, convex_hull, fit_rect, read_stl  # noqa: E402
 
@@ -79,7 +96,8 @@ TEMPLATE_THUMBNAIL = re.compile(r"^Metadata/(?:plate|plate_no_light|top|pick)_1(
 PLATE_GAP = 0.2            # plates are laid out at bed size * (1 + 1/5) (PartPlate.cpp)
 PART_SPACING = 10.0        # mm between parts placed on the same plate
 
-# key: (kind, a, b) — float/int/percent: range a..b; enum: allowed values; bool: -
+# key: (kind, a, b) — float/int/percent: range a..b; enum: allowed values; bool: -;
+# filament: a 1-based filament slot of the template, or 0 for "default (the object's filament)".
 ALLOWED = {
     # object level
     "layer_height": ("float", 0.04, 0.6),
@@ -87,6 +105,15 @@ ALLOWED = {
     "support_type": ("enum", ["normal(auto)", "tree(auto)", "normal(manual)", "tree(manual)"], None),
     "support_threshold_angle": ("int", 0, 90),
     "support_on_build_plate_only": ("bool", None, None),
+    # Support interface (PrintObjectConfig in PrintConfig.cpp 02.08.02.61): support_top_z_distance
+    # and support_bottom_z_distance are coFloat with no range in the source (default 0.2; 0 means
+    # the interface touches the part, as with a soluble or a dedicated interface filament), the
+    # range here is a sanity cap; support_filament / support_interface_filament are coInt, min 0
+    # (0 = "Default": the object's own filament), clamped to the filament count by Bambu Studio.
+    "support_top_z_distance": ("float", 0, 1),
+    "support_bottom_z_distance": ("float", 0, 1),
+    "support_filament": ("filament", 0, None),
+    "support_interface_filament": ("filament", 0, None),
     "brim_type": ("enum", ["no_brim", "outer_only", "inner_only", "outer_and_inner", "auto_brim", "brim_ears"], None),
     "brim_width": ("float", 0, 30),
     "brim_object_gap": ("float", 0, 2),
@@ -124,13 +151,18 @@ class JobError(Exception):
 # --------------------------------------------------------------------------- #
 # Settings validation
 # --------------------------------------------------------------------------- #
-def normalize(key: str, value) -> str:
+def normalize(key: str, value, n_filaments: int = 1) -> str:
     """Return the string Bambu Studio stores for this key, or raise JobError."""
     if key not in ALLOWED:
         if key == "post_process" or key.endswith("_gcode"):
             raise JobError(f"'{key}' can run programs or rewrite G-code and is never written")
         raise JobError(f"'{key}' is not on the per-object allowlist")
     kind, a, b = ALLOWED[key]
+    if kind == "filament":
+        num = _slot(key, value)
+        if num != 0 and not 1 <= num <= n_filaments:
+            raise JobError(f"{key}: filament {num} is not 0 (default) or one of the template's 1..{n_filaments}")
+        return str(num)
     if kind == "bool":
         if value in (True, 1, "1", "true", "True"):
             return "1"
@@ -169,11 +201,28 @@ def has_values(template_cfg: dict) -> bool:
     return "layer_height" in template_cfg
 
 
+def _slot(what: str, value) -> int:
+    """A filament slot number: a whole number, never a truncated 2.7."""
+    if isinstance(value, bool):
+        raise JobError(f"{what}: expected a filament slot number, got {value!r}")
+    try:
+        num = float(value)
+    except (TypeError, ValueError):
+        raise JobError(f"{what}: expected a filament slot number, got {value!r}")
+    if not math.isfinite(num) or num != int(num):
+        raise JobError(f"{what}: expected a whole filament slot number, got {value!r}")
+    return int(num)
+
+
+def filament_count(template_cfg: dict) -> int:
+    return len(template_cfg.get("filament_settings_id") or template_cfg.get("filament_colour") or [1])
+
+
 def check_settings(settings: dict, template_cfg: dict) -> dict:
     out = {}
     full = has_values(template_cfg)
     for key, value in (settings or {}).items():
-        norm = normalize(key, value)
+        norm = normalize(key, value, filament_count(template_cfg))
         # A names-only template has no values to check against; ALLOWED itself was checked
         # against the 02.08.02.61 source (all keys defined, none stored per extruder).
         if full and key not in template_cfg:
@@ -293,21 +342,22 @@ def rotation_matrix(deg):
     return f"{_f(cs)} {_f(sn)} 0 {_f(-sn)} {_f(cs)} 0 0 0 1"
 
 
-def layout(parts, bed):
-    """Shelf-pack each plate's parts, centred on the bed. Returns {index: (x, y)} of part centres."""
-    x0, y0, x1, y1 = bed
+def layout(objects, usable):
+    """Shelf-pack each plate's objects, centred on the usable area. Returns {index: (x, y)} of
+    object centres. `usable` is (x0, y0, x1, y1) in plate coordinates."""
+    x0, y0, x1, y1 = usable
     W, D = x1 - x0, y1 - y0
     by_plate = {}
-    for i, p in enumerate(parts):
-        by_plate.setdefault(p["plate"], []).append(i)
+    for i, o in enumerate(objects):
+        by_plate.setdefault(o["plate"], []).append(i)
     pos = {}
     for plate, idx in by_plate.items():
         rows, row, row_w, row_d = [], [], 0.0, 0.0
         for i in idx:
-            w, d = parts[i]["footprint"][0], parts[i]["footprint"][1]
-            if not parts[i]["fits"]:
-                raise JobError(f"part '{parts[i]['name']}' ({w:.1f} x {d:.1f} mm) does not fit the "
-                               f"{W:.0f} x {D:.0f} mm bed at any rotation")
+            w, d = objects[i]["footprint"][0], objects[i]["footprint"][1]
+            if not objects[i]["fits"]:
+                raise JobError(f"object '{objects[i]['name']}' ({w:.1f} x {d:.1f} mm) does not fit the "
+                               f"{W:.0f} x {D:.0f} mm usable area at any rotation")
             if row and row_w + PART_SPACING + w > W:
                 rows.append((row, row_w, row_d)); row, row_w, row_d = [], 0.0, 0.0
             row_w += (PART_SPACING if row else 0) + w
@@ -316,29 +366,184 @@ def layout(parts, bed):
         rows.append((row, row_w, row_d))
         total_d = sum(r[2] for r in rows) + PART_SPACING * (len(rows) - 1)
         if total_d > D:
-            raise JobError(f"parts on plate {plate} do not fit together; put some on another plate")
+            raise JobError(f"objects on plate {plate} do not fit together; put some on another plate")
         y = y0 + D / 2 + total_d / 2
         for row, rw, rd in rows:
             x = x0 + W / 2 - rw / 2
             for i in row:
-                w, d = parts[i]["footprint"][0], parts[i]["footprint"][1]
+                w, d = objects[i]["footprint"][0], objects[i]["footprint"][1]
                 pos[i] = (x + w / 2, y - rd / 2)
                 x += w + PART_SPACING
             y -= rd + PART_SPACING
     return pos
 
 
-def object_model_xml(sub_id: int, backup_id: int, verts, faces) -> str:
-    uuid = f"{(backup_id << 16):08x}{SUB_OBJECT_UUID_SUFFIX}"
-    vx = "".join(f'<vertex x="{_f(v[0])}" y="{_f(v[1])}" z="{_f(v[2])}"/>' for v in verts)
-    tr = "".join(f'<triangle v1="{a}" v2="{b}" v3="{c}"/>' for a, b, c in faces)
+def object_model_xml(backup_id: int, subs) -> str:
+    """3D/Objects/object_<backup_id>.model holding every part of one object as a sub-object
+    (Bambu Studio's own layout: one file per object, one <object> per part, vertices not
+    transformed). subs: [(sub_id, index, verts, faces)]."""
+    body = []
+    for sub_id, index, verts, faces in subs:
+        uuid = f"{(index + (backup_id << 16)):08x}{SUB_OBJECT_UUID_SUFFIX}"
+        vx = "".join(f'<vertex x="{_f(v[0])}" y="{_f(v[1])}" z="{_f(v[2])}"/>' for v in verts)
+        tr = "".join(f'<triangle v1="{a}" v2="{b}" v3="{c}"/>' for a, b, c in faces)
+        body.append(f'  <object id="{sub_id}" p:UUID="{uuid}" type="model">\n'
+                    f"   <mesh><vertices>{vx}</vertices><triangles>{tr}</triangles></mesh>\n  </object>\n")
     return ('<?xml version="1.0" encoding="UTF-8"?>\n'
             f'<model unit="millimeter" xml:lang="en-US" xmlns="{CORE_NS}" xmlns:BambuStudio="{BBS_NS}" '
             f'xmlns:p="{PROD_NS}" requiredextensions="p">\n'
             ' <metadata name="BambuStudio:3mfVersion">1</metadata>\n <resources>\n'
-            f'  <object id="{sub_id}" p:UUID="{uuid}" type="model">\n'
-            f"   <mesh><vertices>{vx}</vertices><triangles>{tr}</triangles></mesh>\n"
-            "  </object>\n </resources>\n <build/>\n</model>\n")
+            + "".join(body) + " </resources>\n <build/>\n</model>\n")
+
+
+def _part_grouping(job: dict) -> dict:
+    """{part name: {"object", "filament"}} from a params.json named by the job, for parts that
+    do not say themselves (the same grouping build.py used)."""
+    path = job.get("params")
+    if not path:
+        return {}
+    try:
+        with open(path, encoding="utf-8") as f:
+            params = json.load(f)
+    except (OSError, ValueError) as exc:
+        raise JobError(f"params file {path}: {exc}")
+    specs = params.get("_parts") if isinstance(params, dict) else None
+    if not isinstance(specs, dict):
+        return {}
+    return {name: {"object": (spec or {}).get("object"), "filament": (spec or {}).get("filament")}
+            for name, spec in specs.items()}
+
+
+def read_parts(job: dict, cfg: dict) -> list:
+    """Parts of the job, each with its welded mesh, filament, plate and settings, in job order."""
+    n_filaments = filament_count(cfg)
+    hints = _part_grouping(job)
+    parts, names = [], set()
+    for raw in job.get("parts") or []:
+        name = str(raw.get("name") or "").strip()
+        if not name:
+            raise JobError("every part needs a name")
+        if name in names:
+            raise JobError(f"part '{name}' is listed twice")
+        names.add(name)
+        try:
+            tris = read_stl(raw["stl"])
+        except (KeyError, ArtifactError) as exc:
+            raise JobError(f"part '{name}': {exc}")
+        verts, faces = indexed(tris)
+        hint = hints.get(name) or {}
+        filament = raw.get("filament", hint.get("filament"))
+        if filament is not None:
+            filament = _slot(f"part '{name}' filament", filament)
+        obj = str(raw.get("object") or hint.get("object") or name).strip()
+        plate = raw.get("plate")
+        if plate is not None:
+            plate = _slot(f"part '{name}' plate", plate)
+            if plate < 1:
+                raise JobError(f"part '{name}': plate numbers start at 1")
+        parts.append({"name": name, "object": obj, "verts": verts, "faces": faces,
+                      "filament": filament, "plate": plate,
+                      "settings": raw.get("settings") or {}, "reasons": raw.get("reasons") or {}})
+    for p in parts:
+        if p["filament"] is not None and not 1 <= p["filament"] <= n_filaments:
+            raise JobError(f"part '{p['name']}': filament {p['filament']} not in the template's 1..{n_filaments}")
+    if not parts:
+        raise JobError("job has no parts")
+    return parts
+
+
+def group_objects(parts: list, cfg: dict) -> list:
+    """Objects in order of first appearance. The main (first) part gives the object its plate,
+    filament, settings and reasons; other parts may only name their own filament."""
+    objects, order = {}, []
+    for p in parts:
+        if p["object"] not in objects:
+            objects[p["object"]] = {"name": p["object"], "parts": [], "main": p["name"]}
+            order.append(p["object"])
+        objects[p["object"]]["parts"].append(p)
+    out = []
+    for key in order:
+        o = objects[key]
+        main = o["parts"][0]
+        for p in o["parts"][1:]:
+            if p["settings"] or p["reasons"]:
+                raise JobError(f"part '{p['name']}': settings go on the first part of object '{key}' "
+                               f"('{main['name']}'); Bambu Studio applies them to the whole object")
+            if p["plate"] is not None and main["plate"] is not None and p["plate"] != main["plate"]:
+                raise JobError(f"part '{p['name']}': every part of object '{key}' is on the main part's plate")
+        o["plate"] = main["plate"] or 1
+        o["filament"] = main["filament"] or 1
+        for p in o["parts"]:
+            if p["filament"] is None:
+                p["filament"] = o["filament"]          # the main filament unless the user named colours
+        o["settings"] = check_settings(main["settings"], cfg)
+        o["reasons"] = main["reasons"]
+        # Bambu stores meshes centred on their bounding box; the object is centred on the box of
+        # all its parts, each part on its own, and the component transform carries the difference.
+        all_v = [v for p in o["parts"] for v in p["verts"]]
+        lo = [min(v[i] for v in all_v) for i in range(3)]
+        hi = [max(v[i] for v in all_v) for i in range(3)]
+        centre = [(lo[i] + hi[i]) / 2 for i in range(3)]
+        o["size"] = [hi[i] - lo[i] for i in range(3)]
+        o["centred"] = [(v[0] - centre[0], v[1] - centre[1], v[2] - centre[2]) for v in all_v]
+        for p in o["parts"]:
+            plo = [min(v[i] for v in p["verts"]) for i in range(3)]
+            phi = [max(v[i] for v in p["verts"]) for i in range(3)]
+            pc = [(plo[i] + phi[i]) / 2 for i in range(3)]
+            p["centred"] = [(v[0] - pc[0], v[1] - pc[1], v[2] - pc[2]) for v in p["verts"]]
+            p["offset"] = [pc[i] - centre[i] for i in range(3)]       # part centre in object coordinates
+            p["size"] = [phi[i] - plo[i] for i in range(3)]
+        out.append(o)
+    return out
+
+
+def usable_area(job: dict, bed, objects: list) -> tuple:
+    """(x0, y0, x1, y1, reason): the template's printable area, cut down to the intersection of
+    the tools' reachable areas from printers.json when the job needs more than one tool."""
+    full = (bed[0], bed[1], bed[2], bed[3], "template printable_area")
+    path = job.get("printer")
+    if not path:
+        return full
+    try:
+        _, printer = validate.load_printer(path, job.get("printer_id"))
+    except (OSError, ValueError) as exc:
+        raise JobError(f"printer file {path}: {exc}")
+    tools = printer.get("tools") or []
+    if not tools:
+        return full
+    wanted = job.get("tools")
+    if wanted == "all":
+        ids, reason = list(range(len(tools))), "job asks for every tool"
+    elif isinstance(wanted, list):
+        ids, reason = [int(i) for i in wanted], "tools named by the job"
+    else:
+        multi_part = any(len(o["parts"]) > 1 for o in objects)
+        filaments = {p["filament"] for o in objects for p in o["parts"]}
+        for o in objects:                                   # a support filament is a filament in use too
+            for key in ("support_filament", "support_interface_filament"):
+                if int(o["settings"].get(key, 0) or 0) > 0:
+                    filaments.add(int(o["settings"][key]))
+        if multi_part or len(filaments) > 1:
+            ids, reason = list(range(len(tools))), ("an object has several parts" if multi_part else
+                                                    "the job uses several filaments")
+        else:
+            return full
+    try:
+        eff = validate.effective_bed(printer, ids)
+    except ValueError as exc:
+        raise JobError(f"printer file {path}: {exc}")
+    if not eff.get("rect"):
+        return full
+    x0, y0, x1, y1 = eff["rect"]
+    x0, y0, x1, y1 = max(x0, bed[0]), max(y0, bed[1]), min(x1, bed[2]), min(y1, bed[3])
+    if x1 - x0 <= 0 or y1 - y0 <= 0:
+        raise JobError("the tools' reachable areas and the template's printable area do not overlap")
+    return (x0, y0, x1, y1, f"intersection of the reachable areas of tools {ids} ({reason})")
+
+
+def _matrix16(offset) -> str:
+    """model_settings.config 'matrix': 4 x 4 row-major, translation in the last column."""
+    return (f"1 0 0 {_f(offset[0])} 0 1 0 {_f(offset[1])} 0 0 1 {_f(offset[2])} 0 0 0 1")
 
 
 def build(job: dict) -> dict:
@@ -346,86 +551,77 @@ def build(job: dict) -> dict:
     tmpl_settings = entries["Metadata/model_settings.config"][0].decode("utf-8")
     plate_block = plate_template_block(tmpl_settings)
     bed = bed_rect(cfg)
-    n_filaments = len(cfg.get("filament_settings_id") or cfg.get("filament_colour") or [1])
-
-    parts = []
-    for raw in job.get("parts") or []:
-        name = str(raw.get("name") or "").strip()
-        if not name:
-            raise JobError("every part needs a name")
-        try:
-            tris = read_stl(raw["stl"])
-        except (KeyError, ArtifactError) as exc:
-            raise JobError(f"part '{name}': {exc}")
-        verts, faces = indexed(tris)
-        lo = [min(v[i] for v in verts) for i in range(3)]
-        hi = [max(v[i] for v in verts) for i in range(3)]
-        centre = [(lo[i] + hi[i]) / 2 for i in range(3)]
-        filament = int(raw.get("filament", 1))
-        if not 1 <= filament <= n_filaments:
-            raise JobError(f"part '{name}': filament {filament} not in the template's 1..{n_filaments}")
-        plate = int(raw.get("plate", 1))
-        if plate < 1:
-            raise JobError(f"part '{name}': plate numbers start at 1")
-        # Bambu stores meshes centred on their bounding box; the build item places them.
-        centred = [(v[0] - centre[0], v[1] - centre[1], v[2] - centre[2]) for v in verts]
-        rot, footprint, offset, fits = placement(centred, bed[2] - bed[0], bed[3] - bed[1])
-        parts.append({
-            "name": name, "plate": plate, "filament": filament,
-            "settings": check_settings(raw.get("settings"), cfg),
-            "reasons": raw.get("reasons") or {},
-            "verts": centred, "faces": faces, "size": [hi[i] - lo[i] for i in range(3)],
-            "rotation_deg": rot, "footprint": footprint, "offset": offset, "fits": fits,
-        })
-    if not parts:
-        raise JobError("job has no parts")
+    parts = read_parts(job, cfg)
+    objects = group_objects(parts, cfg)
+    ux0, uy0, ux1, uy1, area_reason = usable_area(job, bed, objects)
     warnings = template_warnings(entries, cfg, model_xml)
-    for p in parts:
-        if p["rotation_deg"]:
-            warnings.append(f"part '{p['name']}' only fits the bed rotated {p['rotation_deg']} deg; "
-                            "placed with that rotation (the STL itself is unchanged)")
+    for o in objects:
+        rot, footprint, offset, fits = placement(o["centred"], ux1 - ux0, uy1 - uy0)
+        o.update(rotation_deg=rot, footprint=footprint, offset=offset, fits=fits)
+        if rot:
+            warnings.append(f"object '{o['name']}' only fits the usable area rotated {rot} deg; "
+                            "placed with that rotation (the STLs themselves are unchanged)")
 
-    n_plates = max(p["plate"] for p in parts)
+    n_plates = max(o["plate"] for o in objects)
     cols = math.ceil(math.sqrt(n_plates) - 1e-9)
     stride_x = (bed[2] - bed[0]) * (1 + PLATE_GAP)
     stride_y = (bed[3] - bed[1]) * (1 + PLATE_GAP)
-    pos = layout(parts, bed)
+    pos = layout(objects, (ux0, uy0, ux1, uy1))
 
     files = {}
     resources, items, rels = [], [], []
     obj_entries, plate_instances = [], {k: [] for k in range(1, n_plates + 1)}
     next_id = 1
-    for i, p in enumerate(parts):
+    for i, o in enumerate(objects):
         backup_id = i + 1
-        sub_id, object_id = next_id, next_id + 1          # Bambu numbering: mesh object, then wrapper
-        next_id += 2
+        subs = []                                      # Bambu numbering: mesh objects, then the wrapper
+        for index, p in enumerate(o["parts"]):
+            p["sub_id"] = next_id
+            subs.append((next_id, index, p["centred"], p["faces"]))
+            next_id += 1
+        object_id = next_id
+        next_id += 1
         path = f"3D/Objects/object_{backup_id}.model"
-        files[path] = object_model_xml(sub_id, backup_id, p["verts"], p["faces"]).encode("utf-8")
+        files[path] = object_model_xml(backup_id, subs).encode("utf-8")
         rels.append(f'<Relationship Target="/{path}" Id="rel-{backup_id}" Type="{MODEL_REL_TYPE}"/>')
+        comps = []
+        for index, p in enumerate(o["parts"]):
+            off = p["offset"]
+            comps.append(f'    <component p:path="/{path}" objectid="{p["sub_id"]}" '
+                         f'p:UUID="{(index + (backup_id << 16)):08x}{COMPONENT_UUID_SUFFIX}" '
+                         f'transform="1 0 0 0 1 0 0 0 1 {_f(off[0])} {_f(off[1])} {_f(off[2])}"/>')
         resources.append(
             f'  <object id="{object_id}" p:UUID="{backup_id:08x}{OBJECT_UUID_SUFFIX}" type="model">\n'
-            f'   <components>\n    <component p:path="/{path}" objectid="{sub_id}" '
-            f'p:UUID="{(backup_id << 16):08x}{COMPONENT_UUID_SUFFIX}" transform="1 0 0 0 1 0 0 0 1 0 0 0"/>\n'
-            "   </components>\n  </object>")
-        k = p["plate"] - 1
+            "   <components>\n" + "\n".join(comps) + "\n   </components>\n  </object>")
+        k = o["plate"] - 1
         ox, oy = (k % cols) * stride_x, -(k // cols) * stride_y   # plate origin (PartPlate.cpp)
         cx, cy = pos[i]
-        tx, ty, tz = ox + cx - p["offset"][0], oy + cy - p["offset"][1], p["size"][2] / 2
+        tx, ty, tz = ox + cx - o["offset"][0], oy + cy - o["offset"][1], o["size"][2] / 2
         items.append(f'  <item objectid="{object_id}" p:UUID="{object_id:08x}{BUILD_UUID_SUFFIX}" '
-                     f'transform="{rotation_matrix(p["rotation_deg"])} {_f(tx)} {_f(ty)} {_f(tz)}" printable="1"/>')
-        meta = [f'    <metadata key="name" value={quoteattr(p["name"])}/>',
-                f'    <metadata key="extruder" value="{p["filament"]}"/>']
-        meta += [f'    <metadata key="{k2}" value={quoteattr(v)}/>' for k2, v in p["settings"].items()]
-        fc = len(p["faces"])
+                     f'transform="{rotation_matrix(o["rotation_deg"])} {_f(tx)} {_f(ty)} {_f(tz)}" printable="1"/>')
+        meta = [f'    <metadata key="name" value={quoteattr(o["name"])}/>',
+                f'    <metadata key="extruder" value="{o["filament"]}"/>']
+        meta += [f'    <metadata key="{k2}" value={quoteattr(v)}/>' for k2, v in o["settings"].items()]
+        total_faces = sum(len(p["faces"]) for p in o["parts"])
+        part_xml = []
+        for p in o["parts"]:
+            fc = len(p["faces"])
+            pm = [f'      <metadata key="name" value={quoteattr(p["name"])}/>',
+                  f'      <metadata key="matrix" value="{_matrix16(p["offset"])}"/>']
+            # A part without its own "extruder" follows the object's (GUI_ObjectList.cpp shows the
+            # object's filament for it, and setting the object's filament erases the parts' own), so
+            # only a part with a different filament gets one: recolouring the object then recolours
+            # the parts that were not given their own colour.
+            if p["filament"] != o["filament"]:
+                pm.append(f'      <metadata key="extruder" value="{p["filament"]}"/>')
+            part_xml.append(
+                f'    <part id="{p["sub_id"]}" subtype="normal_part">\n' + "\n".join(pm) + "\n"
+                f'      <mesh_stat face_count="{fc}" edges_fixed="0" degenerate_facets="0" facets_removed="0" '
+                'facets_reversed="0" backwards_edges="0"/>\n    </part>')
         obj_entries.append(
             f'  <object id="{object_id}">\n' + "\n".join(meta) + "\n"
-            f'    <metadata face_count="{fc}"/>\n'
-            f'    <part id="{sub_id}" subtype="normal_part">\n'
-            f'      <metadata key="name" value={quoteattr(p["name"])}/>\n'
-            '      <metadata key="matrix" value="1 0 0 0 0 1 0 0 0 0 1 0 0 0 0 1"/>\n'
-            f'      <mesh_stat face_count="{fc}" edges_fixed="0" degenerate_facets="0" facets_removed="0" '
-            'facets_reversed="0" backwards_edges="0"/>\n    </part>\n  </object>')
-        plate_instances[p["plate"]].append(
+            f'    <metadata face_count="{total_faces}"/>\n' + "\n".join(part_xml) + "\n  </object>")
+        plate_instances[o["plate"]].append(
             "    <model_instance>\n"
             f'      <metadata key="object_id" value="{object_id}"/>\n'
             '      <metadata key="instance_id" value="0"/>\n'
@@ -482,13 +678,27 @@ def build(job: dict) -> dict:
             ctype = zipfile.ZIP_STORED if name.endswith(".png") else zipfile.ZIP_DEFLATED
             z.writestr(name, data, compress_type=ctype)
 
+    separate = [o for o in objects if len(o["parts"]) > 1]
+    if separate:
+        warnings.append("separate parts (select a part in the object list to give it another filament): "
+                        + "; ".join(f"{o['name']}: " + ", ".join(f"{p['name']} (filament {p['filament']})"
+                                                                  for p in o["parts"]) for o in separate))
     return {
         "out": out, "printer_model": cfg.get("printer_model"), "process_preset": cfg.get("print_settings_id"),
         "template_kind": "saved project" if has_values(cfg) else "preset names (values from installed presets)",
         "plates": n_plates,
-        "parts": [{"name": p["name"], "plate": p["plate"], "filament": p["filament"], "settings": p["settings"],
-                   "reasons": p["reasons"], "size_mm": [round(s, 2) for s in p["size"]],
-                   "rotation_deg": p["rotation_deg"]} for p in parts],
+        "usable_area": [ux0, uy0, ux1, uy1], "usable_area_reason": area_reason,
+        "objects": [{"name": o["name"], "plate": o["plate"], "filament": o["filament"], "settings": o["settings"],
+                     "reasons": o["reasons"], "size_mm": [round(s, 2) for s in o["size"]],
+                     "rotation_deg": o["rotation_deg"],
+                     "parts": [{"name": p["name"], "filament": p["filament"], "size_mm": [round(s, 2) for s in p["size"]],
+                                "offset_mm": [round(v, 3) for v in p["offset"]]} for p in o["parts"]]}
+                    for o in objects],
+        "parts": [{"name": p["name"], "object": o["name"], "plate": o["plate"], "filament": p["filament"],
+                   "settings": o["settings"] if p is o["parts"][0] else {},
+                   "reasons": o["reasons"] if p is o["parts"][0] else {},
+                   "size_mm": [round(s, 2) for s in p["size"]], "rotation_deg": o["rotation_deg"]}
+                  for o in objects for p in o["parts"]],
         "dropped_template_entries": dropped,
         "warnings": warnings,
     }

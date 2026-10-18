@@ -534,29 +534,55 @@ def snap_window(length: float = 16.0, thickness: float = 1.6, width: float = 6.0
 # --------------------------------------------------------------------------- #
 # Print-in-place hinge (axis along X, lying on the bed)
 # --------------------------------------------------------------------------- #
-def hinge(length: float = 30.0, knuckle_d: float = 8.0, pin_d: float = 3.0, leaf_w: float = 12.0,
-          leaf_t: float = 2.4, knuckles: int = 3, clearance: float = PRINT_IN_PLACE_CLEARANCE,
-          segments: int | None = None) -> dict:
+# Mechanism minimums for members that carry load (design.md, "Mechanisms that carry load":
+# field comparison 2026-10 of a failed and a working print-in-place latch; starting points).
+MECHANISM = {"pin_d": 3.2, "pin_wall": 2.2, "member": 2.5, "knuckle_len": 4.0}
+# What still prints: a decorative hinge that carries nothing (tolerances.md limits).
+DECORATIVE = {"pin_d": 2.0, "pin_wall": 1.2, "member": 1.2, "knuckle_len": 2.0}
+
+
+def hinge(length: float = 30.0, knuckle_d: float = 9.8, pin_d: float = 3.2, leaf_w: float = 12.0,
+          leaf_t: float = 2.6, knuckles: int = 3, clearance: float = PRINT_IN_PLACE_CLEARANCE,
+          segments: int | None = None, decorative: bool = False) -> dict:
     """Two leaves joined by a pin, printed assembled. Axis along X at z = knuckle_d / 2, leaf A on
     -Y, leaf B on +Y, both flat on the bed. Knuckles alternate A, B, A ... along X with
     `clearance` between them; the pin is part of A and runs through B's knuckles with
     `clearance` all round. The pin is a teardrop (round below, 45-degree point on top) so it
     prints without support, and the knuckles have a flat underside.
 
+    Defaults follow design.md's mechanism minimums (a hinge carries load): pin 3.2 mm, at least
+    2.2 mm of knuckle wall all round the pin hole, including above the teardrop's point, which
+    reaches (pin_d / 2 + clearance) x sqrt(2) above the axis (9.8 - 2 x 2.687 = 4.4, halved: 2.2),
+    leaves 2.6 mm, knuckles 9.8 mm long. Thinner values raise ValueError; `decorative=True`
+    relaxes them to what still prints (pin 2.0, wall and leaf 1.2, knuckles 2 mm) for a hinge
+    that carries nothing, such as a box lid that is only looked at.
+
     Returns {"leaf_a": Manifold, "leaf_b": Manifold}: two bodies that never touch. Export both
     into ONE STL (validate with --shells 2) or two STLs placed as built."""
     if knuckles < 2:
         raise ValueError("a hinge needs at least two knuckles")
+    lim = DECORATIVE if decorative else MECHANISM
+    why = "tolerances.md limits (decorative=True)" if decorative else "design.md, Mechanisms that carry load"
     R = knuckle_d / 2
     rp = pin_d / 2
-    if rp + clearance >= R - 1.2:
-        raise ValueError("knuckle wall around the pin is thinner than 1.2 mm; raise knuckle_d")
+    # The hole is a teardrop: round below, 45-degree roof with its point at (rp + c) x sqrt(2)
+    # above the axis, so the thinnest wall is above the point, not beside the circle.
+    apex = (rp + clearance) * math.sqrt(2)
+    wall = R - apex
+    if pin_d < lim["pin_d"] - 1e-9:
+        raise ValueError(f"pin {pin_d} mm is under the {lim['pin_d']} mm minimum ({why})")
+    if wall < lim["pin_wall"] - 1e-9:
+        raise ValueError(f"knuckle wall above the teardrop's point is {wall:.2f} mm, under the {lim['pin_wall']} mm "
+                         f"minimum ({why}); raise knuckle_d to at least {2 * (apex + lim['pin_wall']):.1f}")
+    if leaf_t < lim["member"] - 1e-9:
+        raise ValueError(f"leaf {leaf_t} mm is under the {lim['member']} mm minimum for a member that carries load ({why})")
     if leaf_t > R:
         raise ValueError("leaf thickness must not exceed the knuckle radius")
     seg = segments or circle_segments(R)
     kl = (length - (knuckles - 1) * clearance) / knuckles          # knuckle length along X
-    if kl < 2.0:
-        raise ValueError("knuckles shorter than 2 mm; use fewer knuckles or a longer hinge")
+    if kl < lim["knuckle_len"] - 1e-9:
+        raise ValueError(f"knuckles {kl:.1f} mm long, under the {lim['knuckle_len']} mm minimum ({why}); use fewer "
+                         "knuckles or a longer hinge")
 
     def tombstone(r: float) -> CrossSection:
         """Circle of radius r at (0, r) with a flat bottom on y = 0 (profile in the YZ plane)."""

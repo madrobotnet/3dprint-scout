@@ -4,6 +4,17 @@ Read this right before Phase 3 when Phase 0 picked Python: as the fallback, or b
 organic and freeform shapes. Tell the user once: this path produces meshes only (no editable CAD
 file) and has no native fillets (smooth blends come from `sdf.py`, chamfers from `parts.py`).
 
+Contents:
+
+- [Script shape](#script-shape)
+- [Run](#run)
+- [Part library: `parts.py`](#part-library-partspy)
+- [Organic and freeform shapes: `sdf.py`](#organic-and-freeform-shapes-sdfpy)
+  - [Alternative: constrained triangulation lifted to surfaces](#alternative-constrained-triangulation-lifted-to-surfaces)
+- [API you will need](#api-you-will-need)
+- [Preview](#preview)
+- [Pitfalls](#pitfalls)
+
 ## Script shape
 
 ```python
@@ -59,7 +70,7 @@ mouth at z = 0 going down, overshooting the face by 0.1 mm). Defaults follow `de
 | `snap_hook(length, thickness, width, undercut, entry_angle, retention_angle, material)` | Cantilever hook lying flat (flexes in Y); raises when the strain exceeds the material limit |
 | `snap_window(...)` | Cutter for the matching window in the mating wall (snug clearance) |
 | `snap_fit_check(L, t, y, material, repeated)` | Strain, limit, `ok`, maximum deflection |
-| `hinge(length, knuckle_d, pin_d, leaf_w, leaf_t, knuckles, clearance)` | Print-in-place hinge: `{"leaf_a", "leaf_b"}`, two bodies that never touch (validate with `--shells 2`) |
+| `hinge(length, knuckle_d, pin_d, leaf_w, leaf_t, knuckles, clearance, decorative)` | Print-in-place hinge: `{"leaf_a", "leaf_b"}`, two bodies that never touch (validate with `--shells 2`). Defaults and refusals follow design.md's mechanism minimums (pin 3.2, pin wall 2.2 above the teardrop's point, leaf 2.5, knuckle 4 mm); `decorative=True` only for a hinge that carries nothing |
 | `text(string, height, depth, font, align)` | Text solid (cap height in mm) to union (emboss) or subtract (engrave); needs matplotlib, or fontTools plus a font file |
 | `thread(d, pitch, length, internal, clearance)` | Approximate ISO thread: a rod, or with `internal=True` a cutter for a nut |
 | `clean(part)` | Welds the slivers hulls, Minkowski sums and some booleans leave (M3) |
@@ -67,7 +78,9 @@ mouth at z = 0 going down, overshooting the face by 0.1 mm). Defaults follow `de
 
 Every function's docstring names its defaults and sources. Letters of `text()` are separate
 bodies until they sit on a face; `thread()` is a twisted extrusion with flat crest and root, no
-tolerance class, and the agent says so when delivering.
+tolerance class, and the agent says so when delivering. Members that carry load get the
+`strength.py` check and, when the margin is short, a test print of the mechanism alone
+(`build.py run --only ...`, `references/parts.md`).
 
 ## Organic and freeform shapes: `sdf.py`
 
@@ -140,7 +153,7 @@ adapt instead of guessing.
 ## Preview
 
 `python3 "$SKILL_DIR/scripts/preview.py" out/body.stl -o out/preview.png --overwrite` renders iso,
-front, right and top views (numpy only; see SKILL.md Phase 0). The numbers from `validate.py` stay the
+front, right and top views (numpy only; see `references/phase-0-detect.md`). The numbers from `validate.py` stay the
 evidence; the image is for the user and for P6.
 
 ## Pitfalls

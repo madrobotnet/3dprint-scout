@@ -287,7 +287,8 @@ class ThreeMF(Base):
         b = os.path.join(self.d, "b.stl"); write_stl(b, box(16, 16, 16) + box(12, 12, 12, 2, 2, 2, inward=True))
         out = os.path.join(self.d, "x.3mf")
         info = threemf.write_core_3mf([("a", a), ("b", b)], out)
-        self.assertEqual(info, {"a": {"triangles": 12, "rotation_deg": 0}, "b": {"triangles": 24, "rotation_deg": 0}})
+        self.assertEqual(info, {"a": {"triangles": 12, "rotation_deg": 0, "object": "a"},
+                                "b": {"triangles": 24, "rotation_deg": 0, "object": "b"}})
         names, model = self.read_back(out)
         self.assertTrue({"[Content_Types].xml", "_rels/.rels", "3D/3dmodel.model"} <= names)
         import xml.etree.ElementTree as ET
@@ -327,6 +328,32 @@ class ThreeMF(Base):
             self.assertGreaterEqual(lo, -1e-3); self.assertLessEqual(hi, limit + 1e-3)
         self.assertAlmostEqual(min(p[2] for p in placed), 0, places=3)       # still on the bed
         self.assertEqual(threemf.write_core_3mf([("bar", bar)], os.path.join(self.d, "n.3mf"))["bar"]["rotation_deg"], 0)
+
+    def test_grouped_parts_keep_their_positions_under_one_parent(self):
+        """Parts of one object become mesh objects referenced by a parent through components
+        with identity transforms; the layout moves the parent, so the assembly is intact."""
+        import xml.etree.ElementTree as ET
+        lid = os.path.join(self.d, "lid.stl"); write_stl(lid, box(60, 40, 3, 100, 100, 0))
+        label = os.path.join(self.d, "label.stl"); write_stl(label, box(30, 10, 1, 115, 115, 3))
+        peg = os.path.join(self.d, "peg.stl"); write_stl(peg, box(5, 5, 5))
+        out = os.path.join(self.d, "g.3mf")
+        info = threemf.write_core_3mf([("lid", lid), ("label", label), ("peg", peg)], out, bed=(256, 256),
+                                      objects=[{"name": "lid", "parts": ["lid", "label"], "main": "lid"}])
+        self.assertEqual({k: v["object"] for k, v in info.items()}, {"lid": "lid", "label": "lid", "peg": "peg"})
+        ns = {"m": threemf.CORE_NS}
+        root = ET.fromstring(self.read_back(out)[1])
+        objs = {o.get("id"): o for o in root.findall("m:resources/m:object", ns)}
+        parents = [o for o in objs.values() if o.find("m:components", ns) is not None]
+        self.assertEqual(len(parents), 1)
+        comps = parents[0].findall("m:components/m:component", ns)
+        self.assertEqual([objs[c.get("objectid")].get("name") for c in comps], ["lid", "label"])
+        self.assertTrue(all(c.get("transform").split() == ["1", "0", "0", "0", "1", "0", "0", "0", "1", "0", "0", "0"]
+                            for c in comps))
+        items = root.findall("m:build/m:item", ns)
+        self.assertEqual({i.get("objectid") for i in items}, {parents[0].get("id"), [k for k, o in objs.items() if o.get("name") == "peg"][0]})
+        # The parent's transform puts the assembly on the bed with its corner at the cursor.
+        t = [float(v) for v in [i for i in items if i.get("objectid") == parents[0].get("id")][0].get("transform").split()]
+        self.assertEqual(t[9:], [-100.0, -100.0, 0.0])
 
     def test_cli_prints_json(self):
         a = os.path.join(self.d, "a.stl"); write_stl(a, box(20, 10, 5))

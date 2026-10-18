@@ -174,15 +174,41 @@ class SnapFits(PartCase):
 class Hinges(PartCase):
     def test_print_in_place_hinge(self):
         h = parts.hinge()
-        a = self.assertSolid(h["leaf_a"], bbox=[30, 20.3, 8])
-        b = self.assertSolid(h["leaf_b"], bbox=[30, 20.3, 8])
-        self.assertSolid(h["leaf_a"] + h["leaf_b"], shells=2, bbox=[30, 32.6, 8])
+        a = self.assertSolid(h["leaf_a"], bbox=[30, 22.1, 9.8])
+        b = self.assertSolid(h["leaf_b"], bbox=[30, 22.1, 9.8])
+        self.assertSolid(h["leaf_a"] + h["leaf_b"], shells=2, bbox=[30, 34.4, 9.8])
+        # The wall above the teardrop's point: slice leaf B at the axis plane and look at the
+        # lowest hole-roof point against the knuckle top (design.md: 2.2 mm all round).
+        import numpy as np
+        V, F = parts.mesh_arrays(h["leaf_b"])
+        knuckle = V[(np.abs(V[:, 1]) < 4.9 + 1e-6) & (V[:, 0] > 10.0) & (V[:, 0] < 20.0)]     # the middle knuckle (B)
+        roof = knuckle[(np.abs(knuckle[:, 1]) < 1e-6) & (knuckle[:, 2] > 4.9) & (knuckle[:, 2] < 9.0)]
+        self.assertTrue(len(roof))
+        self.assertGreaterEqual(9.8 - roof[:, 2].max(), 2.2 - 1e-6)
         self.assertEqual((h["leaf_a"] ^ h["leaf_b"]).volume(), 0.0)
         self.assertAlmostEqual(h["leaf_a"].min_gap(h["leaf_b"], 1.0), 0.3, delta=0.01)   # tolerances.md
         self.assertEqual(a["bbox_min_mm"][2], 0.0)                                      # both on the bed
         self.assertEqual(b["bbox_min_mm"][2], 0.0)
-        with self.assertRaises(ValueError):
-            parts.hinge(knuckle_d=5, pin_d=3)                                 # wall under 1.2 mm
+
+    def test_mechanism_minimums(self):
+        """design.md, Mechanisms that carry load: a pin wall under 2.2 mm, a leaf under 2.5 mm, a
+        knuckle under 4 mm or a pin under 3.2 mm is refused with the source named."""
+        cases = {"wall": dict(knuckle_d=8.4, pin_d=3.2),            # 4.2 - 1.9 x sqrt(2) = 1.51 mm above the point
+                 "pin": dict(pin_d=2.6, knuckle_d=9.8),
+                 "leaf": dict(leaf_t=2.0),
+                 "knuckles": dict(length=12.0, knuckles=3)}         # (12 - 0.6) / 3 = 3.8 mm
+        for name, kw in cases.items():
+            with self.assertRaisesRegex(ValueError, "design.md", msg=name):
+                parts.hinge(**kw)
+        self.assertEqual(parts.MECHANISM, {"pin_d": 3.2, "pin_wall": 2.2, "member": 2.5, "knuckle_len": 4.0})
+        # The failed field latch's numbers: a 2.6 mm pin in a 6.0 mm knuckle is refused outright.
+        with self.assertRaisesRegex(ValueError, "minimum"):
+            parts.hinge(knuckle_d=6.0, pin_d=2.6)
+        # A hinge that carries nothing may go down to what still prints.
+        h = parts.hinge(length=16, knuckle_d=6.2, pin_d=2.0, leaf_t=1.6, knuckles=3, decorative=True)
+        self.assertSolid(h["leaf_a"] + h["leaf_b"], shells=2)
+        with self.assertRaisesRegex(ValueError, "tolerances.md"):
+            parts.hinge(knuckle_d=5.2, pin_d=2.0, decorative=True)       # 0.97 mm above the point: does not print
 
 
 class Text(PartCase):

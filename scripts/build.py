@@ -15,8 +15,14 @@ passed to the engine. "_parts" names the parts and what each should look like:
   {"_parts": {"body": {"expect": [60, 40, 25]}, "lid": {"expect": [60, 40, 4]}},
    "wall": 2.0, "lid_clearance": 0.2}
 
+"expect" is the size from the dimension table (design intent), never a measured box.
+Parts can be grouped into one object with "object" and "role" ("fused" or "free"),
+see assembly.py; every part of an object is modelled in the same frame, so the STLs
+already hold the assembled positions.
+
 OpenSCAD receives every other key as -D name=value, plus -D part="<name>" per part.
 A Python generator must define build(params) -> {part_name: manifold3d.Manifold}.
+`record` takes STLs built elsewhere (Fusion): one STL per part, named after the part.
 
 Every STL is checked for sanity (G4) before anything is recorded: a 0-byte, truncated or
 NaN mesh gets no manifest, is left out of the 3MF and is listed in "errors" with
@@ -26,6 +32,22 @@ A missing printers.json is a warning (D2 stays UNVERIFIED), not a failure.
 
 `--out` (default out/) is the build's working folder: every run rewrites its STLs,
 manifests and <source>.3mf. Deliverables are copied elsewhere as new files (SKILL.md).
+`run --only latch,keeper` builds only those parts: a few-gram test print of a mechanism
+before the whole part (SKILL.md, Phase 4). Use a separate --out so the full build's
+artifacts stay fresh.
+
+Output (one JSON document, schema 3dprint-scout.build/1; references/parts.md has the
+full description):
+  gate            PASS | FAIL | INCOMPLETE over every part and object
+  R4              PASS when the generator ran and every artifact is sane
+  parts[]         name, stl, artifact_sane, object, role, rotation_deg, engine_warnings,
+                  validate (the validate.py document for that part: files[0].checks,
+                  files[0].metrics), assembly (A1 / A2 for a part in a group)
+  objects[]       name, parts, gate, checks (D2, P1, P2 of the whole object when it has
+                  several parts), metrics, rotation_deg
+  sources         files hashed into the manifests; pass the same list to validate.py
+  threemf         the core 3MF written in --out
+  warnings, errors  everything worth reading, lifted from every part and object
 
 Exit codes: 0 = ran (read "gate"), 1 = build or usage error.
 """
@@ -49,6 +71,7 @@ from contextlib import redirect_stdout
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
+import assembly  # noqa: E402
 import validate  # noqa: E402
 import threemf   # noqa: E402
 
@@ -377,19 +400,32 @@ def overall_gate(reports) -> str:
     return "PASS"
 
 
-def usable_bed(args) -> tuple | None:
-    """(width, depth) of the usable bed for the core 3MF layout, or None when unknown.
-    Uses the same printer file and tool list as the D2 check, so a part that D2 passes
-    "when rotated" is placed with that rotation. Errors are left for validate.py to report."""
-    if not args.printer or not os.path.isfile(args.printer):
-        return None
+def printer_bed(args, all_tools=False):
+    """(bed dict from validate.effective_bed, bed source, tool ids) for the printer file and tool
+    list of this build, or (None, reason, []) when the printer is not known. With all_tools the
+    bed is the intersection of every tool's area (what an object printed by several nozzles
+    needs). Errors are left for validate.py to report; here they only mean "no bed"."""
+    if not args.printer:
+        return None, "no printer profile given", []
+    if not os.path.isfile(args.printer):
+        return None, f"printer file not found: {args.printer}", []
     try:
         _, printer = validate.load_printer(args.printer, args.printer_id)
         tool_ids = [int(x) for x in str(args.tools if args.tools is not None else "0").split(",") if x.strip()]
+        if all_tools and printer.get("tools"):
+            tool_ids = list(range(len(printer["tools"])))
         bed = validate.effective_bed(printer, tool_ids)
-    except (ValueError, OSError, json.JSONDecodeError):
-        return None
-    if printer.get("bed", {}).get("source", "user") == "default" or not bed.get("rect"):
+    except (ValueError, OSError, json.JSONDecodeError) as exc:
+        return None, str(exc), []
+    return bed, printer.get("bed", {}).get("source", "user"), tool_ids
+
+
+def usable_bed(args):
+    """(width, depth) of the usable bed for the core 3MF layout, or None when unknown.
+    Uses the same printer file and tool list as the D2 check, so an object that D2 passes
+    "when rotated" is placed with that rotation."""
+    bed, source, _ = printer_bed(args)
+    if bed is None or source == "default" or not bed.get("rect"):
         return None
     x0, y0, x1, y1 = bed["rect"]
     return (x1 - x0, y1 - y0)
@@ -417,13 +453,24 @@ def finish(out, parts, sources, params, params_path, specs, args, engine):
     for p in sane:
         validate.write_manifest(p["stl"], sources, params, engine)
 
+    # Parts grouped into objects (assembly.py). A bad grouping is a usage error, not a build error.
+    try:
+        groups = assembly.group_parts({p["name"]: specs.get(p["name"], {}) for p in parts})
+    except assembly.AssemblyError as exc:
+        out["errors"].append(f"params.json _parts: {exc}")
+        groups = [{"name": p["name"], "parts": [p["name"]], "main": p["name"]} for p in parts]
+    of_part = {n: g for g in groups for n in g["parts"]}
+    for p in parts:
+        p["object"] = of_part[p["name"]]["name"]
+        p["role"] = assembly.part_role(specs.get(p["name"])) if len(of_part[p["name"]]["parts"]) > 1 else None
+
     if not args.no_3mf and sane:
         name = args.threemf or os.path.splitext(os.path.basename(args.source_main))[0] + ".3mf"
         path = os.path.join(args.out, name)
         try:
             # out/ is the build's working folder: this file is rewritten on every build.
             placed = threemf.write_core_3mf([(p["name"], p["stl"]) for p in sane], path,
-                                            bed=usable_bed(args))
+                                            bed=usable_bed(args), objects=groups)
             out["threemf"] = path
             for p in sane:
                 p["rotation_deg"] = placed[p["name"]]["rotation_deg"]
@@ -442,9 +489,61 @@ def finish(out, parts, sources, params, params_path, specs, args, engine):
         out["errors"] += [f"{p['name']}: {e}" for e in rep.get("errors", [])]
         out["warnings"] += [f"{p['name']}: {w}" for w in p.get("engine_warnings", [])]
         out["warnings"] += [f"{p['name']}: {w}" for w in rep.get("warnings", [])]
+
+    # Objects with several parts: D2 / P1 / P2 of the whole, A1 / A2 per part.
+    sane_names = {p["name"] for p in sane}
+    by_name = {p["name"]: p for p in parts}
+    # An object with several parts, or any object of a job that uses several filaments, may be
+    # printed by more than one nozzle: its D2 uses the intersection of every tool's area, as
+    # bambu3mf.py lays such jobs out (printers.json "tools"; a single-nozzle printer is unchanged).
+    filaments = {int((specs.get(p["name"]) or {}).get("filament") or 1) for p in parts}
+    multi_tool = any(len(g["parts"]) > 1 for g in groups) or len(filaments) > 1
+    bed, bed_source, tool_ids = printer_bed(args, all_tools=multi_tool)
+    out["objects"] = []
+    object_gates = []
+    for g in groups:
+        entry = {"name": g["name"], "parts": list(g["parts"]), "main": g["main"]}
+        if len(g["parts"]) > 1:
+            if all(n in sane_names for n in g["parts"]):
+                try:
+                    rep = assembly.check_object(g, {n: by_name[n]["stl"] for n in g["parts"]}, specs,
+                                                bed=bed, bed_source=bed_source,
+                                                overhang_angle=args.overhang_angle or 45.0,
+                                                no_bed_reason=None if bed else bed_source)
+                except (assembly.AssemblyError, validate.ArtifactError) as exc:
+                    out["errors"].append(f"object '{g['name']}': {exc}")
+                    entry["gate"] = "FAIL"
+                else:
+                    if bed is not None and multi_tool:
+                        rep["checks"]["D2"].setdefault("value", {})
+                        if isinstance(rep["checks"]["D2"]["value"], dict):
+                            rep["checks"]["D2"]["value"]["tools"] = tool_ids
+                        rep["checks"]["D2"]["note"] = (rep["checks"]["D2"].get("note", "") +
+                                                       f"; usable area = intersection of tools {tool_ids} (several parts or "
+                                                       "filaments may need every nozzle)").lstrip("; ")
+                    entry.update(checks=rep["checks"], metrics=rep["metrics"], rotation_deg=rep["rotation_deg"],
+                                 method=rep["method"], gate=assembly.object_gate(rep))
+                    for n, pr in rep["parts"].items():
+                        by_name[n]["assembly"] = {"object": g["name"], "role": pr["role"], "checks": pr["checks"]}
+                    out["warnings"] += [f"object '{g['name']}': {w}" for w in rep["warnings"]]
+                    for cid, ck in rep["checks"].items():
+                        if ck["state"] == "FAIL":
+                            out["warnings"].append(f"object '{g['name']}' {cid} FAIL: {ck.get('note', '')}")
+                    for n, pr in rep["parts"].items():
+                        for cid, ck in pr["checks"].items():
+                            if ck["state"] == "FAIL":
+                                out["warnings"].append(f"{n} {cid} FAIL: {ck.get('note', '')}")
+            else:
+                entry["gate"] = "FAIL"
+            object_gates.append(entry["gate"])
+        out["objects"].append(entry)
+
     out["parts"] = parts
     out["sources"] = [_relpath(s) for s in sources]
-    out["gate"] = "FAIL" if len(sane) < len(parts) else overall_gate(reports)
+    gate = overall_gate(reports)
+    if object_gates:
+        gate = overall_gate([{"gate": gate}] + [{"gate": g} for g in object_gates])
+    out["gate"] = "FAIL" if len(sane) < len(parts) else gate
     out["R4"] = "PASS" if len(sane) == len(parts) else "FAIL"   # the generator ran, but left a broken artifact
     return out
 
@@ -462,6 +561,25 @@ def cmd_run(args) -> dict:
             raise ValueError("cannot infer engine from file extension; pass --engine")
     stem = os.path.splitext(os.path.basename(source))[0]
     specs = part_specs(params, stem)
+    only_notes = []
+    if args.only is not None:
+        wanted = [n.strip() for n in args.only.split(",") if n.strip()]
+        if not wanted:
+            raise ValueError("--only names no part; give a comma list of _parts names")
+        unknown = [n for n in wanted if n not in specs]
+        if unknown:
+            raise ValueError(f"--only names parts that are not in _parts: {unknown} (known: {list(specs)})")
+        full = specs
+        specs = {n: dict(spec or {}) for n, spec in full.items() if n in wanted}      # _parts order, not --only order
+        def object_of(m):
+            return (full.get(m) or {}).get("object") or m
+        for n, spec in specs.items():
+            obj = spec.get("object")
+            if obj and not any(m != n and object_of(m) == obj for m in specs):
+                spec.pop("object", None)
+                spec.pop("role", None)
+                only_notes.append(f"{n}: built alone with --only, the other parts of object '{obj}' were not; "
+                                  "object checks (A1 / A2, D2 of the whole) skipped")
     os.makedirs(args.out, exist_ok=True)
     out = {"schema": SCHEMA, "ran": True, "engine": engine, "source": source, "gate": None,
            "warnings": [], "errors": []}
@@ -479,6 +597,7 @@ def cmd_run(args) -> dict:
     out["engine_info"] = info
     args.source_main = source
     out = finish(out, parts, sources, params, args.params, specs, args, engine)
+    out["warnings"] += only_notes
     out["seconds"] = round(time.time() - t0, 2)
     return out
 
@@ -507,36 +626,57 @@ class _JsonArgParser(argparse.ArgumentParser):
         raise ValueError(f"usage error: {message}")
 
 
+OUTPUT_HELP = """\
+Prints one JSON document (schema 3dprint-scout.build/1):
+  gate      PASS | FAIL | INCOMPLETE over every part and object; R4 = the generator ran
+  parts[]   name, stl, artifact_sane, object, role, rotation_deg, validate (validate.py's
+            document: files[0].checks, files[0].metrics), assembly (A1 / A2 in a group)
+  objects[] name, parts, gate, checks (D2 / P1 / P2 of the whole object when it has
+            several parts), metrics, rotation_deg
+  sources   files hashed into the manifests (pass the same list to validate.py)
+  threemf   core 3MF written in --out;  warnings / errors: read these two lists first
+Full description: references/parts.md. Exit 0 = ran (read gate), 1 = build or usage error."""
+
+
 def _common(p):
-    p.add_argument("--params")
-    p.add_argument("--out", default="out")
+    p.add_argument("--params", help="params.json: _parts (expect, object, role), engine parameters")
+    p.add_argument("--out", default="out", help="working folder, rewritten on every build (default out)")
     p.add_argument("--3mf", dest="threemf", help="3MF file name (default: <source>.3mf)")
-    p.add_argument("--no-3mf", action="store_true")
-    p.add_argument("--tol", type=float)
-    p.add_argument("--printer")
-    p.add_argument("--printer-id")
-    p.add_argument("--tools")
-    p.add_argument("--overhang-angle", type=float)
-    p.add_argument("--min-wall", type=float)
-    p.add_argument("--no-wall-check", dest="wall_check", action="store_false")
+    p.add_argument("--no-3mf", action="store_true", help="skip the core 3MF")
+    p.add_argument("--tol", type=float, help="D1 tolerance in mm (default 0.1)")
+    p.add_argument("--printer", help=".3dprint/printers.json (a missing file leaves D2 UNVERIFIED)")
+    p.add_argument("--printer-id", help="printer id in printers.json when it holds several")
+    p.add_argument("--tools", help="tool indices this print uses, e.g. 0 or 0,1 (bed = their intersection)")
+    p.add_argument("--overhang-angle", type=float, help="P2 limit from vertical in degrees (default 45)")
+    p.add_argument("--min-wall", type=float, help="P3 minimum wall in mm (default 1.2)")
+    p.add_argument("--no-wall-check", dest="wall_check", action="store_false", help="skip P3 (ray casting)")
 
 
 def main(argv=None):
     if argv is None and len(sys.argv) > 1 and sys.argv[1] == "_pyrun":
         _pyrun(*sys.argv[2:6])
         return 0
-    ap = _JsonArgParser(description="3dprint-scout build runner")
-    sub = ap.add_subparsers(dest="cmd")
-    sub.add_parser("detect")
-    r = sub.add_parser("run")
-    r.add_argument("source")
+    ap = _JsonArgParser(description="3dprint-scout build runner: build, record, validate, write a core 3MF",
+                        epilog=OUTPUT_HELP, formatter_class=argparse.RawDescriptionHelpFormatter)
+    sub = ap.add_subparsers(dest="cmd", metavar="{detect,run,record}")
+    sub.add_parser("detect", help="Phase 0 probe: OpenSCAD (and its Manifold backend), manifold3d, optional libraries")
+    r = sub.add_parser("run", help="build every part of _parts with OpenSCAD (.scad) or Python (.py), then validate",
+                       epilog=OUTPUT_HELP, formatter_class=argparse.RawDescriptionHelpFormatter)
+    r.add_argument("source", help="generator: model.scad or model.py")
     r.add_argument("--engine", default="auto", choices=["auto", "openscad", "python"])
-    r.add_argument("--timeout", type=int, default=900)
+    r.add_argument("--timeout", type=int, default=900, help="seconds per generator run (default 900)")
+    r.add_argument("--only", help="build only these _parts (comma list), e.g. the mechanism and the bit of its mating "
+                                  "part it needs, for a test print before the full part")
     _common(r)
-    rec = sub.add_parser("record")
-    rec.add_argument("stl", nargs="+")
-    rec.add_argument("--source", nargs="+", required=True)
-    rec.add_argument("--engine", default="fusion")
+    rec = sub.add_parser("record", help="record STLs built elsewhere (Fusion): manifests, core 3MF, validation",
+                         epilog=("Each STL is one part named after its file (out/lid.stl -> part 'lid'); with\n"
+                                 "--params the names match _parts and parts grouped there form objects.\n\n"
+                                 + OUTPUT_HELP),
+                         formatter_class=argparse.RawDescriptionHelpFormatter)
+    rec.add_argument("stl", nargs="+", help="one STL per part, exported in print orientation (mm)")
+    rec.add_argument("--source", nargs="+", required=True,
+                     help="the generator script(s) that built the STLs; hashed with --params for freshness (R3)")
+    rec.add_argument("--engine", default="fusion", help="engine name written to the manifests (default fusion)")
     _common(rec)
     try:
         args = ap.parse_args(argv)

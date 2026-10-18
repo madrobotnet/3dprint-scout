@@ -19,6 +19,19 @@ and --b-translate x,y,z (mm, applied after the rotation).
   python3 fit.py out/box.stl out/lid.stl --b-rotate 180,0,0 --b-translate 0,40,33 \\
       --min-clearance 0.2
 
+A sweep rotates part B (after its placement) about an axis through a pivot, step by step
+away from its placed pose, and reports the interference and gap at each step, the angle at
+which B first hits A (its stop) and the free travel before it. Angles are travel from the
+placed pose in one direction: 0:90:2 turns counter-clockwise about the axis, -40:0:2 (or
+0:-40:2) clockwise; a range on both sides of 0 is two sweeps, run them separately. The
+verdict F3_sweep: PASS when nothing is hit, or when --sweep-travel DEG is given and the
+part is free through that travel (the stop angle is reported); FAIL when it hits before
+the required travel; WARN when it hits and no travel was required (then say what the
+part must do). A lever that must turn 40 degrees before its stop:
+
+  python3 fit.py out/body.stl out/lever.stl --sweep-axis z --sweep-pivot 12,0,0 \
+      --sweep-angles 0:90:2 --sweep-travel 40
+
 Verdict (same JSON style as validate.py): FAIL when the interference is above
 --max-interference (a press fit fails by design: compare its interference with the
 intended overlap instead); WARN when the smallest play is below --min-clearance, when
@@ -259,6 +272,67 @@ def play(a, b, direction, max_travel, precision, eps):
 # --------------------------------------------------------------------------- #
 # Verdict
 # --------------------------------------------------------------------------- #
+# --------------------------------------------------------------------------- #
+# Sweep: rotate B about an axis through a pivot, step by step
+# --------------------------------------------------------------------------- #
+def parse_axis(text):
+    named = {"x": [1.0, 0.0, 0.0], "y": [0.0, 1.0, 0.0], "z": [0.0, 0.0, 1.0]}
+    if text.lower() in named:
+        return named[text.lower()]
+    v = _vec(text, "--sweep-axis")
+    n = math.sqrt(sum(c * c for c in v))
+    if n == 0:
+        raise FitError("--sweep-axis must not be a zero vector")
+    return [c / n for c in v]
+
+
+def parse_angles(text):
+    """Angles of the sweep in travel order: from the end of the range nearest the placed pose
+    (0) outward. The range may be written in either order; the step's sign is ignored."""
+    try:
+        a, b, step = (float(x) for x in text.split(":"))
+    except ValueError:
+        raise FitError("--sweep-angles needs start:end:step in degrees")
+    step = abs(step)
+    lo, hi = min(a, b), max(a, b)
+    if step == 0:
+        raise FitError("--sweep-angles needs a non-zero step")
+    if lo < 0 < hi:
+        raise FitError("--sweep-angles: sweep one direction at a time (0:40:2 or -40:0:2); a range on both sides "
+                       "of 0 is two sweeps")
+    n = int(math.floor((hi - lo) / step + 1e-9)) + 1
+    if n > 3601:
+        raise FitError("--sweep-angles: more than 3601 steps")
+    angles = [round(lo + i * step, 6) for i in range(n)]
+    return sorted(angles, key=abs)
+
+
+def rotation_about(axis, pivot, deg):
+    """3x4 affine matrix (manifold3d) rotating by deg about `axis` through `pivot` (Rodrigues)."""
+    import numpy as np
+    k = np.asarray(axis, dtype=np.float64)
+    K = np.array([[0, -k[2], k[1]], [k[2], 0, -k[0]], [-k[1], k[0], 0]])
+    th = math.radians(deg)
+    R = np.eye(3) + math.sin(th) * K + (1 - math.cos(th)) * (K @ K)
+    p = np.asarray(pivot, dtype=np.float64)
+    t = p - R @ p
+    return np.c_[R, t]
+
+
+def sweep(a, b, axis, pivot, angles, eps, search):
+    """[{angle_deg, interference_mm3, min_gap_mm}] over the angles, plus the first overlap."""
+    rows, first = [], None
+    for deg in angles:
+        moved = b.transform(rotation_about(axis, pivot, deg)) if deg else b
+        inter = a ^ moved
+        vol = inter.volume() if not inter.is_empty() else 0.0
+        gap = a.min_gap(moved, search)
+        rows.append({"angle_deg": deg, "interference_mm3": round(vol, 4), "min_gap_mm": round(gap, 4)})
+        if first is None and vol > eps:
+            first = deg
+    return rows, first
+
+
 def part_info(path, man):
     bb = man.bounding_box()
     return {"path": path, "triangles": man.num_tri(), "volume_mm3": round(man.volume(), 3),
@@ -339,6 +413,66 @@ def check(args) -> dict:
     out["gate"] = state
     if state == "WARN":
         out["warnings"].append(f"F3: {note}")
+
+    if args.sweep_angles:
+        rows, first = sweep(a, b, args.sweep_axis, args.sweep_pivot, args.sweep_angles, args.max_interference, args.search)
+        before = rows if first is None else rows[: [r["angle_deg"] for r in rows].index(first)]
+        free = [r["angle_deg"] for r in before if r["interference_mm3"] <= args.max_interference]
+        closest = min(rows, key=lambda r: r["min_gap_mm"]) if rows else None
+        direction = "counter-clockwise" if rows[-1]["angle_deg"] >= 0 else "clockwise"
+        sw = {"axis": [round(c, 4) for c in args.sweep_axis], "pivot_mm": args.sweep_pivot,
+              "direction": direction, "angles_deg": [rows[0]["angle_deg"], rows[-1]["angle_deg"]],
+              "step_deg": round(abs(rows[1]["angle_deg"] - rows[0]["angle_deg"]), 6) if len(rows) > 1 else None,
+              "first_overlap_deg": first, "free_until_deg": free[-1] if free else None,
+              "free_travel_deg": abs(free[-1]) if free else 0.0, "required_travel_deg": args.sweep_travel,
+              "closest": closest, "table": rows,
+              "method": "B is rotated about the axis through the pivot, from its placed pose outward in travel order; "
+                        "interference and gap at each angle; the first step with an overlap is the stop"}
+        out["metrics"]["sweep"] = sw
+        span = f"{rows[0]['angle_deg']}..{rows[-1]['angle_deg']} deg ({direction})"
+        if first is None:
+            st, note = "PASS", f"no overlap over {span}; closest approach {closest['min_gap_mm']} mm at {closest['angle_deg']} deg"
+        elif args.sweep_travel is not None:
+            if sw["free_travel_deg"] + 1e-9 >= args.sweep_travel:
+                st, note = "PASS", (f"free through the required {args.sweep_travel} deg (last free step {sw['free_until_deg']} deg); "
+                                    f"stops at {first} deg")
+            else:
+                st, note = "FAIL", (f"hits at {first} deg, before the required {args.sweep_travel} deg of travel "
+                                    f"(free through {sw['free_until_deg']} deg)" if free else
+                                    f"hits at {first} deg, the first step: not free in the placed pose")
+        else:
+            st, note = "WARN", (f"hits at {first} deg over {span}, free through {sw['free_until_deg']} deg; pass --sweep-travel DEG "
+                                "with the travel the part needs to decide PASS or FAIL" if free else
+                                f"hits at {first} deg, the first step; pass --sweep-travel DEG to decide")
+        out["checks"]["F3_sweep"] = {"state": st, "kind": "hard",
+                                     "value": {k: sw[k] for k in ("first_overlap_deg", "free_until_deg", "free_travel_deg",
+                                                                  "required_travel_deg", "closest")},
+                                     "note": note}
+        if st == "FAIL":
+            out["checks"]["F3_sweep"]["return_to"] = "phase4"
+            out["gate"] = "FAIL"
+        elif st == "WARN":
+            out["warnings"].append(f"F3_sweep: {note}")
+            if out["gate"] == "PASS":
+                out["gate"] = "WARN"
+    return out
+
+
+NEGATIVE_OK = ("--a-rotate", "--a-translate", "--b-rotate", "--b-translate", "--sweep-axis", "--sweep-pivot", "--sweep-angles")
+
+
+def join_negative_values(argv, options=NEGATIVE_OK):
+    """argparse reads `--sweep-angles -40:0:2` as two options; join a value that looks like numbers."""
+    import re
+    out, i = [], 0
+    while i < len(argv):
+        tok = argv[i]
+        if tok in options and i + 1 < len(argv) and re.fullmatch(r"-[0-9.,:+-]*", argv[i + 1]):
+            out.append(f"{tok}={argv[i + 1]}")
+            i += 2
+        else:
+            out.append(tok)
+            i += 1
     return out
 
 
@@ -359,10 +493,17 @@ def main(argv=None):
         ap.add_argument("--play-precision", type=float, default=DEFAULT_PLAY_PRECISION)
         ap.add_argument("--samples", type=int, default=DEFAULT_SAMPLES)
         ap.add_argument("--seed", type=int, default=0)
-        args = ap.parse_args(sys.argv[1:] if argv is None else argv)
-        for name in ("a_rotate", "a_translate", "b_rotate", "b_translate"):
+        ap.add_argument("--sweep-axis", default="z", help="x, y, z or ax,ay,az: the axis B turns about")
+        ap.add_argument("--sweep-pivot", default="", help="x,y,z mm: a point on the axis (after B's placement)")
+        ap.add_argument("--sweep-angles", default="", help="start:end:step degrees from the placed pose, one direction "
+                                                            "(0:90:2 or -40:0:2); enables the sweep")
+        ap.add_argument("--sweep-travel", type=float, default=None, help="degrees the part must turn freely (decides PASS/FAIL)")
+        args = ap.parse_args(join_negative_values(sys.argv[1:] if argv is None else argv))
+        for name in ("a_rotate", "a_translate", "b_rotate", "b_translate", "sweep_pivot"):
             setattr(args, name, _vec(getattr(args, name), "--" + name.replace("_", "-")))
         args.play = parse_directions(args.play)
+        args.sweep_axis = parse_axis(args.sweep_axis)
+        args.sweep_angles = parse_angles(args.sweep_angles) if args.sweep_angles else None
         if args.samples < 100 or args.search <= 0 or args.contact_tol <= 0 or args.max_interference < 0 \
                 or args.play_precision <= 0:
             raise FitError("--samples >= 100, --search > 0, --contact-tol > 0, --max-interference >= 0, --play-precision > 0")

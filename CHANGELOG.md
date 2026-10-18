@@ -1,5 +1,156 @@
 # Changelog
 
+## 0.3.0 — 2026-10-18
+
+Driven by a field test on 2026-10-17: a tool-free adapter from the Bambu Lab X2D rear exhaust
+housing to a 100 mm duct, designed in Fusion through MCP, fit-tested and printed on the X2D.
+
+- **SKILL.md split into a router and phase files.** SKILL.md (under 300 lines) keeps what holds
+  at all times: the ground rules, the always-on rules (no model downloads or copied geometry,
+  never ask about colours, never overwrite, no identifiers stored, nothing executable in a 3MF,
+  no modelled supports), a skeleton per phase with its stop and its must-do rules, the full
+  checklist and gate, the unattended rules and the file map. The how-to of each phase moved
+  unchanged to `references/phase-0-detect.md` … `phase-6-deliver.md` (the `printers.json`
+  schema and defaults in the Phase 2 file), `validate.py`'s JSON to `references/checks.md`.
+  Every reference file is linked from SKILL.md with when to read it, one level deep, and the
+  ones over 100 lines start with a table of contents.
+- **Parts grouped into objects.** `params.json` `_parts` entries can name an `object` and a
+  `role`: `fused` (a separate body that shares faces with the main body, no boolean union, so a
+  latch, lever or label is its own part in the slicer and can take another filament) or `free`
+  (print-in-place, keeps its `clearance`). All parts of an object are modelled in one frame, so
+  the STLs hold the assembled positions. `assembly.py` checks each object as a whole (D2, P1 and
+  P2 on the union of its parts with manifold3d, so a label on a lid is no overhang) and each
+  part's A1 (fused: shares faces, no overlap) or A2 (free: clearance; WARN below it). `build.py`
+  reports per part and per object, and `build.py --help` / `record --help` now describe the JSON
+  (`references/parts.md` has it in full). The rule, the seam placement and why: `design.md`
+  ("Colour and function seams") and `parts.md`. The agent never asks about colours: it splits,
+  gives every part the main filament and says at delivery which parts are separate and how to
+  recolour one.
+- **Grouped 3MF writers.** `threemf.py` writes parts of an object as mesh objects under one
+  parent with identity component transforms; `bambu3mf.py` writes one Bambu object with
+  several parts (one `object_N.model` per object, a component per part, per-part `extruder`,
+  the main part's settings on the object, assembled positions kept), lays out objects instead
+  of parts, takes `object` and `filament` from `params` when the job names it, and keeps the
+  old flat job format. What Bambu Studio 02.08.02.61 does with touching parts, from its source:
+  parts with the same filament and settings share one `PrintRegion` (`PrintApply.cpp`,
+  `generate_print_object_regions`) and their slices are united per layer
+  (`PrintObjectSlice.cpp`, `slices_to_regions`, `closing_ex`), so there is no inner wall between
+  them; different filaments meet as two sets of perimeters. Confirmed in Bambu Studio
+  02.08.02.61 on 2026-10-18 with sample projects.
+- **Nozzle areas (X2D, H2D).** With `printer` in the job, `bambu3mf.py` lays objects out inside
+  the intersection of the tools' reachable areas whenever an object has several parts or the
+  job uses several filaments; otherwise the full bed, as before. `usable_area_reason` says
+  which. This closes the known limitation of 0.1.0 for those jobs; a single-filament job of
+  single-part objects can still land a very wide part in the strip.
+- **Allowlist.** `support_interface_filament`, `support_filament` (a slot or 0 = the object's
+  own, checked against the template's filament count), `support_top_z_distance` and
+  `support_bottom_z_distance` (0–1 mm), from `PrintConfig.cpp` 02.08.02.61, with a tuning row for
+  a PLA interface under a PETG part. Confirmed in the app: the values show in the object's
+  settings.
+- **Templates.** When the user has Bambu Studio open, the agent first suggests saving an empty
+  project (it keeps their process tweaks and AMS set); the generated template is the fallback.
+  The Bambu Studio data folders are named from `GUI_App.cpp` / `PresetBundle.cpp`
+  (`%APPDATA%\BambuStudio`, `~/Library/Application Support/BambuStudio`,
+  `$XDG_CONFIG_HOME/BambuStudio`, profiles under `system`, presets under `user/<id>`).
+- **Fusion kit.** `references/engines/fusion_builder.py`: a Builder to paste into Fusion MCP
+  scripts: user parameters that drive the features through expressions, sketches with real
+  circles and arcs, extrude / revolve, right-handed frames, join / cut that refuse a tool whose
+  box does not touch the target and report leftover bodies, one STL per named body at High
+  refinement, a JSON summary in mm. Derived from the Builder that ran in the field test; this
+  cleaned version has not yet been run in Fusion (stub-based tests only). `fusion.md` has the
+  field pitfalls (joins that leave the tool behind, left-handed `Matrix3D`, taper sign, a
+  re-sent script running stale content, parameters created but not used, polyline circles), the
+  transfer pattern (inline when short; a new path per version plus an md5 check before `exec`),
+  the no-save rule (10-document cap) and body names matching `_parts`.
+- **`measure.py`.** Measures a file the user supplies, numbers only: `info` lists the placed
+  objects and parts of an STL or 3MF (core objects, Bambu components with transforms and names,
+  units to mm) and extracts one STL per object; `slice` gives closed loops at levels along an
+  axis with bounds, area, a circle fit and the corner radii of a rounded outline; `raymap`
+  prints the depth of the first surface behind a wall on a grid of rays (windows, recesses).
+  `references/measure.md`: the licence rule (an official file is "official file, measured",
+  never copied; another maker's model is a secondary source) and the pattern for a small
+  watertight proxy of the mating part.
+- **`fit.py --sweep-axis / --sweep-pivot / --sweep-angles / --sweep-travel`.** Rotates part B
+  about an axis through a pivot, step by step from its placed pose in one direction (`0:90:2`
+  counter-clockwise, `-40:0:2` clockwise), and reports interference and gap per angle, the stop
+  angle, the free travel before it and an `F3_sweep` verdict: PASS when nothing is hit or the
+  part is free through `--sweep-travel`, FAIL when it hits before that travel, WARN when it hits
+  and no travel was required.
+- **Process fixes in SKILL.md.** Every user-facing line, progress notes included, in the user's
+  language. In a disposable sandbox `pip install` of the listed libraries is fine and said in one
+  line; on the user's machine ask first; never `apt`/`brew` for OpenSCAD in a sandbox. Reference
+  research capped at about six page fetches for the four models. Bed and nozzle areas read from
+  the user's installed slicer profiles first, then the manufacturer's page, then the slicer's
+  public profiles at a matching tag, never a reseller page. A supplied file is measured, not
+  copied. The Phase 3 base-shape stop is not skippable, least of all for multi-part or
+  mechanism parts. `expect` comes from the dimension table, never from a measured box:
+  `validate.py` flags an `expect` with four or more decimals that matches the mesh to 0.001 mm.
+  Every delivery repeats unverified dimensions, `_assumptions` and open WARNs, and a skipped fit
+  test is recorded as unconfirmed in `_assumptions` before delivery.
+- **Mechanism minimums** (`design.md`, "Mechanisms that carry load"; checklist P7). The field
+  test's adapter was printed and its print-in-place draw latches broke on first use: Ø2.6 stub
+  pins in ~2 mm plates, 1.3 mm of knuckle wall, 1.2 mm link arms, every member at the P3
+  printability minimum. A working print-in-place latch from an earlier project (one Ø3.2
+  through pin in 4.25 mm rails, ≥ 2.2 mm of wall around the hole, 2.5 mm at the thinnest
+  member, about 6× the material) gives the starting points: pin ≥ 3.2 mm, pin wall ≥ 2.2 mm,
+  load-carrying members ≥ 2.5 mm in the bending direction and ≥ 4 mm wide, one through pin
+  supported at both ends, 0.3–0.35 mm radial clearance. Both latches were PLA. These are a
+  one-pair field comparison, not a standard. `parts.hinge()` now defaults to them (pin 3.2, knuckle 9.8 so that 2.2 mm
+  remain above the teardrop hole's point, leaf 2.6) and refuses thinner values unless
+  `decorative=True`; `examples/latch-box` thickens its bar, rail lips and lug ceiling
+  accordingly (it has no pin holes).
+- **Judging load-carrying members without new field data.** Three steps in SKILL.md (P7):
+  compare the member with the corresponding one of a proven reference when its file is at
+  hand (measured with `measure.py`, the user's own working project or a supplied file, never a
+  download); run `scripts/strength.py` (pin in single or double shear, peak 4/3 of the mean,
+  and bending as a stub from its root face with the print-in-place gap, `--gap`, or as a loose
+  clevis pin with the support thickness, `--support-t`; beam or lever bending and deflection;
+  link in tension with the bending a bow adds; bearing and tear-out of a pin wall; standard
+  library; materials from Bambu Lab's technical data sheets for PLA Basic, PLA Matte, PLA
+  Pure, PETG Basic, PETG HF, ABS and ASA with X-Y and Z values, loads from a cited hand-force
+  study, safety factor 2 with its rationale, every assumption printed; `references/materials.md`);
+  and when the margin is short or there is no reference, print the mechanism alone first
+  (`build.py run --only latch,keeper` builds those parts whole; a coupon part for less).
+  Honest result of running the field comparison through the calculation, inputs stated
+  (finger push 70.6 N shared by the failed latch's two arms and two pins, 35.3 N each; the
+  arm's 2.5 mm bow and the bar's 12 mm length from its generator; root gaps as the radial
+  clearances; the lever ratio of either latch not measured, so the hand force applied 1:1):
+  it flags the failed latch's curved 1.2 mm arms (factor 0.42; 0.21 for one arm alone) and its
+  bar (0.11 as a cantilever, 0.44 as a span), while its Ø2.6 stub pins (bending 2.6, shear 3.4;
+  2.0, WARN, when the load crosses the layers) and 1.3 mm pin walls (4.4) pass on paper and
+  broke anyway. A lever ratio of 2 alone would make the pins WARN, 3 FAIL; impact at
+  snap-over and corners are not in a static hand calculation either. So the minimums in
+  `design.md` stay the primary rule.
+- **Calibration log.** `scripts/calibration.py` keeps the user's own results in the project's
+  `.3dprint/calibration.json` (never in the skill): fit-test outcomes, measured clearances and
+  holes, mechanism members that held or broke with their load; schema-checked, finite numbers
+  under 10 000 only; what the script can recognise as identifying a person or a machine is
+  refused (field names with id, code, device, serial, account and the like; IPv4, IPv6 and MAC
+  addresses, e-mails, long digit runs and letter-digit tokens in notes; printers and materials
+  that are not short lowercase ids), which reduces the risk without guaranteeing it, so the
+  agent never writes a name. `lookup` keeps the newest value that worked apart from the
+  failed, tight and loose bounds. Read in Phase 2 (for how this printer prints, a value there
+  beats every starting point; the object's size still comes from the user's caliper or the
+  official spec); written only after the user says yes to one offer, never in an unattended
+  run (`references/calibration.md`).
+- `examples/latch-box`: a box whose lid carries a separate label part (colour) and a captive
+  print-in-place slider latch, grouped into one object; its README shows the object checks, the
+  fit check and the expected P2 warning for the latch's bridged underside.
+- **G9, no long silences.** In the field test the agent modelled and checked the fit-test frame
+  for up to about 48 minutes and ~70 tool calls without showing anything, and the too-thin latch
+  was only found after printing. SKILL.md now asks for a short update (latest preview, what
+  changed, what is next) at least every ~20 tool calls or ~15 minutes, and for a mechanism's
+  preview before more checks are built on it. The numbers are starting values.
+- Tests: assembly, grouped writers, nozzle areas, the new allowlist keys, measure.py, the sweep,
+  the Fusion Builder against an API stand-in, strength.py (formulas and the field
+  comparison), calibration.py and the new example (200 tests).
+
+Checked in Bambu Studio 02.08.02.61 on 2026-10-18 with five sample projects: a Bambu object with
+several parts (named parts at their assembled positions, filament per part, placed inside the
+area both X2D nozzles reach), the support interface keys, the v0.2.1 six-filament fix (all six
+slots on system presets), and no inner wall between same-filament touching parts (walls on both
+sides with two filaments). Not yet run in Fusion: the cleaned Builder.
+
 ## 0.2.1 — 2026-10-17
 
 - Fix: `bambu_template.py` projects with more than one filament opened in Bambu Studio with

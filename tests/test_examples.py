@@ -99,6 +99,29 @@ class TestLeafHandle(ExampleCase):
 
 
 @unittest.skipUnless(HAS_M3D, "needs manifold3d and numpy")
+class TestLatchBox(ExampleCase):
+    def test_readme_commands(self):
+        cwd = self.copy("latch-box")
+        report = self.build(cwd, "latchbox.py")
+        # The README promises exactly one soft warning: P2 on the lid object (the latch's bridged underside).
+        self.assertEqual(len(report["warnings"]), 1, report["warnings"])
+        self.assertIn("object 'lid': lid P2", report["warnings"][0])
+        objects = {o["name"]: o for o in report["objects"]}
+        self.assertEqual(objects["lid"]["parts"], ["lid", "label", "latch"])
+        self.assertEqual(objects["lid"]["gate"], "PASS")
+        self.assertEqual(objects["lid"]["checks"]["P2"]["state"], "WARN")
+        self.assertEqual(objects["lid"]["checks"]["P2"]["value"]["overhang_area_mm2"], 144.0)
+        parts = {p["name"]: p for p in report["parts"]}
+        self.assertEqual(parts["label"]["assembly"]["checks"]["A1"]["state"], "PASS")
+        self.assertEqual(parts["latch"]["assembly"]["checks"]["A2"]["state"], "PASS")
+        self.assertAlmostEqual(parts["latch"]["assembly"]["checks"]["A2"]["value"]["pairs"][0]["gap_mm"], 0.3, places=3)
+        self.fit(cwd, "0,0,0", "1.8,1.8,22")
+        self.place_and_preview(cwd, ["out/box.stl", "out/lid_side.stl", "out/label_side.stl", "out/latch_side.stl"],
+                               [("out/lid.stl", "out/lid_side.stl", "0,50,0"), ("out/label.stl", "out/label_side.stl", "0,50,0"),
+                                ("out/latch.stl", "out/latch_side.stl", "0,50,0")])
+
+
+@unittest.skipUnless(HAS_M3D, "needs manifold3d and numpy")
 class TestFitTest(ExampleCase):
     def test_readme_commands(self):
         cwd = self.copy("fit-test")
@@ -117,7 +140,7 @@ class TestFitTest(ExampleCase):
 
 class TestExampleFiles(unittest.TestCase):
     def test_every_example_has_readme_and_preview(self):
-        for name in ("aa-battery-box", "snap-box", "leaf-handle", "fit-test"):
+        for name in ("aa-battery-box", "snap-box", "leaf-handle", "fit-test", "latch-box"):
             for f in ("README.md", "preview.png", "thumb.png"):
                 self.assertTrue(os.path.isfile(os.path.join(EXAMPLES, name, f)), f"{name}/{f}")
 
