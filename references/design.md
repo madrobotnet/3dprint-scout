@@ -124,7 +124,7 @@ heads ISO 10642 (theoretical dk, 90°) [14]; M2/M2.5 countersink values are star
 P3's 1.2 mm is a **printability** minimum, not a strength minimum. A latch, lever, pin,
 knuckle or link that is pushed, pulled or snapped by hand sees far more than a wall does.
 Starting points for members that carry load (field comparison, 2026-10, one failed and one
-working print-in-place latch, PLA or PETG, 0.4 mm nozzle, 0.2 mm layers; starting points,
+working print-in-place latch, both PLA, 0.4 mm nozzle, 0.2 mm layers; starting points,
 not a standard):
 
 - **Pins** Ø ≥ 3.2 mm; one **through pin supported at both ends** (double shear) rather than

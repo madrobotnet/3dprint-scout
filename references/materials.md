@@ -94,9 +94,8 @@ The field comparison in `design.md`, with its inputs stated (`tests/test_strengt
 `FieldComparison`): finger push 70.6 N, shared by the failed latch's two curved arms and two
 stub pins (35.3 N each); the arm's 2.5 mm bow and the bar's 12 mm length from the generator
 that made it; root gaps taken as the radial clearances (0.42 and 0.33 mm); the lever ratio
-of either latch **not measured**, so the hand force is applied 1:1; PLA Pure per the failed
-latch's project file (owner to confirm; with PETG Basic, X-Y 51 / 75 MPa, every verdict is
-the same).
+of either latch **not measured**, so the hand force is applied 1:1; the failed latch
+was printed in PLA Pure (confirmed by the owner).
 
 The static formulas flag the failed latch's 1.2 mm curved arms (bending from the bow,
 factor 0.42 with the load shared, 0.21 for one arm alone) and its 1.7 × 2.6 mm bar (0.11 as

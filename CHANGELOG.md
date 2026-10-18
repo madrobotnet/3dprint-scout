@@ -83,8 +83,8 @@ housing to a 100 mm duct, designed in Fusion through MCP, fit-tested and printed
   through pin in 4.25 mm rails, ≥ 2.2 mm of wall around the hole, 2.5 mm at the thinnest
   member, about 6× the material) gives the starting points: pin ≥ 3.2 mm, pin wall ≥ 2.2 mm,
   load-carrying members ≥ 2.5 mm in the bending direction and ≥ 4 mm wide, one through pin
-  supported at both ends, 0.3–0.35 mm radial clearance. These are a one-pair field comparison,
-  not a standard. `parts.hinge()` now defaults to them (pin 3.2, knuckle 9.8 so that 2.2 mm
+  supported at both ends, 0.3–0.35 mm radial clearance. Both latches were PLA. These are a
+  one-pair field comparison, not a standard. `parts.hinge()` now defaults to them (pin 3.2, knuckle 9.8 so that 2.2 mm
   remain above the teardrop hole's point, leaf 2.6) and refuses thinner values unless
   `decorative=True`; `examples/latch-box` thickens its bar, rail lips and lug ceiling
   accordingly (it has no pin holes).

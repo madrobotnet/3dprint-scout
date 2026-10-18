@@ -180,8 +180,7 @@ class FieldComparison(unittest.TestCase):
     come from the generator that made the failed latch. Print-in-place gaps at the pin roots
     are taken as the radial clearances (0.42 and 0.33 mm). The lever ratio of either latch was
     not measured, so the hand force is applied as is (1:1); at a ratio of 2 the failed stub pin
-    reads WARN, at 3 FAIL. Failed latch material: PLA Pure per the project file (owner to
-    confirm; with PETG Basic, X-Y 51 / 75 MPa, every verdict is the same).
+    reads WARN, at 3 FAIL. Failed latch material: PLA Pure (confirmed by the owner).
 
     What the static model says, recorded as is: it flags the arms and the bar by a wide margin,
     but the Ø2.6 stub pins pass in bending (2.6) and in shear (3.4; 2.0, WARN, when the load
