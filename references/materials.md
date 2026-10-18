@@ -8,7 +8,7 @@ filament needs its own data sheet before it can be used (the script refuses unkn
 
 Contents:
 
-- [Bambu Lab filaments (MPa; X-Y = loaded within the layer plane, Z = across layers)](#bambu-lab-filaments-mpa-x-y-loaded-within-the-layer-plane-z-across-layers)
+- [Bambu Lab filaments (MPa; X-Y = loaded within the layer plane, Z = across layers)](#bambu-lab-filaments-mpa-x-y--loaded-within-the-layer-plane-z--across-layers)
 - [Hand forces (N)](#hand-forces-n)
 - [Safety factor](#safety-factor)
 - [The pin model](#the-pin-model)

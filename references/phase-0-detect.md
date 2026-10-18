@@ -9,8 +9,8 @@ previews via OpenSCAD."
 Find what works:
 
 - **Fusion** — a tool whose name contains `fusion` exists and a read call (list open documents)
-  returns. If the call times out, retry once; if it times out again, treat Fusion as unavailable
-  for this run and say why in the report line. Check the active document. If it holds the user's
+  returns. If the call times out or returns an error, retry once; if it fails again, treat Fusion as
+  unavailable for this run and say why in the report line. Check the active document. If it holds the user's
   own work, ask before the first write and prefer a new document. Never save automatically:
   Fusion for personal use caps editable documents at 10, and the generator script is the source
   of truth anyway.

@@ -52,7 +52,7 @@ Rules that hold in every phase, whatever file is open:
 - **Never download model files or reverse-engineer meshes**: references give ideas and dimensions,
   read from the page. A file the **user** supplies is measured (`measure.py`), never copied.
 - **Never ask about colours.** Split what may get its own colour into a part, give every part the
-  main filament, say so at delivery.
+  main filament (colours the user already named are applied), say so at delivery.
 - **Never overwrite an existing file**, and never write into a file the slicer has open: if the
   path exists, ask and stop (the scripts refuse as well). `out/` is the only folder a build rewrites.
 - **Never store access codes, serial numbers, IP addresses or account ids**: not in `printers.json`,
@@ -60,6 +60,8 @@ Rules that hold in every phase, whatever file is open:
 - **Never write `post_process`, `*_gcode` or anything that runs programs into a 3MF**;
   `bambu3mf.py` writes allowlisted per-object keys only, and Bambu's profile files are read on
   the user's side, never copied.
+- **Never save a Fusion document automatically**: personal use caps editable documents at 10,
+  and the generator script is the source of truth.
 - **Never model support structures into a part**: an overhang gets the slicer's supports or a redesign.
 - **A fit test or a mechanism-first print that was offered and skipped** goes into
   `_assumptions` ("not confirmed by a test print"); never say a test confirmed something it did not.
@@ -67,26 +69,26 @@ Rules that hold in every phase, whatever file is open:
 ## How the phases run
 
 Each phase names its file under `references/`: read it on entering the phase; it holds the how-to,
-commands, formats and examples, and the lines here are the rules that hold in it. STOP: end your
-turn and wait for the user. Review point: show the result and let the user look before building on.
+commands, formats and examples, and its instructions are binding too; the lines here are the rules
+that matter most. STOP: end your turn and wait for the user. Review point: show the result and let
+the user look before building on.
 
 ## Phase 0 — Detect (silent)
 
 Read `references/phase-0-detect.md` now (required).
 
 Goal: find what works and report it in one line ("Using OpenSCAD (Fusion not connected);
-references via web search; previews via OpenSCAD."). No stop.
+references via web search; previews via OpenSCAD."). No planned stop; ask only as below.
 
-- Engine: Fusion when a `fusion` tool answers a read call (retry one timeout, then treat it as
-  unavailable); otherwise OpenSCAD or Python via `build.py detect` (never `--enable=manifold`).
+- Engine: Fusion when a `fusion` tool answers a read call (after a timeout or an error retry once,
+  then treat it as unavailable and say why); otherwise OpenSCAD or Python via `build.py detect` (never `--enable=manifold`).
   In a disposable sandbox `pip install manifold3d numpy rtree matplotlib` is fine, said in one line;
   on the user's machine ask before installing anything; never `apt` or `brew` for OpenSCAD in a
   sandbox. If nothing works, say what to install and stop.
 - Rule A: choose **by the shape** among the engines that work: mechanical or prismatic → Fusion,
   else OpenSCAD, else Python; organic or freeform → Python. Tell the user what the choice costs
   (no native fillets outside Fusion; Python leaves a mesh, not editable CAD).
-- Fusion holding the user's own work: ask before the first write, prefer a new document, never
-  save automatically.
+- Fusion holding the user's own work: ask before the first write, prefer a new document.
 - Note the reference search tier (A marketplace tool, B web search, C neither), that `preview.py`
   renders any STL (numpy only), and whether `.3dprint/printers.json` exists.
 
@@ -119,7 +121,8 @@ show the parameter table and **stop**.
   phase file). If it is missing, **always ask, never skip**: "Which printer do you have, and which
   program do you open print files in? It's fine if you don't know the program." Never make the
   user feel they should know the word "slicer". Every default taken for a missing answer goes into
-  `_assumptions`; no bed is assumed for an unknown printer (D2 UNVERIFIED). FDM only.
+  `_assumptions`; no bed is assumed for an unknown printer (D2 UNVERIFIED); nozzle 0.4 mm and PLA
+  otherwise. With several saved printers, ask which one in one line. FDM only.
 - Purpose: decorative, general, or load-bearing; default general.
 - Dimensions, two priorities: the size of the object, caliper > official spec > two secondary
   sources that agree; how this printer prints, the calibration log (`calibration.py lookup`,
@@ -149,7 +152,8 @@ before anything else is built.
   intent, never a measured box), `object` / `role` for grouped parts, `_assumptions`.
 - Build with `build.py run` (`record` for Fusion), always with `--printer .3dprint/printers.json`;
   preview with `preview.py`; report size, volume and verdicts with the image; **stop for the
-  user's look**. For a part with several bodies or a mechanism this stop is never skipped.
+  user's look**. For a part with several bodies or a mechanism this stop is never skipped; a
+  fit-test piece comes after it, not instead of it.
 
 ## Phase 4 — Features and joints (review point)
 
@@ -181,7 +185,7 @@ decided with evidence, print settings chosen with a reason.
 - Re-run the Phase 3 build (or `record`); `validate.py` once per part when re-checking one STL,
   with the same `--source` list the build hashed.
 - Decide `not_covered`: F3 with `fit.py` (one run per joint), F1, F2, R1, R2 and R4 yourself with
-  evidence, P6 from the preview image.
+  evidence; P6 (not in that list, still yours) from the preview image.
 - Hard FAIL → the phase in the table below, fix the cause, rebuild, re-validate (G7). Soft WARN →
   explain, the user decides (slicer supports or a redesign).
 - Print settings: the user's preset is the baseline, each change with a reason. Bambu Studio:
@@ -285,7 +289,7 @@ References, read when the line says so (phase files on entering the phase):
 | `references/phase-4-features-joints.md` | Phase 4: `fit.py` and the sweep, P7 with `strength.py`, printing the mechanism first, `fit_test.py` |
 | `references/phase-5-gate.md` | Phase 5: re-validation, `not_covered`, FAIL and WARN handling, print settings |
 | `references/phase-6-deliver.md` | Phase 6: files per slicer, the delivery list, verdicts and the calibration offer |
-| `references/engines/fusion.md`, `openscad.md`, `python.md` | Phase 3, the engine in use only: its rules and pitfalls; `fusion_builder.py` is the Builder to paste into Fusion scripts |
+| `references/engines/fusion.md`, `references/engines/openscad.md`, `references/engines/python.md` | Phase 3, the engine in use only: its rules and pitfalls; `references/engines/fusion_builder.py` is the Builder to paste into Fusion scripts |
 | `references/design.md` | Phase 3 and 4: design for FDM (chamfers, overhangs, walls, orientation, snap fits, screws and inserts, mechanisms that carry load, part seams, print-in-place, text), with sources |
 | `references/tolerances.md` | Phase 2 to 4: fits and clearances, each marked radial or diameter |
 | `references/parts.md` | A design with several bodies in one object: `_parts` schema (object, role), the object checks, printing the mechanism first, build.py's JSON, how Bambu Studio treats touching parts |

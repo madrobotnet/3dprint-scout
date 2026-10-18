@@ -1,10 +1,11 @@
 # Designing for FDM printing
 
 Read this in Phase 3 (base shape) and again in Phase 4 (features). Patterns to apply while
-modelling, with the numbers that back them. Fit clearances live in `tolerances.md` and are
-only linked from here. Numbers without a source are **starting points: calibrate** on the
-user's printer (a 0.4 mm nozzle and PLA are assumed, SKILL.md defaults). `scripts/parts.py`
-builds most of these shapes with these defaults.
+modelling, with the numbers that back them. Fit clearances live in `tolerances.md` and are only
+linked from here. Numbers without a source are **starting points: calibrate** on the user's
+printer (a 0.4 mm nozzle and PLA are assumed: SKILL.md Phase 2 defaults,
+`phase-2-printer-dimensions.md`). `scripts/parts.py` builds most of these shapes with these
+defaults.
 
 Contents:
 
