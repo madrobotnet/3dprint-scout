@@ -4,6 +4,17 @@ Read this right before Phase 3 when Phase 0 picked Python: as the fallback, or b
 organic and freeform shapes. Tell the user once: this path produces meshes only (no editable CAD
 file) and has no native fillets (smooth blends come from `sdf.py`, chamfers from `parts.py`).
 
+Contents:
+
+- [Script shape](#script-shape)
+- [Run](#run)
+- [Part library: `parts.py`](#part-library-partspy)
+- [Organic and freeform shapes: `sdf.py`](#organic-and-freeform-shapes-sdfpy)
+  - [Alternative: constrained triangulation lifted to surfaces](#alternative-constrained-triangulation-lifted-to-surfaces)
+- [API you will need](#api-you-will-need)
+- [Preview](#preview)
+- [Pitfalls](#pitfalls)
+
 ## Script shape
 
 ```python

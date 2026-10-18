@@ -6,6 +6,21 @@ only linked from here. Numbers without a source are **starting points: calibrate
 user's printer (a 0.4 mm nozzle and PLA are assumed, SKILL.md defaults). `scripts/parts.py`
 builds most of these shapes with these defaults.
 
+Contents:
+
+- [Bed edge: chamfer, never a fillet](#bed-edge-chamfer-never-a-fillet)
+- [Overhangs and self-supporting shapes](#overhangs-and-self-supporting-shapes)
+- [Walls and small features in nozzle multiples](#walls-and-small-features-in-nozzle-multiples)
+- [Orientation for strength](#orientation-for-strength)
+- [Snap fits (cantilever)](#snap-fits-cantilever)
+- [Screws, inserts and threads](#screws-inserts-and-threads)
+- [Print-in-place joints](#print-in-place-joints)
+- [Mechanisms that carry load](#mechanisms-that-carry-load)
+- [Colour and function seams: split into parts](#colour-and-function-seams-split-into-parts)
+- [Text, logos, cosmetic faces](#text-logos-cosmetic-faces)
+- [Supports policy](#supports-policy)
+- [Sources](#sources)
+
 ## Bed edge: chamfer, never a fillet
 
 - The first layer squashes outwards (elephant foot). A fillet on the bed edge is an overhang

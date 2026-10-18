@@ -6,6 +6,14 @@ file is the reading copy. Every value comes from an official Bambu Lab Technical
 (PDF on store.bblcdn.com, retrieved 2026-10-18); nothing is interpolated. Another maker's
 filament needs its own data sheet before it can be used (the script refuses unknown names).
 
+Contents:
+
+- [Bambu Lab filaments (MPa; X-Y = loaded within the layer plane, Z = across layers)](#bambu-lab-filaments-mpa-x-y-loaded-within-the-layer-plane-z-across-layers)
+- [Hand forces (N)](#hand-forces-n)
+- [Safety factor](#safety-factor)
+- [The pin model](#the-pin-model)
+- [What the model does not see](#what-the-model-does-not-see)
+
 ## Bambu Lab filaments (MPa; X-Y = loaded within the layer plane, Z = across layers)
 
 | Key | Material (TDS) | Tensile X-Y / Z | Young's E X-Y / Z | Bending strength X-Y / Z | Bending modulus X-Y / Z | Elongation X-Y / Z % |

@@ -4,6 +4,16 @@ Read this when a design has more than one body that prints as one object (a colo
 a label, a lever, a print-in-place latch), when you need the exact shape of `build.py`'s
 JSON, or when a Bambu project needs several parts in one object.
 
+Contents:
+
+- [Why parts are split](#why-parts-are-split)
+- [`_parts` schema (params.json)](#_parts-schema-paramsjson)
+- [Checks on an object](#checks-on-an-object)
+- [Printing the mechanism first](#printing-the-mechanism-first)
+- [`build.py` output](#buildpy-output)
+- [What Bambu Studio does with touching parts (02.08.02.61 source)](#what-bambu-studio-does-with-touching-parts-02080261-source)
+- [The Bambu project layout for an object with parts](#the-bambu-project-layout-for-an-object-with-parts)
+
 ## Why parts are split
 
 A region that has its own job or may get its own colour (a latch, a lever, a label, a

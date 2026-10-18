@@ -3,6 +3,17 @@
 Read this in Phase 2 (template question) and Phase 5 when `printers.json` says the slicer is
 Bambu Studio.
 
+Contents:
+
+- [Templates](#templates)
+  - [Generated template (fallback)](#generated-template-fallback)
+  - [Saved project (preferred when the user has the app)](#saved-project-preferred-when-the-user-has-the-app)
+- [Build the project file](#build-the-project-file)
+- [Where settings live](#where-settings-live)
+- [What may be written](#what-may-be-written)
+- [Tuning rules (starting points; calibrate with real prints)](#tuning-rules-starting-points-calibrate-with-real-prints)
+- [Checked so far](#checked-so-far)
+
 ## Templates
 
 Bambu Studio warns "The 3mf file has invalid config, load geometry data only" for any 3MF without

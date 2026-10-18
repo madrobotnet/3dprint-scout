@@ -2,6 +2,15 @@
 
 Read this right before Phase 3 when Phase 0 found a working Fusion MCP connection.
 
+Contents:
+
+- [Before the first write](#before-the-first-write)
+- [The Builder (`fusion_builder.py`, next to this file)](#the-builder-fusion_builderpy-next-to-this-file)
+- [Generator script rules](#generator-script-rules)
+- [Pitfalls seen in the field](#pitfalls-seen-in-the-field)
+- [Sending scripts](#sending-scripts)
+- [Still to confirm on a real install](#still-to-confirm-on-a-real-install)
+
 Fusion is driven through whatever Fusion MCP tools the host exposes (tool names differ between
 servers). The skill uses one pattern on every server: **a generator script executed inside Fusion**
 that rebuilds the whole design from parameters. Never drive Fusion click by click.
