@@ -43,6 +43,7 @@ your turn with the question (or use the host's question tool if it has one).
 | G6 | **`$SKILL_DIR`-relative paths** in every command. |
 | G7 | **At most 3 automatic fix attempts per phase.** Then stop and show the user the error and what you tried. |
 | G8 | **Hard vs soft.** Hard checks are deterministic and may trigger an automatic fix. Soft checks are approximations; they only WARN and the user decides. |
+| G9 | **No long silences.** While modeling or verifying, never go more than about 20 tool calls or 15 minutes without a short update to the user: the latest preview, what changed, what is next (starting values, not measured limits). A mechanism or a redesign shows its preview before more checks are built on it. |
 
 Never paper over a failure: no shrinking a fillet inside `try/except`, no mesh "repair" pass instead
 of fixing the geometry that produced the defect.
@@ -460,7 +461,7 @@ its preview, sizes and verdicts at the top of the next message), record every as
 stop taken alone in `_assumptions` in `params.json`, and repeat them at the top of the deliverable. If the printer and slicer are unknown, deliver STL per part plus a core 3MF, mark D2
 UNVERIFIED, and say at the top that the printer was not confirmed. A skipped fit test or
 mechanism-first print goes into `_assumptions` like any other stop; `calibration.py add` is never
-run, nobody said yes. Two exceptions: if a dimension the part must fit cannot be sourced, stop
+run, nobody said yes. G9 still applies: the updates go into the progress notes. Two exceptions: if a dimension the part must fit cannot be sourced, stop
 rather than guess; and never overwrite an existing file.
 
 ## Files

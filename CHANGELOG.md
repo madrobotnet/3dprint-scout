@@ -125,6 +125,11 @@ housing to a 100 mm duct, designed in Fusion through MCP, fit-tested and printed
 - `examples/latch-box`: a box whose lid carries a separate label part (colour) and a captive
   print-in-place slider latch, grouped into one object; its README shows the object checks, the
   fit check and the expected P2 warning for the latch's bridged underside.
+- **G9, no long silences.** In the field test the agent modelled and checked the fit-test frame
+  for up to about 48 minutes and ~70 tool calls without showing anything, and the too-thin latch
+  was only found after printing. SKILL.md now asks for a short update (latest preview, what
+  changed, what is next) at least every ~20 tool calls or ~15 minutes, and for a mechanism's
+  preview before more checks are built on it. The numbers are starting values.
 - Tests: assembly, grouped writers, nozzle areas, the new allowlist keys, measure.py, the sweep,
   the Fusion Builder against an API stand-in, strength.py (formulas and the field
   comparison), calibration.py and the new example (200 tests).
