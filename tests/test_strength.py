@@ -409,6 +409,17 @@ class Hinge(unittest.TestCase):
             code, out = run(case, *argv, "--load", "50", "--material", "abs")
             self.assertEqual(code, 1, case)
             self.assertIn(f"{names} belong to the hinge case only (this is case {case})", out["errors"][0])
+        # And the other cases' flags given to the hinge are an error too (shared: --length, --gap, --load-across-layers).
+        for argv, names in ((["--support", "stub", "--shear", "single", "--b", "999", "--engagement", "999"],
+                             "--engagement, --shear, --support, --b"),
+                            (["--bow", "0"], "--bow"),
+                            (["--d", "3", "--support-t", "2", "--h", "1", "--t", "2", "--edge", "1"],
+                             "--d, --support-t, --h, --t, --edge")):
+            code, out = run("hinge", "--pin-d", "2.4", "--knuckle-d", "7.4", *argv, *self.SD)
+            self.assertEqual(code, 1, argv)
+            self.assertIn(f"{names} do not apply to the hinge case", out["errors"][0])
+        code, out = run("hinge", "--pin-d", "2.4", "--knuckle-d", "7.4", "--gap", "0.3", "--load-across-layers", *self.SD)
+        self.assertEqual(out["gate"], "PASS", out["errors"])
 
     def test_json_shape(self):
         code, out = run("hinge", "--pin-d", "2.4", "--knuckle-d", "7.4", "--duty", "lid", *self.SD)

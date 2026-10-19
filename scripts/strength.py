@@ -213,6 +213,8 @@ DUTY_NAMES = tuple(DUTIES)
 
 
 HINGE_ONLY = ("pin_d", "knuckle_d", "knuckles", "knuckle_len", "clearance", "hole", "pin", "duty")
+# Options of the other cases that mean nothing to a hinge (--length, --gap and --load-across-layers are shared).
+NOT_HINGE = ("d", "engagement", "support_t", "shear", "support", "b", "h", "bow", "t", "edge")
 CASE_INPUTS = {"pin": {"d", "engagement", "support_t", "gap", "shear", "support", "load_across_layers"},
                "beam": {"b", "h", "length", "support"}, "link": {"b", "h", "length", "bow"}, "bearing": {"d", "t", "edge"},
                "hinge": {"pin_d", "knuckle_d", "knuckles", "length", "knuckle_len", "gap", "clearance", "hole", "pin", "duty",
@@ -439,7 +441,8 @@ def case_hinge(args, mat, F, o):
     if (args.length is None) == (args.knuckle_len is None):
         raise StrengthError("hinge: give exactly one of --length (the whole hinge, knuckles and gaps) or --knuckle-len "
                             "(one knuckle)")
-    # Defaults resolved here, not in argparse, so a hinge-only flag given to another case is an error.
+    # Defaults resolved here, not in argparse, so a hinge-only flag given to another case is an error
+    # (and --shear / --bow default to None so another case's flag given to the hinge is one too).
     g = 0.3 if args.gap is None else args.gap                      # tolerances.md, print-in-place joint
     c = 0.3 if args.clearance is None else args.clearance
     hole = args.hole or "teardrop"
@@ -636,6 +639,12 @@ def run(args) -> dict:
         stray = [f"--{n.replace('_', '-')}" for n in HINGE_ONLY if getattr(args, n) is not None]
         if stray:
             raise StrengthError(f"{', '.join(stray)} belong to the hinge case only (this is case {args.case})")
+    else:
+        stray = [f"--{n.replace('_', '-')}" for n in NOT_HINGE if getattr(args, n) is not None]
+        if stray:
+            raise StrengthError(f"{', '.join(stray)} do not apply to the hinge case (they belong to pin, beam, link or "
+                                "bearing); a hinge takes --pin-d, --knuckle-d, --knuckles, --length or --knuckle-len, "
+                                "--gap, --clearance, --hole, --pin and --duty")
     extra = {}
     if args.case == "pin":
         checks, notes = case_pin(args, mat, F, o)
@@ -737,13 +746,14 @@ def main(argv=None):
         ap.add_argument("--load-across-layers", action="store_true", dest="load_across_layers",
                         help="pin lying flat whose load crosses the layers: shear uses the Z strength (a hinge always does; "
                              "accepted there, no effect)")
-        ap.add_argument("--shear", default="single", choices=["single", "double"], help="pin: shear planes, one end held or both")
+        ap.add_argument("--shear", default=None, choices=["single", "double"],
+                        help="pin: shear planes, one end held or both (default single)")
         ap.add_argument("--support", default=None, choices=["through", "stub", "cantilever", "simple"],
                         help="pin: stub (grows out of a part; both ends with --shear double) or through (loose pin, needs --support-t); beam: cantilever or simple")
         ap.add_argument("--b", type=float, help="section width (mm)")
         ap.add_argument("--h", type=float, help="section thickness in the bending direction (mm)")
         ap.add_argument("--length", type=float, help="beam length / link length / hinge length, knuckles and gaps (mm)")
-        ap.add_argument("--bow", type=float, default=0.0, help="link: sagitta of a curved link (mm, default 0)")
+        ap.add_argument("--bow", type=float, default=None, help="link: sagitta of a curved link (mm, default 0)")
         ap.add_argument("--t", type=float, help="bearing: thickness the pin bears on (mm)")
         ap.add_argument("--edge", type=float, help="bearing: wall from the hole to the nearest edge (mm)")
         ap.add_argument("--pin-d", type=float, dest="pin_d", help="hinge: pin diameter (mm)")
@@ -767,6 +777,7 @@ def main(argv=None):
             if args.load is None or args.material is None:
                 raise StrengthError("--load and --material are required")
             if args.case == "pin":
+                args.shear = args.shear or "single"
                 args.support = args.support or ("through" if args.shear == "double" else "stub")
                 if args.support not in ("through", "stub"):
                     raise StrengthError("pin: --support is through or stub")
@@ -774,6 +785,8 @@ def main(argv=None):
                 args.support = args.support or "cantilever"
                 if args.support not in ("cantilever", "simple"):
                     raise StrengthError("beam: --support is cantilever or simple")
+            if args.case == "link" and args.bow is None:
+                args.bow = 0.0
             if args.case != "hinge" and args.gap is None:
                 args.gap = 0.0                           # the hinge resolves its own defaults (0.3, tolerances.md)
         out.update(run(args))
