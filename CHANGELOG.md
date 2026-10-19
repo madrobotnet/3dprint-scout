@@ -22,10 +22,13 @@ where the real geometry has a safety factor of 4.4 in shear (this release's `hin
   past its stop is misuse the hinge is not sized for: "don't force the lid past fully open"
   goes into `_assumptions` and is said at delivery (Phase 6). `decorative`: carries nothing,
   the same floors, no calculation. One copy of the numbers in `strength.DUTIES` (`strength.py
-  duties`); `parts.hinge(duty=...)` loads it from the sibling file under a private module
-  name (a project's own `strength.py` cannot shadow it), keeps `decorative=True` as the old
-  spelling of `duty="decorative"`, refuses it with another explicit duty, refuses a lid hinge
-  with fewer than 3 knuckles, and keeps the latch values as its defaults.
+  duties`); `parts.hinge(duty=...)`, with `duty` keyword-only, loads it from the sibling file
+  under a private module name (a project's own `strength.py` cannot shadow it), keeps
+  `decorative=True` as the old spelling of `duty="decorative"`, refuses it with another
+  explicit duty, refuses a lid hinge with fewer than 3 knuckles, and keeps the latch values as
+  its defaults. The `parts.py` table in `engines/python.md` now lists every call's arguments in
+  their real order (`hinge`, `standoff`, `snap_hook`, `snap_fit_check`, `text` were off), and a
+  test keeps it so.
 - **`strength.py hinge`.** The hinge as `parts.hinge` builds it: k knuckles alternating A, B,
   A …, knuckle length from `--length` or `--knuckle-len`, `--gap`, `--clearance`, `--hole
   teardrop | round`, `--pin integral | loose`. The moving knuckles share the load equally; an
@@ -50,8 +53,9 @@ where the real geometry has a safety factor of 4.4 in shear (this release's `hin
   another closure, a bigger object) instead of resizing.
 - **Process fixes from the same run.** Changing the engine after Phase 0 (Fusion → Python) is
   said in one line with the reason before building and recorded in `_assumptions` (SKILL.md
-  G9, which holds in every phase; Phase 0 file). Bed sizes: never a review or a news article either (Phase 2). A mechanism built
-  into the walls still gets a coupon, the same section cut short as its own `_parts` entry;
+  G9, which holds in every phase; Phase 0 file). Bed sizes: never a review or a news article
+  either (Phase 2). A mechanism built into the walls still gets a coupon, the same section cut
+  short as its own `_parts` entry;
   "cutting it out would be most of the part" is not a reason to skip (Phase 4, `parts.md`).
 - **Calibration log by kind of member.** `calibration.py add --kind latch | lid_hinge | lever |
   clamp | snap` (a short lowercase id, optional, through the same identifier checks); `lookup

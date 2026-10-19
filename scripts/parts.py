@@ -576,7 +576,7 @@ _DUTY_WHY = {"latch": "design.md, Mechanisms that carry load, duty latch: field 
 
 def hinge(length: float = 30.0, knuckle_d: float = 9.8, pin_d: float = 3.2, leaf_w: float = 12.0,
           leaf_t: float = 2.6, knuckles: int = 3, clearance: float = PRINT_IN_PLACE_CLEARANCE,
-          segments: int | None = None, decorative: bool = False, duty: str | None = None) -> dict:
+          segments: int | None = None, decorative: bool = False, *, duty: str | None = None) -> dict:
     """Two leaves joined by a pin, printed assembled. Axis along X at z = knuckle_d / 2, leaf A on
     -Y, leaf B on +Y, both flat on the bed. Knuckles alternate A, B, A ... along X with
     `clearance` between them; the pin is part of A and runs through B's knuckles with
@@ -600,6 +600,9 @@ def hinge(length: float = 30.0, knuckle_d: float = 9.8, pin_d: float = 3.2, leaf
 
     Returns {"leaf_a": Manifold, "leaf_b": Manifold}: two bodies that never touch. Export both
     into ONE STL (validate with --shells 2) or two STLs placed as built."""
+    if segments is not None and (isinstance(segments, bool) or not isinstance(segments, int)):
+        raise TypeError(f"segments is the number of circle segments, got {segments!r}; the duty is keyword-only: "
+                        "hinge(..., duty='lid')")
     if knuckles < 2:
         raise ValueError("a hinge needs at least two knuckles")
     if duty is None:

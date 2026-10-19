@@ -172,6 +172,16 @@ class SnapFits(PartCase):
 
 
 class Hinges(PartCase):
+    def test_duty_is_keyword_only(self):
+        """A duty passed where `segments` sits must fail clearly, never build a latch hinge."""
+        import inspect
+        self.assertEqual(inspect.signature(parts.hinge).parameters["duty"].kind, inspect.Parameter.KEYWORD_ONLY)
+        with self.assertRaises(TypeError) as cm:
+            parts.hinge(16, 7.4, 2.4, 10, 1.6, 5, 0.3, "lid")
+        self.assertIn("keyword-only", str(cm.exception))
+        h = parts.hinge(16, 7.4, 2.4, 10, 1.6, 5, 0.3, duty="lid")
+        self.assertEqual(set(h), {"leaf_a", "leaf_b"})
+
     def test_print_in_place_hinge(self):
         h = parts.hinge()
         a = self.assertSolid(h["leaf_a"], bbox=[30, 22.1, 9.8])
@@ -396,6 +406,40 @@ class BuildIntegration(unittest.TestCase):
             self.assertEqual(checks["D1"]["state"], "PASS")
             self.assertEqual(checks["M1"]["state"], "PASS")
             self.assertEqual(checks["R3"]["state"], "PASS")
+
+
+class DocumentedSignatures(unittest.TestCase):
+    """engines/python.md lists parts.py calls with their arguments; the order must be the real one,
+    or a caller who follows the table positionally binds values to the wrong argument."""
+
+    def test_python_md_table_matches_the_code(self):
+        import inspect
+        import re
+        with open(os.path.join(HERE, "..", "references", "engines", "python.md"), encoding="utf-8") as f:
+            table = f.read()
+        rows = re.findall(r"^\| `(\w+)\(([^`]*)\)` \|", table, re.M)
+        self.assertGreaterEqual(len(rows), 10)
+        for name, args in rows:
+            with self.subTest(call=name):
+                self.assertTrue(hasattr(parts, name), f"{name} is not in parts.py")
+                params = inspect.signature(getattr(parts, name)).parameters
+                tokens = [t.strip() for t in args.replace("\\|", "|").split(",") if t.strip()]
+                positional, rest, mode = [], [], "pos"
+                for t in tokens:
+                    if t in ("...", "*"):
+                        mode = t
+                        continue
+                    key = t.split("=")[0].strip()
+                    if mode == "pos":
+                        positional.append(key)
+                    else:
+                        rest.append((mode, key))
+                real = list(params)
+                self.assertEqual(positional, real[:len(positional)], f"{name}: listed order is not the real order")
+                for mode, key in rest:
+                    self.assertIn(key, params, f"{name}: no argument {key}")
+                    if mode == "*":
+                        self.assertEqual(params[key].kind, inspect.Parameter.KEYWORD_ONLY, f"{name}: {key} is not keyword-only")
 
 
 if __name__ == "__main__":
