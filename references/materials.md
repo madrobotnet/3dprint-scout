@@ -12,6 +12,7 @@ Contents:
 - [Hand forces (N)](#hand-forces-n)
 - [Safety factor](#safety-factor)
 - [The pin model](#the-pin-model)
+- [The hinge model](#the-hinge-model)
 - [What the model does not see](#what-the-model-does-not-see)
 
 ## Bambu Lab filaments (MPa; X-Y = loaded within the layer plane, Z = across layers)
@@ -64,7 +65,9 @@ multi-digit finger strength", *Ergonomics* 46(15), 2003, 1531–1548, Table 2
 
 The design value covers about 84 % of male users at a brief peak; it is a starting point,
 not a rule. A latch lever multiplies the hand force by its lever ratio: pass the amplified
-force. Whatever load is used goes into `_assumptions` with its source.
+force. A lid hinge takes `finger_pull` (the open lid pulled away from the box) shared by its
+moving knuckles, no lever ratio (`design.md`, "Mechanisms that carry load"). Whatever load
+is used goes into `_assumptions` with its source.
 
 ## Safety factor
 
@@ -95,6 +98,50 @@ from the support type:
   (xy for a pin lying flat, z for one standing up). Shear slides layer on layer when the pin
   stands up or when a flat pin is pushed across the layers: pass `--load-across-layers` for
   the latter and the shear check uses the Z strength while bending keeps X-Y.
+
+## The hinge model
+
+`strength.py hinge` takes a print-in-place hinge as `parts.hinge` builds it: k knuckles
+alternating A, B, A … along the pin, each b long (`--knuckle-len`, or `--length` with
+b = (length − (k − 1) g) / k), axial gap g (`--gap`, 0.3), the pin with radial clearance c
+(`--clearance`, 0.3) in B's holes, the pin part of leaf A (`--pin integral`, the default) or
+a loose pin through every knuckle (`--pin loose`). The n_B = k // 2 moving knuckles share
+the load equally, P = F / n_B each (an assumption the output states: a stiff lid). A B
+knuckle between two A knuckles is interior; with k even the last knuckle is a B on the pin's
+free end.
+
+- **Integral pin, interior B**: the pin is built in at both A faces, so the span L = b + 2g
+  is fixed at both ends with P spread evenly over the middle b. With zero slope at both
+  ends the end moment is the mean of the simply supported moment diagram, (1 / L) ∫ M_ss,
+  which for this load is M_end = P (6g² + 6gb + b²) / (12 L); the mid-span moment is
+  M_mid = P (2L − b) / 8 − M_end, and the larger of the two is used (always M_end; they
+  meet only as b → 0). Limits: g = 0 gives P b / 12 (a uniform load), b → 0 gives P L / 8
+  (a centre point load). Two shear planes: τ = 4/3 · P / (2A).
+- **Integral pin, end B** (k even): a stub from the last A face, M = P (g + b / 2), one shear
+  plane. An odd knuckle count puts every moving knuckle between two fixed ones.
+- **Loose pin**: each interior B as the clevis of the pin case with a = the A knuckle length
+  (= b), M = P (b + 2a + 4g) / 8, two planes; an end B as a stub. The A knuckles then bear the
+  pin as well: P / 2 from each interior B beside them, P from an end B; the most loaded one
+  is checked.
+- Bending 32 M / (π d³) against the bending strength (the teardrop section is taken as a
+  circle of the pin diameter; its point adds a little); shear against 0.58 × tensile, Z with
+  `--load-across-layers` (the open lid pulled up, across the layers) or `--orientation z`.
+  Per B knuckle the wall: bearing P / (d b) and tear-out P / (2 e b) with e the thinnest wall,
+  above a teardrop's point, R − (r + c) √2, or above a round hole, R − (r + c); the pull
+  direction turns with the lid, so the thinnest wall is used.
+- `--duty latch | lid | decorative` adds a `minimums` block against that duty's P7 floors
+  (`strength.py duties`); a floor not met makes the gate FAIL.
+
+Worked example, the field test of 2026-10 (an SD-card case lid, 36 mm hinge, five knuckles,
+gaps 0.3, clearance 0.3, `finger_pull` 98 N shared by two moving knuckles, 49 N each, PLA
+Basic, X-Y): Ø2.4 pin in Ø7.4 knuckles (wall 1.58 mm): shear 2.81, bending 3.10, bearing
+11.9, tear-out 9.1, so SF ≥ 2 everywhere and the `lid` floors met; Ø3.2 in Ø9.8 (the latch
+minimums, wall 2.21 mm): shear 5.00, bending 7.36, bearing 15.9, tear-out 12.8. The same
+hinges with `--pin loose` read 1.81 (WARN) and 0.76 (FAIL) in bending, and the `pin` case
+with the whole 98 N on one clevis span reads 0.90: the field run that called the Ø3.2 hinge
+a FAIL had modelled a loose pin carrying the whole load, and the pin of `parts.hinge` is
+neither. With four knuckles the end knuckle's stub fails in bending (0.45 at Ø2.4): use an
+odd count.
 
 ## What the model does not see
 

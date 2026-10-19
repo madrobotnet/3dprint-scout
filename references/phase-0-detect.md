@@ -34,7 +34,10 @@ Then choose **by the shape**, among the engines that work (rule A in SKILL.md):
 
 Before modeling, tell the user what the choice costs: OpenSCAD and Python have no native fillets
 (chamfers instead), and Python leaves a mesh, not editable CAD (every dimension stays a
-parameter in the script).
+parameter in the script). The choice holds for the project: changing the engine later (Fusion
+→ Python, say, because a Fusion call failed or the shape turned out organic) is said to the
+user in one line with the reason before anything is built in the new engine, and recorded in
+`_assumptions`; never a silent switch between what was announced and what was delivered.
 
 ## 2. Reference search tier
 

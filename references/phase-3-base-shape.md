@@ -19,9 +19,16 @@ Write one generator script:
   low-stress places; print-in-place pieces keep their clearance. Never ask the user about
   colours: split, give every part the main filament, say so at delivery (`references/parts.md`).
 - **Members that carry load** (pins, knuckles, levers, links, hooks, latch bars) are sized by
-  `references/design.md`, "Mechanisms that carry load", not by P3's 1.2 mm, which is only what
-  prints: list each with its section in the dimension table (P7), beside the reference member
-  when one was measured, and run `strength.py` on it (Phase 4).
+  `references/design.md`, "Mechanisms that carry load", by their duty (`latch`, `lid`,
+  `decorative`), not by P3's 1.2 mm, which is only what prints: list each with its section in
+  the dimension table (P7), beside the reference member when one was measured, and run
+  `strength.py` on it (Phase 4).
+- **A mechanism never silently grows the object**: a hinge on a box goes into the dimension
+  table with its knuckle Ø and how far it stands proud of the wall (gusset included), next to
+  the box's depth, and into the concept preview; if its duty's floors would make the object
+  bigger than the user's sizes, or it looks out of proportion, stop and give the choices in
+  `references/design.md`, "Print-in-place joints" (the right duty, notched-in knuckles, another
+  closure, a bigger object), never resize the object on your own.
 - Design to the recommended values in `references/tolerances.md`, not to the minimums: a wall
   planned at exactly 1.2 mm can fail its own check through floating-point rounding.
 - Guard derived dimensions with assertions (`assert(...)` in OpenSCAD, `raise` in Python) so an

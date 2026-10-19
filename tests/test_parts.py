@@ -210,6 +210,46 @@ class Hinges(PartCase):
         with self.assertRaisesRegex(ValueError, "tolerances.md"):
             parts.hinge(knuckle_d=5.2, pin_d=2.0, decorative=True)       # 0.97 mm above the point: does not print
 
+    def test_hinge_duties(self):
+        """design.md, Mechanisms that carry load, by duty: the lid duty accepts the field test's 2.4 mm pin in
+        7.4 mm knuckles (1.58 mm above the point; strength.py hinge sizes it), the default (latch) refuses it,
+        decorative=True is the old spelling of duty='decorative', and the floors have one copy in strength.py."""
+        import strength
+        self.assertIs(parts.MECHANISM, strength.DUTIES["latch"]["floors"])
+        self.assertIs(parts.DECORATIVE, strength.DUTIES["decorative"]["floors"])
+        self.assertEqual(parts.DECORATIVE, {"pin_d": 2.0, "pin_wall": 1.2, "member": 1.2, "knuckle_len": 2.0})
+        sd = dict(length=36, knuckle_d=7.4, pin_d=2.4, leaf_t=1.6, knuckles=5)
+        h = parts.hinge(duty="lid", **sd)
+        self.assertEqual(set(h), {"leaf_a", "leaf_b"})
+        self.assertSolid(h["leaf_a"] + h["leaf_b"], shells=2, bbox=[36, 2 * (3.7 + 0.3 + 12), 7.4])
+        self.assertEqual((h["leaf_a"] ^ h["leaf_b"]).volume(), 0.0)
+        self.assertAlmostEqual(h["leaf_a"].min_gap(h["leaf_b"], 1.0), 0.3, delta=0.01)
+        with self.assertRaisesRegex(ValueError, "duty latch.*field minimums"):
+            parts.hinge(**sd)                                                  # the default stays the latch values
+        with self.assertRaisesRegex(ValueError, "duty latch"):
+            parts.hinge(duty="latch", **sd)
+        with self.assertRaisesRegex(ValueError, "strength.py hinge.*coupon"):
+            parts.hinge(duty="lid", **dict(sd, leaf_t=1.0))                    # under what prints, the lid source named
+        with self.assertRaisesRegex(ValueError, "duty lid"):
+            parts.hinge(duty="lid", **dict(sd, knuckle_d=5.2, pin_d=2.0))
+        # decorative=True is duty="decorative"; the two together are fine, another duty with it is not.
+        a = parts.hinge(decorative=True, **sd)
+        b = parts.hinge(duty="decorative", **sd)
+        c = parts.hinge(decorative=True, duty="decorative", **sd)
+        self.assertAlmostEqual(a["leaf_b"].volume(), b["leaf_b"].volume(), places=6)
+        self.assertAlmostEqual(a["leaf_b"].volume(), c["leaf_b"].volume(), places=6)
+        with self.assertRaisesRegex(ValueError, "decorative=True means duty='decorative'"):
+            parts.hinge(decorative=True, duty="lid", **sd)
+        with self.assertRaisesRegex(ValueError, "decorative=True means duty='decorative'"):
+            parts.hinge(decorative=True, duty="latch")
+        with self.assertRaisesRegex(ValueError, "unknown hinge duty 'lever'"):
+            parts.hinge(duty="lever")
+        with self.assertRaisesRegex(ValueError, "unknown hinge duty"):
+            parts.hinge(duty="", **sd)
+        # The same numbers strength.py sees: wall above the point and knuckle length.
+        self.assertAlmostEqual(strength.hinge_wall(7.4, 2.4, 0.3, "teardrop"), 1.5787, places=4)
+        self.assertAlmostEqual((36 - 4 * 0.3) / 5, 6.96)
+
 
 class Text(PartCase):
     def test_backends_or_clear_error(self):

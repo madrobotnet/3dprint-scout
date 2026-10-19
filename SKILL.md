@@ -87,7 +87,8 @@ references via web search; previews via OpenSCAD."). No planned stop; ask only a
   sandbox. If nothing works, say what to install and stop.
 - Rule A: choose **by the shape** among the engines that work: mechanical or prismatic → Fusion,
   else OpenSCAD, else Python; organic or freeform → Python. Tell the user what the choice costs
-  (no native fillets outside Fusion; Python leaves a mesh, not editable CAD).
+  (no native fillets outside Fusion; Python leaves a mesh, not editable CAD). Changing the engine
+  later (Fusion → Python, say): one line with the reason before building, and in `_assumptions`.
 - Fusion holding the user's own work: ask before the first write, prefer a new document.
 - Note the reference search tier (A marketplace tool, B web search, C neither), that `preview.py`
   renders any STL (numpy only), and whether `.3dprint/printers.json` exists.
@@ -146,8 +147,10 @@ before anything else is built.
   the print orientation; rebuilt from scratch each time; assertions on derived dimensions;
   designed to the recommended values in `references/tolerances.md`, not the minimums.
 - Split into parts what has its own job or may get its own colour (`references/parts.md`);
-  size load-carrying members by `references/design.md`, "Mechanisms that carry load", and list
-  each in the dimension table (P7).
+  size load-carrying members by their duty (latch, lid, decorative) in `references/design.md`,
+  "Mechanisms that carry load", and list each in the dimension table (P7); a hinge on a box with
+  its knuckle Ø and how far it stands proud, next to the box's depth. A mechanism never silently
+  grows the object: if its floors would, stop and give the choices (`design.md`, print-in-place).
 - `.3dprint/params.json`: `_parts` with each part's `expect` from the dimension table (design
   intent, never a measured box), `object` / `role` for grouped parts, `_assumptions`.
 - Build with `build.py run` (`record` for Fusion), always with `--printer .3dprint/printers.json`;
@@ -167,10 +170,12 @@ printed.
 - Every joint from both sides with `fit.py` (F3: overlap, play, gap, contact); a moving part gets
   a sweep through the travel it needs; build a proxy of the mating part from measured numbers
   when there is no closed mesh (`references/measure.md`).
-- Every pin, knuckle, lever and latch bar against the P7 minimums before the fit, plus a
-  `strength.py` hand calculation with a cited load (`references/materials.md`), the load and its
-  share in `_assumptions`. FAIL → redesign; WARN, or no proven reference → **print the
-  mechanism first** (`build.py run --only ...`), a few grams the user tries before the full part.
+- Every pin, knuckle, lever and latch bar against its duty's P7 floors before the fit, plus a
+  `strength.py` hand calculation (`hinge` for alternating knuckles) with a cited load
+  (`references/materials.md`); the load case, its share and any ratio in `_assumptions`. FAIL →
+  redesign; WARN, no proven reference, or a lid hinge (always) → **print the mechanism first**
+  (`build.py run --only ...`), a few grams the user tries before the full part. A mechanism built
+  into the walls gets a coupon (the same section cut short), never skipped as "most of the part".
 - **Fit test first** when the mating shape is not known exactly: `fit_test.py` pieces in three
   clearance steps; the user cannot test now → the middle step, recorded in `_assumptions`. Test
   pieces and the final part use the same printer, filament and preset.
@@ -231,7 +236,7 @@ assumption repeated.
 | P4 | Unsupported bridges | soft | not in v1 (UNVERIFIED) | user |
 | P5 | Minimum feature size | soft | not in v1 (UNVERIFIED) | user |
 | P6 | No fillet on edges that touch the bed (chamfer, or sharp with slicer elephant-foot compensation) | soft | you, from the preview.py image | user |
-| P7 | Load-carrying mechanism members meet the minimums in `design.md` (pin ≥ 3.2, pin wall ≥ 2.2, member ≥ 2.5 mm thick and ≥ 4 mm wide), are compared with a proven reference when one is at hand, and reach the safety factor in `strength.py` | soft | you, from the dimension table and strength.py | user: redesign, or print the member first |
+| P7 | Load-carrying mechanism members meet the floors of their duty in `design.md` (latch, lever, clamp: pin ≥ 3.2, pin wall ≥ 2.2, member ≥ 2.5 mm thick and ≥ 4 mm wide, knuckle ≥ 4 mm; lid hinge: what prints, sized by `strength.py hinge` at SF ≥ 2 under `finger_pull` shared by the moving knuckles, no lever ratio, and confirmed by a hinge coupon print), are compared with a proven reference when one is at hand, and reach the safety factor in `strength.py` | soft | you, from the dimension table and strength.py | user: redesign, or print the member first |
 | F1 | Hole compensation applied in exactly one place | hard | you | Phase 4 |
 | F2 | Each fit has the clearance for its kind | hard | you | Phase 4 |
 | F3 | Every joint checked from both sides: no overlap, the play of the fit kind | hard | fit.py | Phase 4 |
@@ -267,8 +272,8 @@ Scripts, run as `python3 "$SKILL_DIR/scripts/<name>.py"`:
 | `scripts/build.py` | `detect` (Phase 0), `run` (OpenSCAD / Python), `record` (parts built in Fusion); groups parts into objects; `--only` for a subset |
 | `scripts/assembly.py` | Parts grouped into objects: D2 / P1 / P2 of the whole, A1 / A2 per part (used by build.py) |
 | `scripts/measure.py` | Measure a supplied STL / 3MF: objects and parts, slices with circle and corner fits, ray depth maps of a wall |
-| `scripts/strength.py` | Hand calculations for pins, beams, links and pin walls from Bambu Lab data-sheet values and a cited hand-force table |
-| `scripts/calibration.py` | The user's own print results per printer and material in `.3dprint/calibration.json`: `add`, `show`, `lookup` |
+| `scripts/strength.py` | Hand calculations for pins, beams, links, pin walls and a knuckle hinge (`hinge`, with the P7 floors per duty) from Bambu Lab data-sheet values and a cited hand-force table |
+| `scripts/calibration.py` | The user's own print results per printer and material in `.3dprint/calibration.json`: `add`, `show`, `lookup`; `--kind` keeps floors to the same kind of member |
 | `scripts/preview.py` | Iso / front / right / top PNG of one or more STLs, numpy only, with the G4 image check |
 | `scripts/fit.py` | F3: overlap, play, gap and contact between two placed STLs, verdict JSON; `--sweep-*` for a rotating part |
 | `scripts/fit_test.py` | Fit-test pieces of a mating profile in clearance steps, marked 1/2/3 |

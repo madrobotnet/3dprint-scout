@@ -136,7 +136,13 @@ the X2D and H2D, objects that need both nozzles are placed where both can reach.
 
 ## Status
 
-**v0.3.0.** Adds parts grouped into objects with their own
+**v0.3.1.** Splits the mechanism rules by duty after a test request with v0.3.0 (an SD-card
+case whose lid hinge was sized by the latch minimums and grew the box): hand-operated latches,
+levers and clamps keep the field minimums; lid hinges with alternating knuckles are sized by the
+new `strength.py hinge` case at a cited load and confirmed by a coupon print; a mechanism never
+silently grows the object; the calibration log keeps floors to the same kind of member
+(`--kind`). The hinge case is checked against hand calculation in the tests, not yet against a
+printed coupon. v0.3.0 added parts grouped into objects with their own
 checks and grouped 3MF writers, a Fusion Builder skeleton, a measuring tool for supplied files, a
 rotation sweep in the fit check, strength calculations and a calibration log for members that
 carry load, and the process fixes from a field test on 2026-10-17 (a tool-free exhaust adapter
