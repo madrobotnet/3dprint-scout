@@ -36,8 +36,9 @@ Studio, that is a project file with the print settings already set per object.
    hits. Pins, levers and latches that carry load are compared with a proven reference when you
    have one, run through a hand calculation (`strength.py`, with values from Bambu Lab's data
    sheets and a cited hand-force table), and when the margin is short the mechanism alone is
-   printed first, a few grams. Every part gets a preview image (iso, front, right, top)
-   rendered without a display.
+   printed first, a few grams; a print-in-place lid hinge always gets that coupon, on top of
+   its margin. Every part gets a preview image (iso, front, right, top) rendered without a
+   display.
 7. **Delivery** — STL per part plus a 3MF that fits your slicer, with print-setting changes and the
    reason for each, and one line naming the separate parts and how to recolour them.
 
@@ -136,7 +137,13 @@ the X2D and H2D, objects that need both nozzles are placed where both can reach.
 
 ## Status
 
-**v0.3.0.** Adds parts grouped into objects with their own
+**v0.3.1.** Splits the mechanism rules by duty after a test request with v0.3.0 (an SD-card
+case whose lid hinge was sized by the latch minimums and grew the box): hand-operated latches,
+levers and clamps keep the field minimums; lid hinges with alternating knuckles are sized by the
+new `strength.py hinge` case at a cited load and confirmed by a coupon print; a mechanism never
+silently grows the object; the calibration log keeps floors to the same kind of member
+(`--kind`). The hinge case is checked against hand calculation in the tests, not yet against a
+printed coupon. v0.3.0 added parts grouped into objects with their own
 checks and grouped 3MF writers, a Fusion Builder skeleton, a measuring tool for supplied files, a
 rotation sweep in the fit check, strength calculations and a calibration log for members that
 carry load, and the process fixes from a field test on 2026-10-17 (a tool-free exhaust adapter

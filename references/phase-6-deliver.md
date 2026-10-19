@@ -23,6 +23,8 @@ overwrite an existing path: if it exists, ask and stop (the scripts refuse as we
 4. **Parts**, one line: which parts are separate and how to recolour one ("label and latch are
    parts of the lid; select a part in the object list and change its filament"). If the user
    named colours, they are already applied; never ask about colours.
+   A print-in-place lid hinge adds one line: "don't force the lid past fully open" (the hinge is
+   sized for the lid pulled away from the box, not for levering it past its stop; `design.md`).
 5. Sources of the references used in Phase 1.
 6. Verdicts, repeated at every delivery, also after a fix: FAIL, WARN and UNVERIFIED items, every
    dimension that is still unverified, and `_assumptions` in full. When the user later reports

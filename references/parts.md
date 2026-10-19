@@ -97,6 +97,21 @@ the lid, a slot without the box) add a coupon part to `_parts`, or keep a separa
 file with the coupon's sizes, and build that. A few grams, printed with the final filament
 and preset; the user tries it and reports back (offer to record the result, `calibration.md`).
 
+A mechanism built into the walls (a box hinge, a latch formed on the lid) still gets a
+coupon: the same section cut short, not the whole box. For a hinge, `parts.hinge` with the
+real profile (`pin_d`, `knuckle_d`, `leaf_t`, `clearance`, `duty`; `clearance` is both the
+radial clearance at the pin and the axial gap between knuckles, so `strength.py hinge` gets
+it as `--gap` and `--clearance`), three knuckles of the real knuckle length b
+(`length = 3·b + 2·clearance`, `knuckles=3`) and a few mm of each leaf (`leaf_w`), built as
+its own `_parts` entry (`"hinge_coupon": {"expect": [...], "shells": 2}`) with
+`build.py run --only hinge_coupon --out out/mech`. A three-knuckle coupon has one moving
+knuckle that takes the whole pull, so it is a harder test than the full hinge (whose
+moving knuckles share it): a coupon that holds is a hinge that holds. "Cutting it out would
+be most of the part" is not a reason to skip it: a coupon is required for a `lid`-duty hinge
+on top of its SF ≥ 2 (`design.md`, "Mechanisms that carry load") and the user's result sets
+their own floors (`calibration.md`, `--kind lid_hinge`). A skipped coupon goes into
+`_assumptions`.
+
 ## `build.py` output
 
 One JSON document, schema `3dprint-scout.build/1`, also for `record`:

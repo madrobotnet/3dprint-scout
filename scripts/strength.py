@@ -1,15 +1,18 @@
 #!/usr/bin/env python3
 """
 strength.py - quick hand calculations for members that carry load: pins, beams and levers,
-links, the wall around a pin hole. Standard library only; one JSON document per call.
+links, the wall around a pin hole, a print-in-place hinge with alternating knuckles. Standard
+library only; one JSON document per call.
 
   python3 strength.py pin --d 3.2 --engagement 4 --gap 0.3 --shear double --support stub --load finger_push --material pla_basic --orientation xy
   python3 strength.py pin --d 3.2 --engagement 10 --support-t 4 --gap 0.3 --shear double --load finger_push --material pla_basic --orientation xy
   python3 strength.py beam --b 6 --h 3 --length 20 --support cantilever --load 70 --material petg_basic --orientation z
   python3 strength.py link --b 4 --h 2.5 --length 15 --bow 0 --load finger_push --material pla_basic --orientation xy
   python3 strength.py bearing --d 3.3 --t 8 --edge 2.2 --load finger_push --material pla_basic --orientation xy
+  python3 strength.py hinge --pin-d 2.4 --knuckle-d 7.4 --knuckles 5 --length 36 --gap 0.3 --clearance 0.3 --pin integral --duty lid --load finger_pull --material pla_basic --orientation xy
   python3 strength.py materials            # the data table with its sources
   python3 strength.py loads                # the hand-force table with its source
+  python3 strength.py duties               # the P7 floors per duty (latch, lid, decorative) with their sources
 
 Cases
   pin      transverse shear on one plane (--shear single) or two (double), peak 4/3 of the
@@ -36,11 +39,54 @@ Cases
            curved: M = F x bow, stress F / A + M c / I about the thin axis.
   bearing  the wall around a pin hole: bearing stress F / (d t) and tear-out shear on the two
            planes between the hole and the nearest edge, F / (2 e t).
+  hinge    a print-in-place hinge as parts.hinge builds it: k knuckles alternating A, B, A ...
+           along the pin, each b long (--knuckle-len, or --length with b = (length - (k - 1)
+           gap) / k), gap g between them, the pin with radial clearance c in B's holes
+           (parts.hinge has one `clearance` for both: pass the same value to --gap and
+           --clearance). The pin belongs to leaf A (--pin integral, the default) or is a loose
+           pin through every knuckle (--pin loose). The n_B = k // 2 moving (B) knuckles share
+           the load equally, P = F / n_B each (an assumption, stated). A B knuckle between two
+           A knuckles is "interior"; with k even the last knuckle is a B on the pin's free end
+           ("end"); that end stub is far more compliant than an interior span, so the equal
+           share is then optimistic for the interior knuckles (noted).
+           Integral pin, interior B: the pin is built in at both A faces, a fixed-fixed span
+             L = b + 2 g with P spread over the middle b. End moment (the mean of the simply
+             supported moment diagram, which is what the zero end slopes require)
+             M_end = P (6 g^2 + 6 g b + b^2) / (12 L); mid-span M_mid = P (2 L - b) / 8 - M_end;
+             M = max(M_end, M_mid). Limits: g = 0 gives P b / 12, b -> 0 gives P L / 8. Two
+             shear planes: tau = 4/3 P / (2 A).
+           Integral pin, end B (k even): a stub, M = P (g + b / 2), one shear plane. An odd
+             knuckle count puts every moving knuckle between two fixed ones (warned).
+           Loose pin: each interior B as the clevis of the pin case with a = the A knuckle
+             length (= b): M = P (b + 2 a + 4 g) / 8, two planes; an end B as a stub. The A
+             knuckles then bear the pin too: P / 2 from an interior B neighbour, and from an
+             end B neighbour 1.5 P (the overhang's statics on a two-support pin: P plus the
+             overhang moment carried over the next span, P s / 2 s; exact for k = 4, an upper
+             bound for longer hinges) or P when k = 2; the most loaded A is checked.
+           Layers: parts.hinge prints the axis flat and the pull turns with the lid, so the
+           load is taken to cross the layers: pin shear and the knuckle wall's bearing and
+           tear-out use the Z tensile strength whatever --orientation says; bending runs along
+           the pin and uses the bending strength of --orientation (xy for a flat axis, z for a
+           standing one). --load-across-layers is accepted for the hinge and changes nothing.
+           Bending 32 M / (pi d^3); shear 4/3 P / (n A) against 0.58 x tensile Z. Per B knuckle
+           the wall: bearing P / (d b) and tear-out P / (2 e b) with e = the wall above the
+           hole, R - (r + c) sqrt(2) for a teardrop hole (--hole teardrop, parts.hinge),
+           R - (r + c) for a round one. With --duty latch | lid | decorative a "minimums" block
+           compares pin, wall and knuckle length (and, for lid, the knuckle count: 3 or more,
+           odd recommended) with that duty's P7 floors (DUTIES below; a floor not met makes
+           the gate FAIL); without it a note says P7 still needs them. Duty lid refuses --sf
+           under 2 and at WARN says to grow the hinge: the coupon print is required on top of
+           the margin and never replaces it. Duty decorative: the floors alone decide the gate,
+           the checks are reported with "informational": true. The "moments_nmm" keys depend
+           on the layout: interior_end_nmm and interior_mid_nmm (integral, interior knuckles),
+           interior_nmm (loose, interior knuckles), end_nmm (an end knuckle, k even).
 
 Loads: a number in N, or a hand-force key from the table (finger_push, finger_pull,
 pinch_lateral, pinch_palmar, grasp) whose design value is the male mean plus one standard
 deviation from DiDomenico & Nussbaum (2003); the lever ratio of a latch is NOT applied, pass
-the amplified force yourself. Record the load in _assumptions.
+the amplified force yourself. Record the load in _assumptions. A lid hinge takes finger_pull
+(the open lid pulled away from the box) shared by its moving knuckles, no lever ratio
+(design.md, "Mechanisms that carry load").
 
 Materials: Bambu Lab technical data sheets (official PDFs on store.bblcdn.com, retrieved
 2026-10-18), X-Y and Z values as published. --orientation xy when the stress acts within the
@@ -139,9 +185,40 @@ LOADS = {
 for _k, _v in LOADS.items():
     _v["design_N"] = round(_v["male_mean"] + _v["male_sd"], 1)
 
+# P7 floors by duty (design.md, "Mechanisms that carry load"; the one copy, parts.py imports it).
+# latch: the field comparison of 2026-10 (a failed and a working hand-operated print-in-place
+# latch, both PLA): pin diameter, wall around the pin hole measured above a teardrop's point,
+# member thickness in the bending direction, knuckle length; starting points, not a standard.
+# lid / decorative: only what prints (tolerances.md limits: pin 2.0, wall and leaf 1.2, knuckle
+# 2 mm); a lid hinge's size comes from the hinge case at SF >= 2 plus a coupon print.
+_PRINTS = {"pin_d": 2.0, "pin_wall": 1.2, "member": 1.2, "knuckle_len": 2.0}
+DUTIES = {
+    "latch": {"floors": {"pin_d": 3.2, "pin_wall": 2.2, "member": 2.5, "knuckle_len": 4.0},
+              "what": "anything a hand pushes, pulls, pinches or snaps to operate, or that a lever amplifies: latches, "
+                      "catches, levers, clamps, a latch's pivot pin, a hinge whose leaf is used as a lever",
+              "source": "design.md, Mechanisms that carry load: field comparison 2026-10 (starting points)",
+              "sizing": "the floors, a proven reference when one is at hand, strength.py at the hand force x lever ratio"},
+    "lid": {"floors": dict(_PRINTS), "min_knuckles": 3,
+            "what": "a lid, door or flap hinge with alternating knuckles (3 or more required, odd recommended) where the "
+                    "hand force reaches the pin without a lever multiplying it",
+            "source": "tolerances.md limits (what prints); the size comes from strength.py hinge at SF >= 2 under "
+                      "finger_pull shared by the moving knuckles, confirmed by a hinge coupon print before the full part",
+            "sizing": "strength.py hinge at finger_pull with SF >= 2, then a coupon print (required)"},
+    "decorative": {"floors": dict(_PRINTS),
+                   "what": "a hinge that carries nothing",
+                   "source": "tolerances.md limits (what prints); no calculation",
+                   "sizing": "the floors only"},
+}
+DUTY_NAMES = tuple(DUTIES)
 
+
+HINGE_ONLY = ("pin_d", "knuckle_d", "knuckles", "knuckle_len", "clearance", "hole", "pin", "duty")
+# Options of the other cases that mean nothing to a hinge (--length, --gap and --load-across-layers are shared).
+NOT_HINGE = ("d", "engagement", "support_t", "shear", "support", "b", "h", "bow", "t", "edge")
 CASE_INPUTS = {"pin": {"d", "engagement", "support_t", "gap", "shear", "support", "load_across_layers"},
-               "beam": {"b", "h", "length", "support"}, "link": {"b", "h", "length", "bow"}, "bearing": {"d", "t", "edge"}}
+               "beam": {"b", "h", "length", "support"}, "link": {"b", "h", "length", "bow"}, "bearing": {"d", "t", "edge"},
+               "hinge": {"pin_d", "knuckle_d", "knuckles", "length", "knuckle_len", "gap", "clearance", "hole", "pin", "duty",
+                         "load_across_layers"}}
 
 
 class StrengthError(Exception):
@@ -331,6 +408,209 @@ def case_bearing(args, mat, F, o):
     return checks, notes
 
 
+def hinge_end_moment(P: float, b: float, g: float) -> float:
+    """Fixed-fixed span L = b + 2 g, load P spread evenly over the middle b: the end moment.
+    With zero slope at both built-in ends the end moment equals the mean of the simply
+    supported moment diagram, (1 / L) integral of M_ss = (1 / (2 L)) integral of w x (L - x)
+    over the loaded part, which integrates to P (6 g^2 + 6 g b + b^2) / (12 L).
+    Limits: g = 0 -> P b / 12 (uniform load), b -> 0 -> P L / 8 (centre point load)."""
+    L = b + 2 * g
+    return P * (6 * g * g + 6 * g * b + b * b) / (12 * L)
+
+
+def hinge_mid_moment(P: float, b: float, g: float) -> float:
+    """The same span's mid-span moment: the simply supported value P (2 L - b) / 8 less the
+    end moment. Never above the end moment (equal only as b -> 0)."""
+    L = b + 2 * g
+    return P * (2 * L - b) / 8 - hinge_end_moment(P, b, g)
+
+
+def hinge_wall(knuckle_d: float, pin_d: float, clearance: float, hole: str) -> float:
+    """The thinnest wall of a knuckle around its hole: above the point of a teardrop hole
+    (its apex is (r + c) sqrt(2) above the axis, parts.hinge) or above a round hole."""
+    R, rc = knuckle_d / 2, pin_d / 2 + clearance
+    return R - (rc * math.sqrt(2) if hole == "teardrop" else rc)
+
+
+def case_hinge(args, mat, F, o):
+    positive(args, "pin_d", "knuckle_d")
+    non_negative(args, "gap", "clearance")
+    k = args.knuckles
+    if k is None or k < 2:
+        raise StrengthError("--knuckles must be a whole number of at least 2 (A, B; a lid hinge needs 3 or more, odd recommended)")
+    if (args.length is None) == (args.knuckle_len is None):
+        raise StrengthError("hinge: give exactly one of --length (the whole hinge, knuckles and gaps) or --knuckle-len "
+                            "(one knuckle)")
+    # Defaults resolved here, not in argparse, so a hinge-only flag given to another case is an error
+    # (and --shear / --bow default to None so another case's flag given to the hinge is one too).
+    g = 0.3 if args.gap is None else args.gap                      # tolerances.md, print-in-place joint
+    c = 0.3 if args.clearance is None else args.clearance
+    hole = args.hole or "teardrop"
+    pin = args.pin or "integral"
+    args.gap, args.clearance, args.hole, args.pin = g, c, hole, pin    # the effective values go into "inputs"
+    duty = args.duty
+    if duty is not None and duty not in DUTIES:
+        raise StrengthError(f"--duty is one of {', '.join(DUTY_NAMES)}")
+    if duty == "lid" and args.sf < DEFAULT_SF - 1e-9:
+        raise StrengthError(f"duty lid needs --sf of at least {DEFAULT_SF} (design.md: a lid hinge is sized by this calculation "
+                            "at SF >= 2 and the coupon print comes on top of that margin, it does not replace it)")
+    d, D = args.pin_d, args.knuckle_d
+    if args.length is not None:
+        positive(args, "length")
+        b = (args.length - (k - 1) * g) / k
+        if b <= 0:
+            raise StrengthError(f"--length {args.length} mm leaves no knuckle length for {k} knuckles with {g} mm gaps")
+    else:
+        positive(args, "knuckle_len")
+        b = args.knuckle_len
+    a = b                                                       # every knuckle is b long (parts.hinge)
+    e = hinge_wall(D, d, c, hole)
+    if e <= 0:
+        reach = (d / 2 + c) * (math.sqrt(2) if hole == "teardrop" else 1.0)
+        raise StrengthError(f"knuckle {D} mm leaves no wall around the {d} mm pin with {c} mm clearance: the {hole} "
+                            f"hole reaches {reach:.2f} mm from the axis, so the knuckle must be over {2 * reach:.2f} mm "
+                            "across before any wall remains; raise --knuckle-d")
+    n_b = k // 2
+    n_end = 1 if k % 2 == 0 else 0
+    n_int = n_b - n_end
+    P = F / n_b
+    L = b + 2 * g
+    A = math.pi * d * d / 4
+    # The axis prints flat and the pull turns with the lid, so the load is taken to cross the layers:
+    # shear, bearing and tear-out use the Z tensile strength; bending runs along the pin (--orientation).
+    tau_allow = SHEAR_RATIO * mat["tensile"]["z"]
+    shear_basis = f"{SHEAR_RATIO} x tensile Z {mat['tensile']['z']} MPa (the pull crosses the layers)"
+    bend_basis = f"bending strength {o.upper()} {mat['flex'][o]} MPa"
+    integral = pin == "integral"
+    checks, notes = {}, []
+    moments = {}
+    if n_int:
+        if integral:
+            M_end, M_mid = hinge_end_moment(P, b, g), hinge_mid_moment(P, b, g)
+            M = max(M_end, M_mid)
+            moments.update({"interior_end_nmm": round(M_end, 3), "interior_mid_nmm": round(M_mid, 3)})
+            how = (f"integral pin built in at both A faces: fixed-fixed span L = b + 2 g = {L:.2f} mm, P = {P:.1f} N spread "
+                   f"over the middle b = {b:.2f} mm; M_end = P (6 g^2 + 6 g b + b^2) / (12 L) = {M_end:.2f} N mm, "
+                   f"M_mid = P (2 L - b) / 8 - M_end = {M_mid:.2f} N mm; M = max of the two")
+        else:
+            M = P * (b + 2 * a + 4 * g) / 8
+            moments["interior_nmm"] = round(M, 3)
+            how = (f"loose pin: clevis between two A knuckles of a = {a:.2f} mm, loaded by the B knuckle of b = {b:.2f} mm, "
+                   f"gap g = {g} mm each side: M = P (b + 2 a + 4 g) / 8 = {M:.2f} N mm")
+        checks["pin_shear"] = check("pin_shear", SHEAR_PEAK * P / (2 * A), tau_allow, args.sf,
+                                    "tau = 4/3 P / (2 x pi d^2 / 4): two shear planes, one at each A face (peak at the neutral axis)",
+                                    shear_basis)
+        checks["pin_bending"] = check("pin_bending", 32 * M / (math.pi * d ** 3), mat["flex"][o], args.sf,
+                                      f"sigma = 32 M / (pi d^3), {how}", bend_basis)
+    if n_end:
+        M_e = P * (g + b / 2)
+        moments["end_nmm"] = round(M_e, 3)
+        checks["pin_shear_end"] = check("pin_shear_end", SHEAR_PEAK * P / A, tau_allow, args.sf,
+                                        "tau = 4/3 P / (pi d^2 / 4): the end B hangs on one shear plane at the last A face",
+                                        shear_basis)
+        checks["pin_bending_end"] = check("pin_bending_end", 32 * M_e / (math.pi * d ** 3), mat["flex"][o], args.sf,
+                                          f"sigma = 32 M / (pi d^3), stub from the last A face: M = P (g + b / 2) = {M_e:.2f} N mm "
+                                          f"({'the pin end past the last A knuckle is a cantilever' if integral else 'a loose pin held on one side only'})",
+                                          bend_basis)
+    bear_allow = BEARING_RATIO * mat["tensile"]["z"]
+    bear_basis = (f"{BEARING_RATIO} x tensile Z {mat['tensile']['z']} MPa (bearing strength is not on the data sheet; "
+                  "the pull crosses the layers)")
+    tear_allow = SHEAR_RATIO * mat["tensile"]["z"]
+    tear_basis = f"{SHEAR_RATIO} x tensile Z {mat['tensile']['z']} MPa (the pull crosses the layers)"
+    checks["wall_bearing"] = check("wall_bearing", P / (d * b), bear_allow, args.sf,
+                                   f"sigma_b = P / (d b): each B knuckle bears its P = {P:.1f} N on the pin over its length b", bear_basis)
+    checks["wall_tear_out"] = check("wall_tear_out", P / (2 * e * b), tear_allow, args.sf,
+                                    f"tau = P / (2 e b), e = {e:.2f} mm, the thinnest wall of the B knuckle (above the {hole} hole)",
+                                    tear_basis)
+    P_a = 0.0
+    if not integral:
+        # A knuckles are supports for a loose pin: P / 2 from each interior B beside them; an end B hangs past the
+        # last A, and on a two-support pin its statics give that A the load plus the overhang moment carried over the
+        # next span, P (1 + s / 2 s) = 1.5 P (exact for k = 4, an upper bound for longer hinges); with k = 2 there is
+        # no span and the single A takes P.
+        end_share = 1.5 if k >= 4 else 1.0
+        kinds = ["A" if i % 2 == 0 else ("end" if (k % 2 == 0 and i == k - 1) else "int") for i in range(k)]
+        for i, kind in enumerate(kinds):
+            if kind != "A":
+                continue
+            load = sum((end_share * P if kinds[j] == "end" else P / 2) for j in (i - 1, i + 1) if 0 <= j < k)
+            P_a = max(P_a, load)
+        checks["wall_bearing_fixed"] = check("wall_bearing_fixed", P_a / (d * a), bear_allow, args.sf,
+                                             f"sigma_b = P_A / (d a): the most loaded A knuckle takes P_A = {P_a:.1f} N "
+                                             f"(P / 2 per interior B beside it, {end_share:g} P from an end B: the overhang's statics)",
+                                             bear_basis)
+        checks["wall_tear_out_fixed"] = check("wall_tear_out_fixed", P_a / (2 * e * a), tear_allow, args.sf,
+                                              f"tau = P_A / (2 e a), e = {e:.2f} mm (the A knuckles have the same hole)", tear_basis)
+    notes.append(f"layout: {k} knuckles alternating A, B, A ... each {b:.2f} mm long with {g} mm gaps; {n_b} moving (B) knuckles "
+                 f"share F = {F} N equally, P = {P:.1f} N each (an assumption: a stiff lid; a twisted one loads one knuckle more); "
+                 f"{n_int} interior (between two A), {n_end} on the pin's free end")
+    if n_end:
+        notes.append(f"{k} is even: the last knuckle is a B on the pin's free end, held on one side only; an odd count "
+                     "puts every moving knuckle between two fixed ones. The end stub is far more compliant than an "
+                     "interior span, so the equal share is optimistic for the interior knuckles" +
+                     ("; for a loose pin the last A knuckle takes the overhang's statics, 1.5 P plus its interior share"
+                      if not integral and k >= 4 else ""))
+    notes.append(f"{'integral' if integral else 'loose'} pin: " + (
+        "part of leaf A, built in at every A knuckle, so an interior span is fixed at both ends; the teardrop section is "
+        "taken as a circle of the pin diameter (its point adds a little)" if integral else
+        "a separate pin bearing in every knuckle's hole; its A knuckles are supports with the same wall"))
+    notes.append(f"wall {e:.2f} mm above the {hole} hole (knuckle {D} mm, hole {d + 2 * c:.2f} mm across the circle); the "
+                 "pull direction turns with the lid, so the thinnest wall is used")
+    notes.append("layers: the axis prints flat (parts.hinge) and the pull turns with the lid, so the load is taken to cross "
+                 "the layers: pin shear, wall bearing and tear-out use the Z tensile strength; bending runs along the pin "
+                 f"and uses the {o.upper()} bending strength" +
+                 (" (--load-across-layers changes nothing for a hinge)" if args.load_across_layers else ""))
+    if duty in (None, "lid"):
+        notes.append("lid load case: the open lid pulled away from the box, finger_pull at the hinge, no lever ratio; levering "
+                     "the lid past its stop multiplies the force by (finger distance / stop distance from the axis) and is "
+                     "misuse a print-in-place hinge is not sized for: say so at delivery and record it in _assumptions "
+                     "(design.md)")
+    extra = {"layout": {"knuckles": k, "moving_knuckles": n_b, "fixed_knuckles": k - n_b, "interior_moving": n_int,
+                        "end_moving": n_end, "knuckle_len_mm": round(b, 3), "fixed_knuckle_len_mm": round(a, 3),
+                        "gap_mm": g, "clearance_mm": c, "hole": hole, "hole_d_mm": round(d + 2 * c, 3),
+                        "wall_mm": round(e, 3), "span_mm": round(L, 3), "pin": pin,
+                        "load_per_knuckle_N": round(P, 2), "fixed_knuckle_load_N": round(P_a, 2) if not integral else None},
+             "moments_nmm": moments}
+    if duty:
+        extra["minimums"] = hinge_minimums(duty, d, e, b, k)
+        if duty == "decorative":
+            for ch in checks.values():
+                ch["informational"] = True
+            notes.append("duty decorative: the hinge carries nothing, the floors alone decide the gate; the checks are "
+                         "reported for information (\"informational\": true) and do not change it")
+        elif duty == "lid":
+            notes.append("duty lid: the floors are only what prints; the size comes from this calculation at SF >= 2, and a "
+                         "hinge coupon print before the full part is required on top of that margin (a skipped one goes "
+                         "into _assumptions)")
+        else:
+            notes.append("duty latch: the field floors are the primary rule; this calculation separates the hopeless from the plausible")
+    else:
+        notes.append("no --duty given: P7 also needs the duty's floors (latch: design.md field minimums; lid, decorative: what "
+                     "prints, tolerances.md); pass --duty latch | lid | decorative for the minimums block")
+    return checks, notes, extra
+
+
+def hinge_minimums(duty: str, pin_d: float, wall: float, knuckle_len: float, knuckles: int) -> dict:
+    """Compare a hinge's pin, wall, knuckle length and, for a lid, knuckle count with the P7
+    floors of its duty."""
+    if duty not in DUTIES:
+        raise StrengthError(f"--duty is one of {', '.join(DUTY_NAMES)}")
+    fl = DUTIES[duty]["floors"]
+    rows = {}
+    for name, value, floor in (("pin_d_mm", pin_d, fl["pin_d"]), ("wall_mm", wall, fl["pin_wall"]),
+                               ("knuckle_len_mm", knuckle_len, fl["knuckle_len"])):
+        rows[name] = {"value": round(value, 3), "floor": floor, "state": "PASS" if value >= floor - 1e-9 else "FAIL"}
+    min_k = DUTIES[duty].get("min_knuckles")
+    if min_k:
+        rows["knuckles"] = {"value": knuckles, "floor": min_k, "state": "PASS" if knuckles >= min_k else "FAIL"}
+        if knuckles % 2 == 0:
+            rows["knuckles"]["note"] = "an even count leaves a moving knuckle on the pin's free end; an odd count puts every " \
+                                       "moving knuckle between two fixed ones (recommended)"
+    state = "FAIL" if any(r["state"] == "FAIL" for r in rows.values()) else "PASS"
+    return {"duty": duty, "state": state, "source": DUTIES[duty]["source"], "sizing": DUTIES[duty]["sizing"], **rows,
+            "member_mm": {"floor": fl["member"], "note": "leaf thickness is not an input here; parts.hinge checks it"}}
+
+
 # --------------------------------------------------------------------------- #
 # CLI
 # --------------------------------------------------------------------------- #
@@ -340,6 +620,9 @@ def run(args) -> dict:
                 "note": "values as published on the Bambu Lab data sheets (MPa, %); specimens 100 % infill"}
     if args.case == "loads":
         return {"loads": LOADS, "source": LOADS_SOURCE}
+    if args.case == "duties":
+        return {"duties": DUTIES, "note": "P7 floors per duty (design.md, Mechanisms that carry load); parts.hinge(duty=...) "
+                                          "refuses thinner values; a lid hinge is sized by the hinge case plus a coupon print"}
     mat = material(args.material)
     F, load_desc = load_value(args.load)
     o = args.orientation
@@ -347,11 +630,21 @@ def run(args) -> dict:
         raise StrengthError("--orientation is xy (stress within the layer plane) or z (stress across layers)")
     if not math.isfinite(args.sf) or args.sf < 1.0:
         raise StrengthError("--sf must be a number of at least 1.0")
-    for name in ("d", "engagement", "support_t", "b", "h", "length", "t", "edge"):
+    for name in ("d", "engagement", "support_t", "b", "h", "length", "t", "edge", "pin_d", "knuckle_d", "knuckle_len"):
         v = getattr(args, name)
         if v is not None and (not math.isfinite(v) or v <= 0):
             raise StrengthError(f"--{name.replace('_', '-')} must be a positive number (mm)")
-    non_negative(args, "gap", "bow")
+    non_negative(args, "gap", "bow", "clearance")
+    if args.case != "hinge":
+        stray = [f"--{n.replace('_', '-')}" for n in HINGE_ONLY if getattr(args, n) is not None]
+        if stray:
+            raise StrengthError(f"{', '.join(stray)} belong to the hinge case only (this is case {args.case})")
+    else:
+        stray = [f"--{n.replace('_', '-')}" for n in NOT_HINGE if getattr(args, n) is not None]
+        if stray:
+            raise StrengthError(f"{', '.join(stray)} do not apply to the hinge case (they belong to pin, beam, link or "
+                                "bearing); a hinge takes --pin-d, --knuckle-d, --knuckles, --length or --knuckle-len, "
+                                "--gap, --clearance, --hole, --pin and --duty")
     extra = {}
     if args.case == "pin":
         checks, notes = case_pin(args, mat, F, o)
@@ -361,10 +654,18 @@ def run(args) -> dict:
         checks, notes = case_link(args, mat, F, o)
     elif args.case == "bearing":
         checks, notes = case_bearing(args, mat, F, o)
+    elif args.case == "hinge":
+        checks, notes, extra = case_hinge(args, mat, F, o)
     else:
-        raise StrengthError("case must be pin, beam, link, bearing, materials or loads")
+        raise StrengthError("case must be pin, beam, link, bearing, hinge, materials, loads or duties")
     states = [c["state"] for c in checks.values()]
     gate = "FAIL" if "FAIL" in states else "WARN" if "WARN" in states else "PASS"
+    duty = getattr(args, "duty", None) if args.case == "hinge" else None
+    if duty == "decorative":
+        gate = extra["minimums"]["state"]                            # the checks are informational
+    floors_fail = extra.get("minimums", {}).get("state") == "FAIL"
+    if floors_fail:
+        gate = "FAIL"
     worst = min(checks.values(), key=lambda c: c["sf_achieved"] if c["sf_achieved"] is not None else math.inf)
     assumptions = [
         f"load {F} N: {load_desc}",
@@ -378,13 +679,28 @@ def run(args) -> dict:
     ] + notes
     keep = {"load", "material", "orientation", "sf"} | CASE_INPUTS[args.case]
     inputs = {k: v for k, v in vars(args).items() if k in keep and v is not None and v is not False}
+    next_step = {"PASS": "size holds on paper; the margin covers the usual unknowns",
+                 "WARN": "short margin: thicken the member, or print the mechanism alone first (SKILL.md, Phase 4)",
+                 "FAIL": "the member breaks on paper: redesign before printing"}[gate]
+    if floors_fail:
+        below = [k for k, v in extra["minimums"].items() if isinstance(v, dict) and v.get("state") == "FAIL"]
+        next_step = (f"under the {extra['minimums']['duty']} floors ({', '.join(below)}): " +
+                     ("the field minimums are the rule for this duty, grow the member or change the duty if it is really a lid"
+                      if duty == "latch" else
+                      "a lid hinge needs 3 or more knuckles (odd recommended); add knuckles" if "knuckles" in below else
+                      "below what prints (tolerances.md); grow the member"))
+    elif duty == "lid" and gate == "WARN":
+        next_step = ("lid duty needs SF >= 2: grow the pin or knuckle diameter or add knuckles (odd); the coupon print is "
+                     "required on top and does not replace the margin")
+    elif duty == "lid" and gate == "PASS":
+        next_step += "; lid duty: print the hinge coupon before the full part (required on top of the margin, parts.md)"
+    elif duty == "decorative":
+        next_step = ("decorative: the floors decide" + (" and are met; no calculation is needed for a hinge that carries nothing"
+                                                        if gate == "PASS" else ""))
     return {"case": args.case, "inputs": inputs, "load_N": F, "material": {k: mat[k] for k in ("key", "name", "tds", "url", "retrieved")},
             "orientation": o, "checks": checks, "gate": gate,
             "worst": {"check": next(k for k, v in checks.items() if v is worst), "sf_achieved": worst["sf_achieved"]},
-            "next_step": {"PASS": "size holds on paper; the margin covers the usual unknowns",
-                          "WARN": "short margin: thicken the member, or print the mechanism alone first (SKILL.md, Phase 4)",
-                          "FAIL": "the member breaks on paper: redesign before printing"}[gate],
-            "assumptions": assumptions, **extra}
+            "next_step": next_step, "assumptions": assumptions, **extra}
 
 
 def join_negative_values(argv):
@@ -415,7 +731,7 @@ def main(argv=None):
     out = {"schema": SCHEMA, "ran": False, "warnings": [], "errors": []}
     try:
         ap = _JsonArgParser(description="hand calculations for load-carrying members (Bambu Lab data-sheet values)")
-        ap.add_argument("case", choices=["pin", "beam", "link", "bearing", "materials", "loads"])
+        ap.add_argument("case", choices=["pin", "beam", "link", "bearing", "hinge", "materials", "loads", "duties"])
         ap.add_argument("--load", help="force in N, or finger_push, finger_press, finger_pull, pinch_lateral, pinch_palmar, grasp")
         ap.add_argument("--material", help="pla_basic, pla_matte, pla_pure, petg_basic, petg_hf, abs, asa")
         ap.add_argument("--orientation", help="xy (stress within the layer plane) or z (across layers; default)")
@@ -424,26 +740,44 @@ def main(argv=None):
         ap.add_argument("--engagement", type=float,
                         help="pin: stub: length L inside the mating part (per end with --shear double); through: width b of the loaded member between the supports (mm)")
         ap.add_argument("--support-t", type=float, dest="support_t", help="pin, through: thickness a of each support the pin's ends sit in (mm)")
-        ap.add_argument("--gap", type=float, default=0.0, help="pin: gap between the root face (stub) or each support (through) and the mating part (mm, default 0)")
+        ap.add_argument("--gap", type=float, default=None,
+                        help="pin: gap between the root face (stub) or each support (through) and the mating part (mm, default 0); "
+                             "hinge: axial gap between knuckles (mm, default 0.3)")
         ap.add_argument("--load-across-layers", action="store_true", dest="load_across_layers",
-                        help="pin lying flat whose load crosses the layers: shear uses the Z strength")
-        ap.add_argument("--shear", default="single", choices=["single", "double"], help="pin: shear planes, one end held or both")
+                        help="pin lying flat whose load crosses the layers: shear uses the Z strength (a hinge always does; "
+                             "accepted there, no effect)")
+        ap.add_argument("--shear", default=None, choices=["single", "double"],
+                        help="pin: shear planes, one end held or both (default single)")
         ap.add_argument("--support", default=None, choices=["through", "stub", "cantilever", "simple"],
                         help="pin: stub (grows out of a part; both ends with --shear double) or through (loose pin, needs --support-t); beam: cantilever or simple")
         ap.add_argument("--b", type=float, help="section width (mm)")
         ap.add_argument("--h", type=float, help="section thickness in the bending direction (mm)")
-        ap.add_argument("--length", type=float, help="beam length / link length (mm)")
-        ap.add_argument("--bow", type=float, default=0.0, help="link: sagitta of a curved link (mm, default 0)")
+        ap.add_argument("--length", type=float, help="beam length / link length / hinge length, knuckles and gaps (mm)")
+        ap.add_argument("--bow", type=float, default=None, help="link: sagitta of a curved link (mm, default 0)")
         ap.add_argument("--t", type=float, help="bearing: thickness the pin bears on (mm)")
         ap.add_argument("--edge", type=float, help="bearing: wall from the hole to the nearest edge (mm)")
+        ap.add_argument("--pin-d", type=float, dest="pin_d", help="hinge: pin diameter (mm)")
+        ap.add_argument("--knuckle-d", type=float, dest="knuckle_d", help="hinge: knuckle outer diameter (mm)")
+        ap.add_argument("--knuckles", type=int, help="hinge: number of knuckles, alternating A, B, A ... (2 or more; a lid 3 or more, odd recommended)")
+        ap.add_argument("--knuckle-len", type=float, dest="knuckle_len", help="hinge: length of one knuckle (mm), instead of --length")
+        ap.add_argument("--clearance", type=float, default=None,
+                        help="hinge: radial clearance between pin and hole (mm, default 0.3, tolerances.md print-in-place)")
+        ap.add_argument("--hole", default=None, choices=["teardrop", "round"],
+                        help="hinge: hole shape; the wall is measured above a teardrop's point (default) or above a round hole")
+        ap.add_argument("--pin", default=None, choices=["integral", "loose"],
+                        help="hinge: the pin is part of leaf A (default, parts.hinge) or a loose pin through every knuckle")
+        ap.add_argument("--duty", default=None, choices=list(DUTY_NAMES),
+                        help="hinge: compare pin, wall, knuckle length (lid: and count) with this duty's P7 floors; "
+                             "lid needs --sf 2 or more and a coupon print on top")
         args = ap.parse_args(join_negative_values(sys.argv[1:] if argv is None else argv))
         args.orientation_defaulted = args.orientation is None
         if args.orientation is None:
             args.orientation = "z"
-        if args.case in ("pin", "beam", "link", "bearing"):
+        if args.case in ("pin", "beam", "link", "bearing", "hinge"):
             if args.load is None or args.material is None:
                 raise StrengthError("--load and --material are required")
             if args.case == "pin":
+                args.shear = args.shear or "single"
                 args.support = args.support or ("through" if args.shear == "double" else "stub")
                 if args.support not in ("through", "stub"):
                     raise StrengthError("pin: --support is through or stub")
@@ -451,6 +785,10 @@ def main(argv=None):
                 args.support = args.support or "cantilever"
                 if args.support not in ("cantilever", "simple"):
                     raise StrengthError("beam: --support is cantilever or simple")
+            if args.case == "link" and args.bow is None:
+                args.bow = 0.0
+            if args.case != "hinge" and args.gap is None:
+                args.gap = 0.0                           # the hinge resolves its own defaults (0.3, tolerances.md)
         out.update(run(args))
         out["ran"] = True
     except (StrengthError, ValueError) as exc:

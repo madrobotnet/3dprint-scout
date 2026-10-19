@@ -37,7 +37,8 @@ imply it. Many users do not know the word "slicer"; never make them feel they sh
   resolve `inherits`, child values win, strip stray whitespace; Bambu Studio's data folder and
   its `system` subfolder are named in `references/bambu-process.md`) → the manufacturer's spec
   page → the slicer's public profiles at the tag of the user's version → numbers from the user.
-  Never a reseller page. Save every block with its `source`, and save `slicer.name`.
+  Never a reseller page, a review or a news article: they round, mix models and go stale.
+  Save every block with its `source`, and save `slicer.name`.
 - Bambu Studio and the user has the app open → suggest once, in one line, saving an empty
   project as the template (it keeps their process tweaks and AMS set); the generated template
   is the fallback (`references/bambu-process.md`).

@@ -172,6 +172,16 @@ class SnapFits(PartCase):
 
 
 class Hinges(PartCase):
+    def test_duty_is_keyword_only(self):
+        """A duty passed where `segments` sits must fail clearly, never build a latch hinge."""
+        import inspect
+        self.assertEqual(inspect.signature(parts.hinge).parameters["duty"].kind, inspect.Parameter.KEYWORD_ONLY)
+        with self.assertRaises(TypeError) as cm:
+            parts.hinge(16, 7.4, 2.4, 10, 1.6, 5, 0.3, "lid")
+        self.assertIn("keyword-only", str(cm.exception))
+        h = parts.hinge(16, 7.4, 2.4, 10, 1.6, 5, 0.3, duty="lid")
+        self.assertEqual(set(h), {"leaf_a", "leaf_b"})
+
     def test_print_in_place_hinge(self):
         h = parts.hinge()
         a = self.assertSolid(h["leaf_a"], bbox=[30, 22.1, 9.8])
@@ -209,6 +219,86 @@ class Hinges(PartCase):
         self.assertSolid(h["leaf_a"] + h["leaf_b"], shells=2)
         with self.assertRaisesRegex(ValueError, "tolerances.md"):
             parts.hinge(knuckle_d=5.2, pin_d=2.0, decorative=True)       # 0.97 mm above the point: does not print
+
+    def test_hinge_duties(self):
+        """design.md, Mechanisms that carry load, by duty: the lid duty accepts the field test's 2.4 mm pin in
+        7.4 mm knuckles (1.58 mm above the point; strength.py hinge sizes it), the default (latch) refuses it,
+        decorative=True is the old spelling of duty='decorative', and the floors have one copy in strength.py."""
+        import strength
+        from types import MappingProxyType
+        # One copy of the numbers, but read-only views of copies here: nothing in parts can change strength.DUTIES.
+        self.assertEqual(parts.MECHANISM, strength.DUTIES["latch"]["floors"])
+        self.assertEqual(parts.DECORATIVE, strength.DUTIES["decorative"]["floors"])
+        self.assertIsNot(parts.MECHANISM, strength.DUTIES["latch"]["floors"])
+        self.assertIsInstance(parts.MECHANISM, MappingProxyType)
+        self.assertIsInstance(parts.DECORATIVE, MappingProxyType)
+        with self.assertRaises(TypeError):
+            parts.MECHANISM["pin_d"] = 1.0
+        self.assertEqual(parts.DECORATIVE, {"pin_d": 2.0, "pin_wall": 1.2, "member": 1.2, "knuckle_len": 2.0})
+        self.assertEqual(parts.DUTIES["lid"]["min_knuckles"], 3)
+        sd = dict(length=36, knuckle_d=7.4, pin_d=2.4, leaf_t=1.6, knuckles=5)
+        h = parts.hinge(duty="lid", **sd)
+        self.assertEqual(set(h), {"leaf_a", "leaf_b"})
+        self.assertSolid(h["leaf_a"] + h["leaf_b"], shells=2, bbox=[36, 2 * (3.7 + 0.3 + 12), 7.4])
+        self.assertEqual((h["leaf_a"] ^ h["leaf_b"]).volume(), 0.0)
+        self.assertAlmostEqual(h["leaf_a"].min_gap(h["leaf_b"], 1.0), 0.3, delta=0.01)
+        with self.assertRaisesRegex(ValueError, "duty latch.*field minimums"):
+            parts.hinge(**sd)                                                  # the default stays the latch values
+        with self.assertRaisesRegex(ValueError, "duty latch"):
+            parts.hinge(duty="latch", **sd)
+        with self.assertRaisesRegex(ValueError, "strength.py hinge.*coupon"):
+            parts.hinge(duty="lid", **dict(sd, leaf_t=1.0))                    # under what prints, the lid source named
+        with self.assertRaisesRegex(ValueError, "duty lid"):
+            parts.hinge(duty="lid", **dict(sd, knuckle_d=5.2, pin_d=2.0))
+        # A lid hinge needs 3 or more knuckles (odd recommended, not enforced); latch and decorative keep 2.
+        with self.assertRaisesRegex(ValueError, "a lid hinge needs at least 3 knuckles"):
+            parts.hinge(duty="lid", **dict(sd, knuckles=2))
+        four = parts.hinge(duty="lid", **dict(sd, knuckles=4))
+        self.assertSolid(four["leaf_a"] + four["leaf_b"], shells=2)
+        self.assertEqual(set(parts.hinge(duty="decorative", **dict(sd, knuckles=2))), {"leaf_a", "leaf_b"})
+        self.assertEqual(set(parts.hinge(knuckles=2, length=20)), {"leaf_a", "leaf_b"})
+        # decorative=True is duty="decorative"; the two together are fine, another duty with it is not.
+        a = parts.hinge(decorative=True, **sd)
+        b = parts.hinge(duty="decorative", **sd)
+        c = parts.hinge(decorative=True, duty="decorative", **sd)
+        self.assertAlmostEqual(a["leaf_b"].volume(), b["leaf_b"].volume(), places=6)
+        self.assertAlmostEqual(a["leaf_b"].volume(), c["leaf_b"].volume(), places=6)
+        with self.assertRaisesRegex(ValueError, "decorative=True means duty='decorative'"):
+            parts.hinge(decorative=True, duty="lid", **sd)
+        with self.assertRaisesRegex(ValueError, "decorative=True means duty='decorative'"):
+            parts.hinge(decorative=True, duty="latch")
+        with self.assertRaisesRegex(ValueError, "unknown hinge duty 'lever'"):
+            parts.hinge(duty="lever")
+        with self.assertRaisesRegex(ValueError, "unknown hinge duty"):
+            parts.hinge(duty="", **sd)
+        # The same numbers strength.py sees: wall above the point and knuckle length.
+        self.assertAlmostEqual(strength.hinge_wall(7.4, 2.4, 0.3, "teardrop"), 1.5787, places=4)
+        self.assertAlmostEqual((36 - 4 * 0.3) / 5, 6.96)
+
+    def test_strength_is_loaded_by_path_not_by_name(self):
+        """A project's own strength.py earlier on sys.path (build.py puts the generator's folder first) must not
+        shadow the skill's: parts loads its sibling by file path under a private module name and leaves sys.path
+        alone."""
+        import subprocess
+        with tempfile.TemporaryDirectory() as d:
+            with open(os.path.join(d, "strength.py"), "w", encoding="utf-8") as f:
+                f.write("DUTIES = {'latch': {'floors': {'pin_d': 0.1}}}\nDECOY = True\n")
+            code = (
+                "import sys, json\n"
+                f"sys.path.insert(0, {d!r})\n"
+                f"sys.path.insert(1, {os.path.join(HERE, '..', 'scripts')!r})\n"
+                "before = list(sys.path)\n"
+                "import strength, parts\n"
+                "print(json.dumps({'decoy_seen_by_name': getattr(strength, 'DECOY', False),"
+                " 'parts_pin_d': parts.MECHANISM['pin_d'], 'private': '_3dps_strength' in sys.modules,"
+                " 'private_file': sys.modules['_3dps_strength'].__file__, 'sys_path_unchanged': sys.path == before}))\n")
+            out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True)
+        got = json.loads(out.stdout)
+        self.assertTrue(got["decoy_seen_by_name"])                               # `import strength` finds the decoy...
+        self.assertEqual(got["parts_pin_d"], 3.2)                                # ...parts does not
+        self.assertTrue(got["private"])
+        self.assertEqual(os.path.realpath(got["private_file"]), os.path.realpath(os.path.join(HERE, "..", "scripts", "strength.py")))
+        self.assertTrue(got["sys_path_unchanged"])
 
 
 class Text(PartCase):
@@ -316,6 +406,40 @@ class BuildIntegration(unittest.TestCase):
             self.assertEqual(checks["D1"]["state"], "PASS")
             self.assertEqual(checks["M1"]["state"], "PASS")
             self.assertEqual(checks["R3"]["state"], "PASS")
+
+
+class DocumentedSignatures(unittest.TestCase):
+    """engines/python.md lists parts.py calls with their arguments; the order must be the real one,
+    or a caller who follows the table positionally binds values to the wrong argument."""
+
+    def test_python_md_table_matches_the_code(self):
+        import inspect
+        import re
+        with open(os.path.join(HERE, "..", "references", "engines", "python.md"), encoding="utf-8") as f:
+            table = f.read()
+        rows = re.findall(r"^\| `(\w+)\(([^`]*)\)` \|", table, re.M)
+        self.assertGreaterEqual(len(rows), 10)
+        for name, args in rows:
+            with self.subTest(call=name):
+                self.assertTrue(hasattr(parts, name), f"{name} is not in parts.py")
+                params = inspect.signature(getattr(parts, name)).parameters
+                tokens = [t.strip() for t in args.replace("\\|", "|").split(",") if t.strip()]
+                positional, rest, mode = [], [], "pos"
+                for t in tokens:
+                    if t in ("...", "*"):
+                        mode = t
+                        continue
+                    key = t.split("=")[0].strip()
+                    if mode == "pos":
+                        positional.append(key)
+                    else:
+                        rest.append((mode, key))
+                real = list(params)
+                self.assertEqual(positional, real[:len(positional)], f"{name}: listed order is not the real order")
+                for mode, key in rest:
+                    self.assertIn(key, params, f"{name}: no argument {key}")
+                    if mode == "*":
+                        self.assertEqual(params[key].kind, inspect.Parameter.KEYWORD_ONLY, f"{name}: {key} is not keyword-only")
 
 
 if __name__ == "__main__":

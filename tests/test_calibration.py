@@ -79,6 +79,82 @@ class Calibration(unittest.TestCase):
         self.assertEqual(out["worked"]["pin_d_mm"]["value"], 3.24)
         self.assertEqual(out["bounds"]["pin_d_mm"]["failed"]["value"], 2.6)
 
+    def test_kind_keeps_floors_to_the_same_kind_of_member(self):
+        """A member that broke is a floor for the same kind of member: --kind on add is stored, lookup --kind K
+        takes worked / bounds from entries of kind K only, entries without a kind are listed apart, and a file
+        written before `kind` existed still loads."""
+        code, out = self.add("--feature", "mechanism", "--kind", "latch", "--result", "failed", "--material", "pla_pure",
+                             "--value", "pin_d_mm=2.6", "--load", "finger_push", "--date", "2026-10-17")
+        self.assertEqual(code, 0, out["errors"])
+        self.assertEqual(out["added"]["kind"], "latch")
+        self.add("--feature", "mechanism", "--kind", "latch", "--result", "worked", "--value", "pin_d_mm=3.24", "--date", "2026-10-16")
+        self.add("--feature", "mechanism", "--result", "worked", "--value", "pin_d_mm=3.0", "--date", "2026-10-15")   # no kind
+        code, out = self.add("--feature", "mechanism", "--kind", "lid_hinge", "--result", "worked", "--value", "pin_d_mm=2.4",
+                             "--value", "knuckle_d_mm=7.4", "--load", "finger_pull", "--date", "2026-10-19")
+        self.assertEqual(out["added"]["kind"], "lid_hinge")
+        code, fit = self.add("--feature", "fit", "--result", "fits", "--value", "clearance_per_side_mm=0.3")
+        self.assertNotIn("kind", fit["added"])                                                    # optional everywhere
+        code, out = run("lookup", "--file", self.file, "--feature", "mechanism", "--kind", "lid_hinge")
+        self.assertEqual(code, 0, out["errors"])
+        self.assertEqual(out["count"], 1)
+        self.assertEqual(out["worked"]["pin_d_mm"]["value"], 2.4)
+        self.assertEqual(out["worked"]["pin_d_mm"]["kind"], "lid_hinge")
+        self.assertEqual(out["bounds"], {})                                                       # the latch failure sets no floor here
+        self.assertEqual(out["unclassified"]["count"], 1)
+        self.assertEqual(out["unclassified"]["entries"][0]["values"], {"pin_d_mm": 3.0})
+        self.assertIn("set no floor", out["unclassified"]["note"])
+        self.assertEqual(out["kinds"], {"lid_hinge": 1, "latch": 2, "unclassified": 1})
+        self.assertEqual(out["query"]["kind"], "lid_hinge")
+        code, out = run("lookup", "--file", self.file, "--feature", "mechanism", "--kind", "latch")
+        self.assertEqual(out["count"], 2)
+        self.assertEqual(out["worked"]["pin_d_mm"]["value"], 3.24)
+        self.assertEqual(out["bounds"]["pin_d_mm"]["failed"]["value"], 2.6)
+        code, out = run("lookup", "--file", self.file, "--feature", "mechanism")                  # no --kind: as before
+        self.assertEqual(out["count"], 4)
+        self.assertNotIn("unclassified", out)
+        self.assertEqual(out["worked"]["pin_d_mm"]["value"], 2.4)
+        self.assertEqual(out["bounds"]["pin_d_mm"]["failed"]["value"], 2.6)
+        self.assertEqual(out["kinds"], {"lid_hinge": 1, "latch": 2, "unclassified": 1})
+        code, out = run("lookup", "--file", self.file, "--kind", "snap")
+        self.assertEqual((out["count"], out["worked"], out["unclassified"]["count"]), (0, {}, 2))
+        # The kind goes through the id checks: shape, length, identifier tokens (split on letter-digit boundaries
+        # as for a printer id), digit runs and long letter-digit tokens; `unclassified` is reserved.
+        for bad, word in (("9lives", "lowercase id"), ("a_kind_name_that_is_far_too_long", "24 at most"), ("Lid Hinge", "lowercase id"),
+                          ("device_id", "identifier"), ("serial", "identifier"), ("lid-hinge!", "lowercase id"),
+                          ("user1", "identifier"), ("sn2", "identifier"), ("ip4", "identifier"), ("mac2", "identifier"),
+                          ("dev1", "identifier"), ("id2", "identifier"), ("x2d0123456789", "six or more digits"),
+                          ("abcdefg12345", "letter-digit"), ("unclassified", "reserved")):
+            code, out = self.add("--feature", "mechanism", "--kind", bad, "--result", "worked")
+            self.assertEqual(code, 1, bad)
+            self.assertIn(word, out["errors"][0], bad)
+        code, out = run("lookup", "--file", self.file, "--kind", "device_id")
+        self.assertEqual(code, 1)
+        code, out = run("lookup", "--file", self.file, "--kind", "unclassified")
+        self.assertEqual(code, 1)
+        self.assertIn("reserved", out["errors"][0])
+        for good in ("snap2", "lid_hinge", "latch", "lever_v2"):
+            self.assertEqual(calibration.normalize_kind(good), good)
+        # The same split refuses user1 as a printer id too.
+        with self.assertRaisesRegex(calibration.CalibrationError, "identifier"):
+            calibration.normalize_id("printer", "user1")
+        code, out = run("lookup", "--file", self.file, "--feature", "mechanism", "--kind", "lid_hinge")
+        self.assertIn("add", out["unclassified"]["note"])                                      # how to classify an old entry
+        # An old file without kind loads and looks up unchanged; a kind in the file is validated too.
+        with open(self.file, encoding="utf-8") as f:
+            data = json.load(f)
+        self.assertTrue(all("kind" not in e for e in data["entries"] if e["values"] == {"pin_d_mm": 3.0}))
+        old = os.path.join(self.tmp.name, "old.json")
+        with open(old, "w", encoding="utf-8") as f:
+            json.dump({"schema": calibration.SCHEMA, "entries": [
+                {"date": "2026-10-10", "printer": "x2d", "material": "pla_basic", "nozzle_mm": 0.4, "feature": "mechanism",
+                 "result": "worked", "values": {"pin_d_mm": 3.2}, "note": ""}]}, f)
+        code, out = run("lookup", "--file", old, "--feature", "mechanism")
+        self.assertEqual((code, out["count"], out["worked"]["pin_d_mm"]["value"]), (0, 1, 3.2))
+        self.assertNotIn("kind", out["worked"]["pin_d_mm"])
+        with self.assertRaisesRegex(calibration.CalibrationError, "kind"):
+            calibration.validate_entry({"date": "2026-10-10", "printer": "x2d", "material": "pla", "nozzle_mm": 0.4,
+                                        "feature": "mechanism", "result": "worked", "values": {}, "kind": "John Smith"})
+
     def test_missing_file_reads_as_empty_and_bad_file_is_refused(self):
         code, out = run("lookup", "--file", self.file, "--printer", "x2d")
         self.assertEqual((code, out["count"]), (0, 0))
