@@ -28,6 +28,7 @@ from __future__ import annotations
 import math
 import os
 import sys
+from types import MappingProxyType
 
 try:
     import manifold3d as m3d
@@ -36,9 +37,29 @@ except ImportError as exc:  # pragma: no cover - the generator cannot run at all
     raise ImportError("parts.py needs manifold3d (pip install manifold3d)") from exc
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
-if _HERE not in sys.path:
-    sys.path.insert(0, _HERE)
-from strength import DUTIES  # noqa: E402  (the one copy of the P7 floors per duty; strength.py is stdlib only)
+
+
+def _load_strength():
+    """The sibling strength.py (stdlib only; the one copy of the P7 floors per duty), loaded by
+    file path under a private module name: a user's own strength.py earlier on sys.path (the
+    project folder build.py puts first) must not shadow it, and sys.path is left alone."""
+    import importlib.util
+    name = "_3dps_strength"
+    if name in sys.modules:
+        return sys.modules[name]
+    spec = importlib.util.spec_from_file_location(name, os.path.join(_HERE, "strength.py"))
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
+    try:
+        spec.loader.exec_module(module)
+    except BaseException:
+        sys.modules.pop(name, None)
+        raise
+    return module
+
+
+_strength = _load_strength()
+DUTIES = _strength.DUTIES
 
 Manifold = m3d.Manifold
 CrossSection = m3d.CrossSection
@@ -543,8 +564,10 @@ def snap_window(length: float = 16.0, thickness: float = 1.6, width: float = 6.0
 # latch: the field comparison 2026-10 of a failed and a working hand-operated print-in-place
 # latch (starting points). lid / decorative: what still prints (tolerances.md limits); a lid
 # hinge is sized by `strength.py hinge` at SF >= 2 plus a coupon print, not by a table.
-MECHANISM = DUTIES["latch"]["floors"]
-DECORATIVE = DUTIES["decorative"]["floors"]
+# Read-only views (types.MappingProxyType) of copies: nothing here can change strength.DUTIES.
+MECHANISM = MappingProxyType(dict(DUTIES["latch"]["floors"]))
+DECORATIVE = MappingProxyType(dict(DUTIES["decorative"]["floors"]))
+_FLOORS = {name: MappingProxyType(dict(d["floors"])) for name, d in DUTIES.items()}
 _DUTY_WHY = {"latch": "design.md, Mechanisms that carry load, duty latch: field minimums",
              "lid": "tolerances.md limits, duty lid: what prints; the size must pass strength.py hinge at SF >= 2 "
                     "and a hinge coupon print",
@@ -566,10 +589,14 @@ def hinge(length: float = 30.0, knuckle_d: float = 9.8, pin_d: float = 3.2, leaf
     reaches (pin_d / 2 + clearance) x sqrt(2) above the axis (9.8 - 2 x 2.687 = 4.4, halved: 2.2),
     leaves 2.5 mm, knuckles 4 mm; the defaults (leaf 2.6, three knuckles 9.8 mm long) meet
     them. "lid": a lid, door or flap hinge the hand loads without a lever: only what prints
-    (pin 2.0, wall and leaf 1.2, knuckles 2 mm), the size must pass `strength.py hinge` at
-    SF >= 2 and a hinge coupon print before the full part. "decorative": carries nothing, the
-    same floors. `decorative=True` is the old spelling of duty="decorative" (an explicit other
-    duty with it is an error). Thinner values raise ValueError naming the duty and its source.
+    (pin 2.0, wall and leaf 1.2, knuckles 2 mm), 3 or more knuckles (required; an odd count is
+    recommended, so every moving knuckle sits between two fixed ones, and is not enforced), the
+    size must pass `strength.py hinge` at SF >= 2 and a hinge coupon print on top of that margin
+    before the full part. "decorative": carries nothing, the same floors. `decorative=True` is
+    the old spelling of duty="decorative" (an explicit other duty with it is an error). Thinner
+    values raise ValueError naming the duty and its source. `clearance` is both the radial
+    clearance at the pin and the axial gap between knuckles: pass it to `strength.py hinge` as
+    --gap and --clearance.
 
     Returns {"leaf_a": Manifold, "leaf_b": Manifold}: two bodies that never touch. Export both
     into ONE STL (validate with --shells 2) or two STLs placed as built."""
@@ -581,8 +608,11 @@ def hinge(length: float = 30.0, knuckle_d: float = 9.8, pin_d: float = 3.2, leaf
         raise ValueError(f"decorative=True means duty='decorative'; it cannot go with duty={duty!r}")
     if duty not in DUTIES:
         raise ValueError(f"unknown hinge duty {duty!r}: one of {', '.join(DUTIES)} (design.md, Mechanisms that carry load)")
-    lim = DUTIES[duty]["floors"]
+    lim = _FLOORS[duty]
     why = _DUTY_WHY[duty]
+    min_k = DUTIES[duty].get("min_knuckles")
+    if min_k and knuckles < min_k:
+        raise ValueError(f"a {duty} hinge needs at least {min_k} knuckles (odd recommended), got {knuckles} ({why})")
     R = knuckle_d / 2
     rp = pin_d / 2
     # The hole is a teardrop: round below, 45-degree roof with its point at (rp + c) x sqrt(2)

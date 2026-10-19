@@ -117,14 +117,28 @@ class Calibration(unittest.TestCase):
         self.assertEqual(out["kinds"], {"lid_hinge": 1, "latch": 2, "unclassified": 1})
         code, out = run("lookup", "--file", self.file, "--kind", "snap")
         self.assertEqual((out["count"], out["worked"], out["unclassified"]["count"]), (0, {}, 2))
-        # The kind goes through the id checks: shape, length and identifier tokens.
+        # The kind goes through the id checks: shape, length, identifier tokens (split on letter-digit boundaries
+        # as for a printer id), digit runs and long letter-digit tokens; `unclassified` is reserved.
         for bad, word in (("9lives", "lowercase id"), ("a_kind_name_that_is_far_too_long", "24 at most"), ("Lid Hinge", "lowercase id"),
-                          ("device_id", "identifier"), ("serial", "identifier"), ("lid-hinge!", "lowercase id")):
+                          ("device_id", "identifier"), ("serial", "identifier"), ("lid-hinge!", "lowercase id"),
+                          ("user1", "identifier"), ("sn2", "identifier"), ("ip4", "identifier"), ("mac2", "identifier"),
+                          ("dev1", "identifier"), ("id2", "identifier"), ("x2d0123456789", "six or more digits"),
+                          ("abcdefg12345", "letter-digit"), ("unclassified", "reserved")):
             code, out = self.add("--feature", "mechanism", "--kind", bad, "--result", "worked")
             self.assertEqual(code, 1, bad)
             self.assertIn(word, out["errors"][0], bad)
         code, out = run("lookup", "--file", self.file, "--kind", "device_id")
         self.assertEqual(code, 1)
+        code, out = run("lookup", "--file", self.file, "--kind", "unclassified")
+        self.assertEqual(code, 1)
+        self.assertIn("reserved", out["errors"][0])
+        for good in ("snap2", "lid_hinge", "latch", "lever_v2"):
+            self.assertEqual(calibration.normalize_kind(good), good)
+        # The same split refuses user1 as a printer id too.
+        with self.assertRaisesRegex(calibration.CalibrationError, "identifier"):
+            calibration.normalize_id("printer", "user1")
+        code, out = run("lookup", "--file", self.file, "--feature", "mechanism", "--kind", "lid_hinge")
+        self.assertIn("add", out["unclassified"]["note"])                                      # how to classify an old entry
         # An old file without kind loads and looks up unchanged; a kind in the file is validated too.
         with open(self.file, encoding="utf-8") as f:
             data = json.load(f)

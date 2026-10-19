@@ -70,7 +70,7 @@ mouth at z = 0 going down, overshooting the face by 0.1 mm). Defaults follow `de
 | `snap_hook(length, thickness, width, undercut, entry_angle, retention_angle, material)` | Cantilever hook lying flat (flexes in Y); raises when the strain exceeds the material limit |
 | `snap_window(...)` | Cutter for the matching window in the mating wall (snug clearance) |
 | `snap_fit_check(L, t, y, material, repeated)` | Strain, limit, `ok`, maximum deflection |
-| `hinge(length, knuckle_d, pin_d, leaf_w, leaf_t, knuckles, clearance, decorative)` | Print-in-place hinge: `{"leaf_a", "leaf_b"}`, two bodies that never touch (validate with `--shells 2`). Defaults and refusals follow design.md's mechanism minimums (pin 3.2, pin wall 2.2 above the teardrop's point, leaf 2.5, knuckle 4 mm); `decorative=True` only for a hinge that carries nothing |
+| `hinge(length, knuckle_d, pin_d, leaf_w, leaf_t, knuckles, clearance, duty, decorative)` | Print-in-place hinge: `{"leaf_a", "leaf_b"}`, two bodies that never touch (validate with `--shells 2`). `duty="latch"` (default) refuses less than design.md's field minimums (pin 3.2, pin wall 2.2 above the teardrop's point, leaf 2.5, knuckle 4 mm); `duty="lid"` (a lid, door or flap hinge, no lever between hand and pin) refuses only what does not print (pin 2.0, wall and leaf 1.2, knuckle 2 mm) and fewer than 3 knuckles (odd recommended): its size must pass `strength.py hinge` at SF ≥ 2 plus a coupon print on top (`references/parts.md`); `duty="decorative"` for a hinge that carries nothing (`decorative=True` is its old spelling). `clearance` is both the radial clearance and the axial gap: pass it to `strength.py hinge` as `--gap` and `--clearance` |
 | `text(string, height, depth, font, align)` | Text solid (cap height in mm) to union (emboss) or subtract (engrave); needs matplotlib, or fontTools plus a font file |
 | `thread(d, pitch, length, internal, clearance)` | Approximate ISO thread: a rod, or with `internal=True` a cutter for a nut |
 | `clean(part)` | Welds the slivers hulls, Minkowski sums and some booleans leave (M3) |
@@ -80,7 +80,8 @@ Every function's docstring names its defaults and sources. Letters of `text()` a
 bodies until they sit on a face; `thread()` is a twisted extrusion with flat crest and root, no
 tolerance class, and the agent says so when delivering. Members that carry load get the
 `strength.py` check and, when the margin is short, a test print of the mechanism alone
-(`build.py run --only ...`, `references/parts.md`).
+(`build.py run --only ...`, `references/parts.md`); a `lid`-duty hinge always gets its coupon,
+on top of the margin.
 
 ## Organic and freeform shapes: `sdf.py`
 

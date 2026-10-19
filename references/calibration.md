@@ -31,8 +31,11 @@ beats the table; a member that broke on this printer is a floor to stay above **
 same kind of member under the same kind of load**: a stub pin that broke in a hand-operated
 latch does not set the floor for a lid hinge's integral pin. So look a mechanism up by its
 kind (`--feature mechanism --kind lid_hinge`): only entries of that kind set `worked` and
-`bounds`, entries without a kind are listed under `unclassified` so they are seen but set no
-floor, and `kinds` counts what the log holds. Say in the dimension table which values came
+`bounds`, entries without a kind are listed under `unclassified` (a reserved name, not a
+kind) so they are seen but set no floor, and `kinds` counts what the log holds. To classify
+an old entry, ask the user what it was and `add` it again with `--kind` (the same values,
+date and note); the old entry stays as it is. A 0.3.0 `calibration.py` drops `kind` when it
+rewrites the file, so keep the versions in step. Say in the dimension table which values came
 from the log ("calibration, 2026-10-16, lid_hinge").
 
 ## When to write it (after a print)

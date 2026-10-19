@@ -36,7 +36,7 @@ and gets a hand calculation. The duty decides the rule and the load case:
 | Duty | What | Floors | Load case |
 |---|---|---|---|
 | `latch` (default) | a hand pushes, pulls, pinches or snaps it, or a lever amplifies the force: latches, catches, levers, clamps, a latch's pivot pin, a hinge leaf used as a lever | the field minimums (pin ≥ 3.2, pin wall ≥ 2.2, member ≥ 2.5 thick and ≥ 4 wide, knuckle ≥ 4 long) | the hand-force key that matches the operation × the lever ratio |
-| `lid` | a lid, door or flap hinge with alternating knuckles (≥ 3, odd recommended), no lever between hand and pin | only what prints (pin 2.0, wall and leaf 1.2, knuckle 2 mm); the size comes from `strength.py hinge` at SF ≥ 2 | the open lid pulled away from the box: `finger_pull` shared by the moving knuckles, no lever ratio; levering it past its stop is misuse, said at delivery |
+| `lid` | a lid, door or flap hinge with alternating knuckles (3 or more required, odd recommended), no lever between hand and pin | only what prints (pin 2.0, wall and leaf 1.2, knuckle 2 mm); the size comes from `strength.py hinge` at SF ≥ 2, the coupon print on top | the open lid pulled away from the box: `finger_pull` shared by the moving knuckles, no lever ratio; levering it past its stop is misuse: "don't force the lid past fully open" goes into `_assumptions` and is said at delivery |
 | `decorative` | carries nothing | the same floors | none |
 
 ```bash
@@ -50,17 +50,23 @@ python3 "$SKILL_DIR/scripts/strength.py" hinge --pin-d 2.4 --knuckle-d 7.4 --knu
 the lever ratio applied by you; materials from Bambu Lab data sheets, `--orientation xy|z` for
 the layer direction, `--gap` for the print-in-place gap at a pin's root or between knuckles,
 `--sf` 2 by default; `references/materials.md`. The `hinge` case takes the hinge as
-`parts.hinge` builds it, an integral or a loose pin, and with `--duty` compares pin, wall and
-knuckle length with that duty's floors.) Record the load case, its share and the ratio in
-`_assumptions`. FAIL → redesign; WARN, no proven reference to compare with, or a `lid` hinge
-(always) → **print the mechanism first**: `build.py run --only latch,keeper --out out/mech`
-builds those parts whole (a coupon part for less), a few grams, and the user tries it before
-the full part (the same idea as the fit test; a Bambu job lists only those parts;
-`references/parts.md`, "Printing the mechanism first"). A mechanism built into the walls (a
-box hinge) still gets its coupon: the same section cut short, built as its own `_parts`
-entry; "cutting it out would be most of the part" is not a reason to skip. The calculation is
-a sizing aid: it flagged the failed field latch's arms, not its pins, so for latch duty the
-minimums and the test print decide; for a lid hinge the calculation and the coupon decide.
+`parts.hinge` builds it, an integral or a loose pin, with the pull taken to cross the layers
+(the axis prints flat and the pull turns with the lid: shear and the knuckle wall use the Z
+strength); `parts.hinge` has one `clearance` for the radial clearance and the axial gap, so
+pass it as both `--gap` and `--clearance`; with `--duty` it compares pin, wall, knuckle length
+and, for a lid, the knuckle count with that duty's floors.) Record the load case, its share
+and the ratio in `_assumptions`. FAIL → redesign. WARN, or no proven reference to compare
+with → **print the mechanism first**: `build.py run --only latch,keeper --out out/mech` builds
+those parts whole (a coupon part for less), a few grams, and the user tries it before the
+full part (the same idea as the fit test; a Bambu job lists only those parts;
+`references/parts.md`, "Printing the mechanism first"). A `lid` hinge must reach SF ≥ 2: at
+WARN grow the pin or the knuckle Ø or add knuckles (odd), and its coupon print is required on
+top of that margin, never instead of it. A mechanism built into the walls (a box hinge) still
+gets its coupon: the same section cut short, built as its own `_parts` entry; "cutting it out
+would be most of the part" is not a reason to skip. The calculation is a sizing aid: it
+flagged the failed field latch's arms, not its pins, so for latch duty the minimums and the
+test print decide; for a lid hinge the calculation sizes and the coupon decides, and a paper
+SF ≥ 2 is never the last word.
 
 ## Fit test first
 

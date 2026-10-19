@@ -68,6 +68,7 @@ MIXED_RE = re.compile(r"\b(?=[0-9a-z]*\d)(?=[0-9a-z]*[a-z])[0-9a-z]{10,}\b", re.
 EMAIL_RE = re.compile(r"[\w.+-]+@[\w-]+\.[\w.]+")
 ID_RE = re.compile(r"[a-z0-9][a-z0-9._+-]{0,39}")
 KIND_RE = re.compile(r"[a-z][a-z0-9_]{0,23}")           # the kind of member: latch, lid_hinge, lever, clamp, snap
+UNCLASSIFIED = "unclassified"                           # lookup's name for entries without a kind; not a valid kind
 LOAD_KEYS = ("finger_push", "finger_press", "finger_pull", "pinch_lateral", "pinch_palmar", "grasp")
 MATERIAL_KEYS = re.compile(r"(pla|petg|abs|asa|tpu|pa|pc|pet|pps|peek|ppa|pva|hips)(_[a-z0-9]{1,12}){0,3}")   # pla_basic, petg_hf, pla_cf
 
@@ -101,23 +102,34 @@ def normalize_id(what: str, value) -> str:
     if not ID_RE.fullmatch(text):
         raise CalibrationError(f"{what} must be a short lowercase id without spaces (x2d, a1_mini, pla_basic), as in "
                                f"printers.json or strength.py: got {value!r}")
-    if FORBIDDEN_WORDS.search(text) or set(re.split(r"[^a-z0-9]+|(?<=[a-z])(?=\d)", text)) & FORBIDDEN_TOKENS:
+    if FORBIDDEN_WORDS.search(text) or id_tokens(text) & FORBIDDEN_TOKENS:
         raise CalibrationError(f"{what} {value!r} looks like an identifier of a person or a machine; use the printer model "
                                "or the id from printers.json")
     return text
 
 
+def id_tokens(text: str) -> set:
+    """The words of an id, split on separators and on letter-digit boundaries (user1 -> user, 1)."""
+    return set(re.split(r"[^a-z0-9]+|(?<=[a-z])(?=\d)", text))
+
+
 def normalize_kind(value) -> str:
     """The kind of member an entry is about (latch, lid_hinge, lever, clamp, snap): a short
-    lowercase id through the same identifier checks as a printer, in a stricter shape. Not
-    normalised: capitals or spaces are refused by shape, as a person's name would be."""
+    lowercase id through the same identifier checks as a printer (the token split, the private
+    words, digit runs and long letter-digit tokens), in a stricter shape. Not normalised:
+    capitals or spaces are refused by shape, as a person's name would be. `unclassified` is
+    reserved (lookup reports entries without a kind under that name)."""
     text = str(value or "").strip()
     if not KIND_RE.fullmatch(text):
         raise CalibrationError(f"kind must be a short lowercase id (a letter, then letters, digits or underscores, 24 at most: "
                                f"latch, lid_hinge, lever, clamp, snap), got {value!r}")
-    if FORBIDDEN_WORDS.search(text) or set(text.split("_")) & FORBIDDEN_TOKENS:
+    if text == UNCLASSIFIED:
+        raise CalibrationError(f"kind {text!r} is reserved for entries without a kind; name the kind of member "
+                               "(latch, lid_hinge, lever, clamp, snap)")
+    if FORBIDDEN_WORDS.search(text) or id_tokens(text) & FORBIDDEN_TOKENS:
         raise CalibrationError(f"kind {value!r} looks like an identifier of a person or a machine; name the kind of member "
                                "(latch, lid_hinge, lever, clamp, snap)")
+    check_private(text, "kind")
     return text
 
 
@@ -319,7 +331,7 @@ def cmd_lookup(args) -> dict:
     entries = [e for _i, e in hits]
     kinds = {}
     for e in entries:
-        kinds[e.get("kind", "unclassified")] = kinds.get(e.get("kind", "unclassified"), 0) + 1
+        kinds[e.get("kind", UNCLASSIFIED)] = kinds.get(e.get("kind", UNCLASSIFIED), 0) + 1
     out = {"file": args.file,
            "query": {k: getattr(args, k) for k in ("printer", "material", "nozzle", "feature", "kind") if getattr(args, k) is not None}}
     kind = normalize_kind(args.kind) if args.kind else None
@@ -328,9 +340,11 @@ def cmd_lookup(args) -> dict:
         unclassified = [e for e in entries if "kind" not in e]
         worked, bounds = summarize(same)
         out.update({"entries": same, "count": len(same), "worked": worked, "bounds": bounds, "kinds": kinds,
-                    "unclassified": {"entries": unclassified, "count": len(unclassified),
-                                     "note": f"entries without a kind: seen, but they set no floor for kind '{kind}' (a member "
-                                             "that broke is a floor for the same kind of member under the same kind of load)"}})
+                    UNCLASSIFIED: {"entries": unclassified, "count": len(unclassified),
+                                   "note": f"entries without a kind: seen, but they set no floor for kind '{kind}' (a member "
+                                           "that broke is a floor for the same kind of member under the same kind of load); "
+                                           "to classify one, ask the user what it was and `add` it again with --kind "
+                                           "(the same values, date and note), the old entry stays as it is"}})
     else:
         worked, bounds = summarize(entries)
         out.update({"entries": entries, "count": len(entries), "worked": worked, "bounds": bounds, "kinds": kinds})

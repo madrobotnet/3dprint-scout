@@ -215,9 +215,17 @@ class Hinges(PartCase):
         7.4 mm knuckles (1.58 mm above the point; strength.py hinge sizes it), the default (latch) refuses it,
         decorative=True is the old spelling of duty='decorative', and the floors have one copy in strength.py."""
         import strength
-        self.assertIs(parts.MECHANISM, strength.DUTIES["latch"]["floors"])
-        self.assertIs(parts.DECORATIVE, strength.DUTIES["decorative"]["floors"])
+        from types import MappingProxyType
+        # One copy of the numbers, but read-only views of copies here: nothing in parts can change strength.DUTIES.
+        self.assertEqual(parts.MECHANISM, strength.DUTIES["latch"]["floors"])
+        self.assertEqual(parts.DECORATIVE, strength.DUTIES["decorative"]["floors"])
+        self.assertIsNot(parts.MECHANISM, strength.DUTIES["latch"]["floors"])
+        self.assertIsInstance(parts.MECHANISM, MappingProxyType)
+        self.assertIsInstance(parts.DECORATIVE, MappingProxyType)
+        with self.assertRaises(TypeError):
+            parts.MECHANISM["pin_d"] = 1.0
         self.assertEqual(parts.DECORATIVE, {"pin_d": 2.0, "pin_wall": 1.2, "member": 1.2, "knuckle_len": 2.0})
+        self.assertEqual(parts.DUTIES["lid"]["min_knuckles"], 3)
         sd = dict(length=36, knuckle_d=7.4, pin_d=2.4, leaf_t=1.6, knuckles=5)
         h = parts.hinge(duty="lid", **sd)
         self.assertEqual(set(h), {"leaf_a", "leaf_b"})
@@ -232,6 +240,13 @@ class Hinges(PartCase):
             parts.hinge(duty="lid", **dict(sd, leaf_t=1.0))                    # under what prints, the lid source named
         with self.assertRaisesRegex(ValueError, "duty lid"):
             parts.hinge(duty="lid", **dict(sd, knuckle_d=5.2, pin_d=2.0))
+        # A lid hinge needs 3 or more knuckles (odd recommended, not enforced); latch and decorative keep 2.
+        with self.assertRaisesRegex(ValueError, "a lid hinge needs at least 3 knuckles"):
+            parts.hinge(duty="lid", **dict(sd, knuckles=2))
+        four = parts.hinge(duty="lid", **dict(sd, knuckles=4))
+        self.assertSolid(four["leaf_a"] + four["leaf_b"], shells=2)
+        self.assertEqual(set(parts.hinge(duty="decorative", **dict(sd, knuckles=2))), {"leaf_a", "leaf_b"})
+        self.assertEqual(set(parts.hinge(knuckles=2, length=20)), {"leaf_a", "leaf_b"})
         # decorative=True is duty="decorative"; the two together are fine, another duty with it is not.
         a = parts.hinge(decorative=True, **sd)
         b = parts.hinge(duty="decorative", **sd)
@@ -249,6 +264,31 @@ class Hinges(PartCase):
         # The same numbers strength.py sees: wall above the point and knuckle length.
         self.assertAlmostEqual(strength.hinge_wall(7.4, 2.4, 0.3, "teardrop"), 1.5787, places=4)
         self.assertAlmostEqual((36 - 4 * 0.3) / 5, 6.96)
+
+    def test_strength_is_loaded_by_path_not_by_name(self):
+        """A project's own strength.py earlier on sys.path (build.py puts the generator's folder first) must not
+        shadow the skill's: parts loads its sibling by file path under a private module name and leaves sys.path
+        alone."""
+        import subprocess
+        with tempfile.TemporaryDirectory() as d:
+            with open(os.path.join(d, "strength.py"), "w", encoding="utf-8") as f:
+                f.write("DUTIES = {'latch': {'floors': {'pin_d': 0.1}}}\nDECOY = True\n")
+            code = (
+                "import sys, json\n"
+                f"sys.path.insert(0, {d!r})\n"
+                f"sys.path.insert(1, {os.path.join(HERE, '..', 'scripts')!r})\n"
+                "before = list(sys.path)\n"
+                "import strength, parts\n"
+                "print(json.dumps({'decoy_seen_by_name': getattr(strength, 'DECOY', False),"
+                " 'parts_pin_d': parts.MECHANISM['pin_d'], 'private': '_3dps_strength' in sys.modules,"
+                " 'private_file': sys.modules['_3dps_strength'].__file__, 'sys_path_unchanged': sys.path == before}))\n")
+            out = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True, check=True)
+        got = json.loads(out.stdout)
+        self.assertTrue(got["decoy_seen_by_name"])                               # `import strength` finds the decoy...
+        self.assertEqual(got["parts_pin_d"], 3.2)                                # ...parts does not
+        self.assertTrue(got["private"])
+        self.assertEqual(os.path.realpath(got["private_file"]), os.path.realpath(os.path.join(HERE, "..", "scripts", "strength.py")))
+        self.assertTrue(got["sys_path_unchanged"])
 
 
 class Text(PartCase):

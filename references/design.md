@@ -157,21 +157,25 @@ The rule depends on the member's **duty** (one copy of the numbers: `strength.DU
   whose leaf is used as a lever. The field minimums below apply. Load case: the hand-force
   key that matches how it is operated (push, pull, pinch) × the lever ratio where a lever
   multiplies it (`materials.md`).
-- **`lid`**: a lid, door or flap hinge with alternating knuckles (three or more; an odd count is
-  recommended, so every moving knuckle sits between two fixed ones) where the hand force
-  reaches the pin without a lever multiplying it. Its pin is shared over several shear planes and nothing
-  amplifies the pull, so the latch minimums do not apply; the floors are only what prints
-  (pin 2.0, wall and leaf 1.2, knuckle 2 mm, `tolerances.md`) and the size comes from
-  `strength.py hinge` reaching SF ≥ 2 at the load case below. A **hinge coupon print is
-  required** before the full part (`parts.md`, "Printing the mechanism first"); a skipped
-  one goes into `_assumptions` and is said at delivery, as for a fit test. Load case: the
-  abuse case of pulling the open lid away from the box, `finger_pull` (98 N) at the hinge,
-  shared equally by the moving knuckles, no lever ratio. Levering a lid backwards past its
-  stop multiplies the force by (the finger's distance from the axis / the stop's distance
-  from the axis) and is misuse a print-in-place hinge is not sized for: say so at delivery
-  ("don't force the lid past fully open") instead of growing the hinge. A stop the user is
-  meant to push against makes it a latch-duty case with that ratio.
-- **`decorative`**: carries nothing; the same floors as `lid`, no calculation.
+- **`lid`**: a lid, door or flap hinge with alternating knuckles (3 or more, required; an odd
+  count is recommended, so every moving knuckle sits between two fixed ones) where the hand
+  force reaches the pin without a lever multiplying it. Its pin is shared over several shear
+  planes and nothing amplifies the pull, so the latch minimums do not apply; the floors are
+  only what prints (pin 2.0, wall and leaf 1.2, knuckle 2 mm, `tolerances.md`) and the size
+  comes from `strength.py hinge` reaching **SF ≥ 2** at the load case below: at WARN grow the
+  pin or the knuckle Ø or add knuckles (odd), never print instead. A **hinge coupon print is
+  required** on top of that margin before the full part (`parts.md`, "Printing the mechanism
+  first"); it never replaces the margin, and a skipped one goes into `_assumptions` and is
+  said at delivery, as for a fit test. Load case: the abuse case of pulling the open lid away
+  from the box, `finger_pull` (98 N) at the hinge, shared equally by the moving knuckles, no
+  lever ratio; the axis prints flat and the pull turns with the lid, so the load is taken to
+  cross the layers. Levering a lid backwards past its stop multiplies the force by (the
+  finger's distance from the axis / the stop's distance from the axis) and is misuse a
+  print-in-place hinge is not sized for: record "don't force the lid past fully open" in
+  `_assumptions` (Phase 6 repeats it at delivery) instead of growing the hinge. A stop the
+  user is meant to push against makes it a latch-duty case with that ratio.
+- **`decorative`**: carries nothing; the same floors as `lid`, no calculation (the floors alone
+  decide P7).
 
 Record the load case, the share and the ratio in `_assumptions`. The user's own results in
 the calibration log set their own floors, per kind of member (`calibration.md`).

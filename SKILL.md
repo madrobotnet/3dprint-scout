@@ -43,7 +43,7 @@ your turn with the question (or use the host's question tool if it has one).
 | G6 | **`$SKILL_DIR`-relative paths** in every command. |
 | G7 | **At most 3 automatic fix attempts per phase.** Then stop and show the user the error and what you tried. |
 | G8 | **Hard vs soft.** Hard checks are deterministic and may trigger an automatic fix. Soft checks are approximations; they only WARN and the user decides. |
-| G9 | **No long silences.** While modeling or verifying, never go more than about 20 tool calls or 15 minutes without a short update to the user: the latest preview, what changed, what is next (starting values, not measured limits). A mechanism or a redesign shows its preview before more checks are built on it. |
+| G9 | **No long silences.** While modeling or verifying, never go more than about 20 tool calls or 15 minutes without a short update to the user: the latest preview, what changed, what is next (starting values, not measured limits). A mechanism or a redesign shows its preview before more checks are built on it. An engine change after Phase 0 (Fusion → Python, say) is said in one line with the reason before building, and goes into `_assumptions`. |
 
 Rules that hold in every phase, whatever file is open:
 
@@ -87,8 +87,7 @@ references via web search; previews via OpenSCAD."). No planned stop; ask only a
   sandbox. If nothing works, say what to install and stop.
 - Rule A: choose **by the shape** among the engines that work: mechanical or prismatic → Fusion,
   else OpenSCAD, else Python; organic or freeform → Python. Tell the user what the choice costs
-  (no native fillets outside Fusion; Python leaves a mesh, not editable CAD). Changing the engine
-  later (Fusion → Python, say): one line with the reason before building, and in `_assumptions`.
+  (no native fillets outside Fusion; Python leaves a mesh, not editable CAD).
 - Fusion holding the user's own work: ask before the first write, prefer a new document.
 - Note the reference search tier (A marketplace tool, B web search, C neither), that `preview.py`
   renders any STL (numpy only), and whether `.3dprint/printers.json` exists.
@@ -146,11 +145,9 @@ before anything else is built.
 - One script: every dimension in a `PARAMETERS` block with a source comment; Z-up, modelled in
   the print orientation; rebuilt from scratch each time; assertions on derived dimensions;
   designed to the recommended values in `references/tolerances.md`, not the minimums.
-- Split into parts what has its own job or may get its own colour (`references/parts.md`);
-  size load-carrying members by their duty (latch, lid, decorative) in `references/design.md`,
-  "Mechanisms that carry load", and list each in the dimension table (P7); a hinge on a box with
-  its knuckle Ø and how far it stands proud, next to the box's depth. A mechanism never silently
-  grows the object: if its floors would, stop and give the choices (`design.md`, print-in-place).
+- Split into parts what has its own job or may get its own colour (`references/parts.md`); size
+  load-carrying members by their duty (`references/design.md`, "Mechanisms that carry load") and list
+  each in the dimension table (P7); a mechanism that would grow the object → stop and give the choices (`design.md`).
 - `.3dprint/params.json`: `_parts` with each part's `expect` from the dimension table (design
   intent, never a measured box), `object` / `role` for grouped parts, `_assumptions`.
 - Build with `build.py run` (`record` for Fusion), always with `--printer .3dprint/printers.json`;
@@ -171,11 +168,9 @@ printed.
   a sweep through the travel it needs; build a proxy of the mating part from measured numbers
   when there is no closed mesh (`references/measure.md`).
 - Every pin, knuckle, lever and latch bar against its duty's P7 floors before the fit, plus a
-  `strength.py` hand calculation (`hinge` for alternating knuckles) with a cited load
-  (`references/materials.md`); the load case, its share and any ratio in `_assumptions`. FAIL →
-  redesign; WARN, no proven reference, or a lid hinge (always) → **print the mechanism first**
-  (`build.py run --only ...`), a few grams the user tries before the full part. A mechanism built
-  into the walls gets a coupon (the same section cut short), never skipped as "most of the part".
+  `strength.py` hand calculation (`hinge` for knuckles) with a cited load (`references/materials.md`);
+  load case, share and ratio in `_assumptions`. FAIL → redesign; WARN, or no proven reference → **print
+  the mechanism first** (`build.py run --only ...`); a lid hinge always, a wall-built one as a coupon (P7).
 - **Fit test first** when the mating shape is not known exactly: `fit_test.py` pieces in three
   clearance steps; the user cannot test now → the middle step, recorded in `_assumptions`. Test
   pieces and the final part use the same printer, filament and preset.
@@ -236,7 +231,7 @@ assumption repeated.
 | P4 | Unsupported bridges | soft | not in v1 (UNVERIFIED) | user |
 | P5 | Minimum feature size | soft | not in v1 (UNVERIFIED) | user |
 | P6 | No fillet on edges that touch the bed (chamfer, or sharp with slicer elephant-foot compensation) | soft | you, from the preview.py image | user |
-| P7 | Load-carrying mechanism members meet the floors of their duty in `design.md` (latch, lever, clamp: pin ≥ 3.2, pin wall ≥ 2.2, member ≥ 2.5 mm thick and ≥ 4 mm wide, knuckle ≥ 4 mm; lid hinge: what prints, sized by `strength.py hinge` at SF ≥ 2 under `finger_pull` shared by the moving knuckles, no lever ratio, and confirmed by a hinge coupon print), are compared with a proven reference when one is at hand, and reach the safety factor in `strength.py` | soft | you, from the dimension table and strength.py | user: redesign, or print the member first |
+| P7 | Load-carrying mechanism members meet the floors of their duty in `design.md` (latch: anything a hand pushes, pulls, pinches or snaps, or a lever amplifies, such as latches, catches, levers, clamps and a hinge leaf used as a lever: pin ≥ 3.2, pin wall ≥ 2.2, member ≥ 2.5 mm thick and ≥ 4 mm wide, knuckle ≥ 4 mm; lid: a lid, door or flap hinge with no lever between hand and pin: what prints, 3 or more knuckles (odd recommended), sized by `strength.py hinge` at SF ≥ 2 under `finger_pull` shared by the moving knuckles, no lever ratio, WARN → grow it, plus a coupon print on top that never replaces the margin, and "don't force the lid past fully open" in `_assumptions` and at delivery), stand in the dimension table (a box hinge with its knuckle Ø and proud height beside the box's depth), are compared with a proven reference when one is at hand, and reach the safety factor in `strength.py`; a wall-built mechanism's coupon is the same section cut short, never skipped as "most of the part" | soft | you, from the dimension table and strength.py | user: redesign, or print the member first |
 | F1 | Hole compensation applied in exactly one place | hard | you | Phase 4 |
 | F2 | Each fit has the clearance for its kind | hard | you | Phase 4 |
 | F3 | Every joint checked from both sides: no overlap, the play of the fit kind | hard | fit.py | Phase 4 |

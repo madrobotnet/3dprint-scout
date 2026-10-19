@@ -7,21 +7,25 @@ a print-in-place lid hinge. The 0.3.0 mechanism minimums, taken from one compari
 hand-operated latches, were applied to the lid hinge: Ø3.2 pin, Ø9.8 knuckles, 10.1 mm proud of
 a 16.4 mm-deep box, and the box was enlarged to suit the hinge. `strength.py` had no model for
 an integral pin in alternating knuckles and, run as a loose pin, called the hinge a FAIL (0.75)
-where the real geometry has a safety factor of 5.0 in shear (this release's `hinge` case).
+where the real geometry has a safety factor of 4.4 in shear (this release's `hinge` case).
 
 - **P7 rules split by duty** (`design.md`, "Mechanisms that carry load"; SKILL.md P7 row,
   Phase 3 and 4 files). `latch`: anything a hand pushes, pulls, pinches or snaps, or a lever
   amplifies: the field minimums stay (pin ≥ 3.2, wall ≥ 2.2, member ≥ 2.5 thick and ≥ 4 wide,
   knuckle ≥ 4 long), load = the matching hand force × the lever ratio. `lid`: a lid, door or
-  flap hinge with alternating knuckles (≥ 3, odd recommended) and no lever between hand and pin: floors are
-  only what prints (pin 2.0, wall and leaf 1.2, knuckle 2 mm, `tolerances.md`), the size comes
-  from `strength.py hinge` at SF ≥ 2 under `finger_pull` shared by the moving knuckles, no
-  lever ratio, and a hinge coupon print is required before the full part (a skipped one goes
-  into `_assumptions`). Levering a lid past its stop is misuse the hinge is not sized for: said
-  at delivery, not designed for. `decorative`: carries nothing, the same floors, no calculation.
-  One copy of the numbers in `strength.DUTIES` (`strength.py duties`); `parts.hinge(duty=...)`
-  imports it, keeps `decorative=True` as the old spelling of `duty="decorative"`, refuses it
-  with another explicit duty, and keeps the latch values as its defaults.
+  flap hinge with alternating knuckles (3 or more required, odd recommended) and no lever
+  between hand and pin: floors are only what prints (pin 2.0, wall and leaf 1.2, knuckle 2 mm,
+  `tolerances.md`), the size comes from `strength.py hinge` reaching SF ≥ 2 under
+  `finger_pull` shared by the moving knuckles, no lever ratio (at WARN grow the pin, the
+  knuckle Ø or the count), and a hinge coupon print is required on top of that margin before
+  the full part, never instead of it (a skipped one goes into `_assumptions`). Levering a lid
+  past its stop is misuse the hinge is not sized for: "don't force the lid past fully open"
+  goes into `_assumptions` and is said at delivery (Phase 6). `decorative`: carries nothing,
+  the same floors, no calculation. One copy of the numbers in `strength.DUTIES` (`strength.py
+  duties`); `parts.hinge(duty=...)` loads it from the sibling file under a private module
+  name (a project's own `strength.py` cannot shadow it), keeps `decorative=True` as the old
+  spelling of `duty="decorative"`, refuses it with another explicit duty, refuses a lid hinge
+  with fewer than 3 knuckles, and keeps the latch values as its defaults.
 - **`strength.py hinge`.** The hinge as `parts.hinge` builds it: k knuckles alternating A, B,
   A …, knuckle length from `--length` or `--knuckle-len`, `--gap`, `--clearance`, `--hole
   teardrop | round`, `--pin integral | loose`. The moving knuckles share the load equally; an
@@ -29,10 +33,15 @@ where the real geometry has a safety factor of 5.0 in shear (this release's `hin
   b, end moment P (6g² + 6gb + b²) / (12 L) (the mean of the simply supported moment diagram;
   P b / 12 at g = 0, P L / 8 as b → 0) and two shear planes; an end knuckle (even count) a
   stub, warned; a loose pin the clevis of the pin case, with the fixed knuckles' walls checked
-  too. Bearing and tear-out of the knuckle wall above the hole. `--duty` adds a `minimums` block
-  (a floor not met fails the gate). The field case, Ø2.4 in Ø7.4 knuckles, five over 36 mm,
-  98 N, PLA Basic: shear 2.81, bending 3.10, wall tear-out 9.10; Ø3.2 in Ø9.8: shear 5.00, bending 7.36
-  (`materials.md`, "The hinge model"; the numbers are asserted in the tests).
+  too (an end knuckle's overhang puts 1.5 P on the last fixed knuckle). Bearing and tear-out of
+  the knuckle wall above the hole. The axis prints flat and the pull turns with the lid, so the
+  load is taken to cross the layers: shear, bearing and tear-out use the Z tensile strength,
+  bending the strength of `--orientation`. `--duty` adds a `minimums` block (a floor not met
+  fails the gate; `lid` also needs 3 or more knuckles and `--sf` ≥ 2; `decorative` reports
+  the checks as informational). The field case, Ø2.4 in Ø7.4 knuckles, five over 36 mm, 98 N,
+  PLA Basic: shear 2.49, bending 3.10, wall bearing 10.6, tear-out 8.1; Ø3.2 in Ø9.8: shear
+  4.43, bending 7.36, bearing 14.1, tear-out 11.3 (`materials.md`, "The hinge model"; the
+  numbers are asserted in the tests).
 - **The mechanism must not silently grow the object** (`design.md`, "Print-in-place joints";
   Phase 3): a hinge on a box goes into the dimension table with its knuckle Ø and how far it
   stands proud, next to the box's depth, and into the concept preview; when a duty's floors
@@ -40,16 +49,19 @@ where the real geometry has a safety factor of 5.0 in shear (this release's `hin
   the agent stops and offers the choices (the right duty, knuckles notched into the walls,
   another closure, a bigger object) instead of resizing.
 - **Process fixes from the same run.** Changing the engine after Phase 0 (Fusion → Python) is
-  said in one line with the reason before building and recorded in `_assumptions` (SKILL.md,
-  Phase 0). Bed sizes: never a review or a news article either (Phase 2). A mechanism built
+  said in one line with the reason before building and recorded in `_assumptions` (SKILL.md
+  G9, which holds in every phase; Phase 0 file). Bed sizes: never a review or a news article either (Phase 2). A mechanism built
   into the walls still gets a coupon, the same section cut short as its own `_parts` entry;
   "cutting it out would be most of the part" is not a reason to skip (Phase 4, `parts.md`).
 - **Calibration log by kind of member.** `calibration.py add --kind latch | lid_hinge | lever |
   clamp | snap` (a short lowercase id, optional, through the same identifier checks); `lookup
   --kind K` takes `worked` and `bounds` from entries of that kind only and lists entries
-  without a kind under `unclassified`, so a stub pin that broke in a latch does not set the
-  floor for a lid hinge's integral pin; `kinds` counts what the log holds. Old files without
-  `kind` load unchanged; the example entries in `calibration.md` carry `--kind latch`.
+  without a kind under `unclassified` (a reserved name; the note says how to classify one: ask
+  the user and `add` it again with `--kind`), so a stub pin that broke in a latch does not set
+  the floor for a lid hinge's integral pin; `kinds` counts what the log holds. Old files
+  without `kind` load unchanged. Note: 0.3.0's `calibration.py` does not know `kind` and drops
+  it from every entry when it rewrites a 0.3.1 file, so keep the versions in step. The example
+  entries in `calibration.md` carry `--kind latch`.
 
 ## 0.3.0 — 2026-10-18
 

@@ -36,8 +36,9 @@ Studio, that is a project file with the print settings already set per object.
    hits. Pins, levers and latches that carry load are compared with a proven reference when you
    have one, run through a hand calculation (`strength.py`, with values from Bambu Lab's data
    sheets and a cited hand-force table), and when the margin is short the mechanism alone is
-   printed first, a few grams. Every part gets a preview image (iso, front, right, top)
-   rendered without a display.
+   printed first, a few grams; a print-in-place lid hinge always gets that coupon, on top of
+   its margin. Every part gets a preview image (iso, front, right, top) rendered without a
+   display.
 7. **Delivery** — STL per part plus a 3MF that fits your slicer, with print-setting changes and the
    reason for each, and one line naming the separate parts and how to recolour them.
 
