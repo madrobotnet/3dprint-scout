@@ -6,6 +6,12 @@ chamfers, overhangs, walls in nozzle multiples, orientation for strength, where 
 
 ## The generator script
 
+Before any geometry, write down per part (one line each, in `_assumptions`): what it is, the
+usual structure of that kind of object, what the references actually show, and what is still
+uncertain. Build the usual structure first, then this product's proportions: a ring is a
+closed loop even where a photo shows an ellipse, and colour patches or a projected outline in a
+photo are never traced into a mesh.
+
 Write one generator script:
 
 - Every dimension in a `PARAMETERS` block at the top, in mm, with descriptive names (`screw_hole_d`,
@@ -70,8 +76,12 @@ the union, A1 / A2 per part). For Fusion, export one STL per part from Fusion an
 `build.py run` in the `blender` binary or the `bpy` module and leaves `out/<model>.blend` next to
 the STLs; in a live Blender the script runs through the host's tool and `build.py record
 --engine blender` takes its STLs. Render the built STLs with `preview.py`
-(`references/phase-0-detect.md`, step 3; `render.py` when Blender is there), report size,
-volume and verdicts in two or three lines with the image, and **stop for the user's look**. For
+(`references/phase-0-detect.md`, step 3; `render.py` when Blender is there) and look at it
+yourself first, **one view at a time**, never the grid as one picture: would someone name the
+object from this view; silhouette, main volumes, thickness, edge radii. A view the references
+do not show stays unverified (say so; do not call it right), and passing sizes, mesh checks or
+a triangle count say nothing about the shape. Then report size, volume and verdicts in two or
+three lines with the image, and **stop for the user's look**. For
 a part with several bodies or a mechanism (lever, latch, hinge) this stop is never skipped: a
 fit-test piece comes after it, not instead of it.
 

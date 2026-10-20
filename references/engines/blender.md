@@ -249,6 +249,9 @@ happened, and an error says what did not.
 - Never install Blender add-ons or change preferences without asking.
 - A tool call that times out: retry once, then treat Blender as unavailable for this run and
   say why (as for Fusion).
+- Make the harmless read (`import bpy; bpy.app.version_string`) again before **each** live run,
+  not only in Phase 0: in a long session the add-on's bridge can stop while Blender stays open.
+  Keep each call to one step (send files, load, check), so a failure says which step failed.
 - Setting up the official Blender Lab server, when the user asks how: Blender 5.1 or newer, the
   MCP add-on installed (Preferences → Get Extensions → Install from Disk, the `.zip`), the MCP
   server bundle (`.mcpb`) installed in the client (Claude Desktop: Settings → Extensions →
@@ -315,11 +318,19 @@ evidence.
 | The `.blend` save fails with "would hold a path of this machine" | A data-block still pointed at an absolute path | `bb.load_font` for fonts; no external images; nothing linked |
 | `custom property 'x' on 'y' holds a path` | The script stored a path in a property | Store a name; the parameters are scrubbed automatically |
 | The render is not sane: "no background" | A scene without a world (black background) | `new_scene_mm` and `render_views` set one; a hand-made scene needs `scene.world` |
+| A seam or doubled faces down the middle of a symmetric part | The two halves were edited apart, or thickened / bevelled before they were joined | Build one half to the centre plane, mirror it with merge and clipping, apply; only then thickness and bevels (outline → mirror → thickness → rounds) |
+| Colours in a hand-made render look washed out or grey | An sRGB `#rrggbb` put straight into a Blender colour (they are scene-linear) | `bb.linear_rgb(rgb)`; `render_views` already does it |
+| `NameError: name 'bpy' is not defined` from the live tool | The server's namespace has nothing imported | Start every snippet with the imports it uses |
+| `Blender executable not found at 'blender'` from the background tool | Blender is not on `PATH` and `BLENDER_PATH` is not set | Use the GUI tool for this run; tell the user how to set `BLENDER_PATH` (above) |
+| `Online access must be enabled in the system preferences` | The official add-on's bridge needs it to start | The user turns on Preferences → System → Network → Allow Online Access (ask first) |
 
 ## Still to confirm
 
-- The binary path on a real `blender` install (the exact flags come from the Blender manual's
-  command-line page; here the `bpy` module 4.5.14 and 5.2.2 and an emulated binary ran).
-- The live path on a real MCP server (which tool runs in the background, its timeouts).
+- The binary path on macOS and Linux installs. Confirmed on Windows with Blender 5.2.2 LTS
+  (2026-10-20: `detect` found it in Program Files; build, rebuild and render passed; no path of
+  the machine in the STLs, manifests, 3MF or `.blend`), and with the `bpy` module 4.5.14 and 5.2.2.
+- The background tool of the official server with `BLENDER_PATH` set. Its GUI tool
+  (`execute_blender_code`, add-on 1.0.3) ran the loader on 2026-10-20: 0.17 s for the coaster,
+  the user's scene and window untouched.
 - EEVEE in a headless Linux session (slow here: about 40 s for a small scene; Workbench and
   Cycles take seconds).
