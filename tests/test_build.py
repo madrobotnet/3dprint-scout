@@ -11,6 +11,7 @@ import unittest
 import zipfile
 from contextlib import redirect_stdout
 from importlib.util import find_spec
+from unittest import mock
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, "..", "scripts"))
@@ -21,6 +22,7 @@ from test_validate import X2D, box, write_stl  # noqa: E402
 
 HAS_SCAD = build.find_openscad() is not None
 HAS_M3D = find_spec("manifold3d") is not None
+HAS_BPY = find_spec("bpy") is not None
 
 SCAD = """
 // PARAMETERS
@@ -273,6 +275,343 @@ sys.stdout.buffer.write(b"WARNING: \xc7\xd1\xb1\xdb unknown variable\n")
         self.assertTrue(any("missing.scad" in w and "freshness hash" in w for w in out["warnings"]))
         with open(os.path.join(self.out, "model.stl.manifest.json"), encoding="utf-8") as f:
             self.assertEqual(json.load(f)["sources"], ["model.scad", "\ub77c\uc774\ube0c\ub7ec\ub9ac.scad"])
+
+
+# --------------------------------------------------------------------------- #
+# Blender
+# --------------------------------------------------------------------------- #
+BLENDER_GEN = """# 3dprint-scout: engine=blender
+import blender_builder as bb
+
+PARAMETERS = {"w": 30.0, "d": 20.0, "h": 8.0, "fillet": 1.5}   # mm, example values
+
+def build(p):
+    body = bb.box([p["w"], p["d"], p["h"]], "body")
+    bb.bevel(body, p["fillet"])
+    peg = bb.cylinder(4.0, 5.0, name="peg"); peg.location = (p["w"] / 2, p["d"] / 2, p["h"])
+    bb.part(body, "body")
+    bb.part(peg, "peg", object="body", role="fused")
+    return {"body": body, "peg": peg}
+
+if __name__ == "__main__":
+    bb.main(build, PARAMETERS)
+"""
+
+# A stand-in for the blender binary that needs no Blender: answers --version, writes a 10 mm
+# cube per requested part into --out (or body.stl) and prints the @@3DPS line, like a generator
+# run by blender_builder.main would. FAKE_BLENDER_SLEEP makes it hang (timeout test).
+FAKE_BLENDER = r"""
+import json, os, struct, sys, time
+a = sys.argv[1:]
+if "--version" in a:
+    print("Blender 4.5.0 LTS\n\tbuild date: 2025-07-15"); sys.exit(0)
+if os.environ.get("FAKE_BLENDER_SLEEP"):
+    time.sleep(float(os.environ["FAKE_BLENDER_SLEEP"]))
+if a[0] == "--background":                  # the binary
+    assert a[:4] == ["--background", "--factory-startup", "--python-exit-code", "1"], a
+    src = a[a.index("--python") + 1]
+    mode = "binary"
+else:                                       # `python gen.py -- ...`, as a Python with bpy runs it
+    src, mode = a[0], "bpy"
+rest = a[a.index("--") + 1:]
+out = rest[rest.index("--out") + 1]
+only = rest[rest.index("--only") + 1].split(",") if "--only" in rest else ["body"]
+# The helper's rule: an explicit --blend is a new file; the default working copy is rewritten.
+blend = rest[rest.index("--blend") + 1] if "--blend" in rest else None
+if blend and os.path.exists(blend):
+    sys.exit("--blend " + blend + " already exists")
+blend = blend or os.path.join(out, os.path.splitext(os.path.basename(src))[0] + ".blend")
+os.makedirs(out, exist_ok=True)
+p = [(0,0,0),(10,0,0),(10,10,0),(0,10,0),(0,0,10),(10,0,10),(10,10,10),(0,10,10)]
+f = [(0,2,1),(0,3,2),(4,5,6),(4,6,7),(0,1,5),(0,5,4),(1,2,6),(1,6,5),(2,3,7),(2,7,6),(3,0,4),(3,4,7)]
+parts = []
+for name in only:
+    stl = os.path.join(out, name + ".stl")
+    with open(stl, "wb") as fh:
+        fh.write(b"\0" * 80 + struct.pack("<I", 12))
+        for t in f:
+            fh.write(struct.pack("<3f", 0, 0, 0))
+            for i in t:
+                fh.write(struct.pack("<3f", *p[i]))
+            fh.write(b"\0\0")
+    parts.append({"name": name, "stl": stl, "bbox_mm": [10, 10, 10], "triangles": 12, "bytes": os.path.getsize(stl), "seconds": 0.0})
+open(blend, "wb").write(b"BLENDER-v402fake")
+print("Blender quit")
+print("@@3DPS " + json.dumps({"parts": parts, "deps": [src], "blend": blend, "blender": "4.5.0 LTS", "solver": "MANIFOLD",
+                              "mode": mode, "notes": ["fake"], "warnings": []}))
+"""
+
+# The same, but a real emulation of the binary: runs the --python-expr and the generator in the
+# Python that has bpy, as `blender --background --python` would (used only when bpy is there).
+EMULATED_BLENDER = r"""
+import runpy, sys
+a = sys.argv[1:]
+if "--version" in a:
+    print("Blender 5.2.2 LTS"); sys.exit(0)
+assert a[:4] == ["--background", "--factory-startup", "--python-exit-code", "1"], a
+exec(a[a.index("--python-expr") + 1])
+script = a[a.index("--python") + 1]
+sys.argv = ["blender"] + a[a.index("--"):]
+runpy.run_path(script, run_name="__main__")
+"""
+
+
+class BlenderDetect(Base):
+    def test_version_parse(self):
+        self.assertEqual(build.parse_blender_version("Blender 4.2.3 LTS\n\tbuild date: 2024-09-01"), "4.2.3")
+        self.assertEqual(build.parse_blender_version("Blender 5.2.2 LTS"), "5.2.2")
+        self.assertEqual(build.parse_blender_version("Blender 4.5"), "4.5")
+        self.assertIsNone(build.parse_blender_version("bash: blender: not found"))
+        self.assertEqual(build.version_tuple("4.2.3"), (4, 2, 3))
+        self.assertEqual(build.version_tuple(None), ())
+
+    def test_binary_search_order(self):
+        fake = self.write("blender", "#!/bin/sh\necho Blender 4.2.0\n")
+        with mock.patch.dict(os.environ, {"BLENDER": fake}):
+            self.assertEqual(build.find_blender(), fake)                        # 1. the environment
+        with mock.patch.dict(os.environ, {"BLENDER": "/nope/blender"}), \
+                mock.patch.object(build.shutil, "which", return_value="/usr/local/bin/blender"):
+            self.assertEqual(build.find_blender(), "/usr/local/bin/blender")   # 2. PATH (a bad BLENDER is ignored)
+        env = {k: v for k, v in os.environ.items() if k != "BLENDER"}
+        with mock.patch.dict(os.environ, env, clear=True), mock.patch.object(build.shutil, "which", return_value=None), \
+                mock.patch.object(build.sys, "platform", "linux"), mock.patch.object(build.os, "name", "posix"), \
+                mock.patch.object(build.glob, "glob", side_effect=lambda pat: ["/opt/blender-4.5/blender"] if pat.startswith("/opt") else []), \
+                mock.patch.object(build.os.path, "isfile", side_effect=lambda p: p == "/opt/blender-4.5/blender"):
+            self.assertEqual(build.find_blender(), "/opt/blender-4.5/blender")  # 3. the usual folders
+        with mock.patch.dict(os.environ, env, clear=True), mock.patch.object(build.shutil, "which", return_value=None), \
+                mock.patch.object(build.glob, "glob", return_value=[]):
+            self.assertIsNone(build.find_blender())
+
+    def test_version_from_the_binary_with_mocked_subprocess(self):
+        done = subprocess.CompletedProcess(["blender", "--version"], 0, "Blender 4.5.1 LTS\n\tbuild date: x\n", "")
+        with mock.patch.object(build.subprocess, "run", return_value=done) as run_:
+            info = build.blender_info("/x/blender")
+        self.assertEqual(info, {"path": "/x/blender", "version": "4.5.1"})
+        self.assertEqual(run_.call_args[0][0], ["/x/blender", "--version"])
+        with mock.patch.object(build.subprocess, "run", side_effect=subprocess.TimeoutExpired("blender", 60)):
+            self.assertIn("error", build.blender_info("/x/blender"))
+
+    def test_bpy_probe_runs_in_a_subprocess_with_a_timeout(self):
+        with mock.patch.object(build.subprocess, "run", side_effect=subprocess.TimeoutExpired("python", 120)) as run_:
+            info = build.bpy_info("/x/python")
+        self.assertIn("timed out", info["error"])
+        self.assertEqual(run_.call_args[0][0][:2], ["/x/python", "-c"])
+        self.assertEqual(run_.call_args[1]["timeout"], build.BPY_PROBE_TIMEOUT)
+        cwd = run_.call_args[1]["cwd"]                                         # an empty folder, not the user's
+        self.assertNotEqual(os.path.abspath(cwd), os.path.abspath(os.getcwd()))
+        done = subprocess.CompletedProcess([], 0, '@@BPY {"version": "4.5.0", "version_tuple": [4, 5, 0], "python": "3.11.9"}\n', "")
+        with mock.patch.object(build.subprocess, "run", return_value=done):
+            info = build.bpy_info("/x/python")
+        self.assertEqual((info["version"], info["version_tuple"], info["python"]), ("4.5.0", (4, 5, 0), "/x/python"))
+        with mock.patch.object(build.subprocess, "run", side_effect=OSError("no such file")):
+            self.assertIsNone(build.bpy_info("/x/python"))
+
+    def test_status_and_detect_without_blender(self):
+        with mock.patch.object(build, "find_blender", return_value=None), mock.patch.object(build, "bpy_info", return_value=None):
+            status = build.blender_status()
+            code, out = run("detect")
+        self.assertEqual(status, {"binary": None, "bpy": None, "manifold_boolean": False, "notes": []})
+        self.assertEqual(code, 0)
+        self.assertNotIn("blender", out["available"])
+        self.assertEqual(out["blender"], status)                               # one place for the block
+        self.assertNotIn("blender", out["engines"])
+
+    def test_status_version_gates(self):
+        old = {"version": "4.4.0", "version_tuple": (4, 4, 0), "python": "/x/python"}
+        with mock.patch.object(build, "find_blender", return_value=None), mock.patch.object(build, "bpy_info", return_value=old):
+            status = build.blender_status()
+        self.assertFalse(status["manifold_boolean"])
+        self.assertFalse(build.blender_usable(status))                         # 4.5 LTS is the floor
+        self.assertTrue(any("older than 4.5" in n for n in status["notes"]))
+        floor = {"version": "4.5.14", "version_tuple": (4, 5, 14), "python": "/x/python"}
+        with mock.patch.object(build, "find_blender", return_value=None), mock.patch.object(build, "bpy_info", return_value=floor):
+            status = build.blender_status()
+        self.assertTrue(status["manifold_boolean"])
+        self.assertTrue(build.blender_usable(status))
+        self.assertEqual(status["notes"], [])
+        with mock.patch.object(build, "find_blender", return_value="/x/blender"), \
+                mock.patch.object(build, "blender_info", return_value={"path": "/x/blender", "version": "4.5.1"}), \
+                mock.patch.object(build, "bpy_info", return_value={"error": "import bpy timed out after 120s in /x/python", "python": "/x/python"}):
+            status = build.blender_status()
+        self.assertTrue(status["manifold_boolean"])
+        self.assertIsNone(status["bpy"])
+        self.assertTrue(any("timed out" in n for n in status["notes"]))
+
+
+class BlenderEngine(Base):
+    """build.py's side of the Blender engine, with a stand-in binary (no Blender needed)."""
+
+    def fake(self, code, name="fake_blender"):
+        py = self.write(name + ".py", code)
+        exe = self.write(name, f"#!/bin/sh\nexec {sys.executable} {py} \"$@\"\n")
+        os.chmod(exe, 0o755)
+        return exe
+
+    def test_marker_and_command_lines(self):
+        marked = self.write("gen_blender.py", BLENDER_GEN)
+        plain = self.write("gen_plain.py", "def build(p):\n    return {}\n")
+        self.assertEqual(build.engine_marker(marked), "blender")
+        self.assertIsNone(build.engine_marker(plain))
+        self.assertIsNone(build.engine_marker(os.path.join(self.d, "missing.py")))
+        shebang = self.write("gen_shebang.py", "#!/usr/bin/env python3\n" + BLENDER_GEN)
+        self.assertEqual(build.engine_marker(shebang), "blender")               # a shebang may come first
+        bom = os.path.join(self.d, "gen_bom.py")
+        with open(bom, "wb") as f:
+            f.write(b"\xef\xbb\xbf" + BLENDER_GEN.encode("utf-8"))
+        self.assertEqual(build.engine_marker(bom), "blender")                   # a UTF-8 BOM is tolerated
+        code, out = run("run", marked, "--engine", "python", "--out", self.out)
+        self.assertEqual(code, 1)
+        self.assertIn("is a Blender generator", out["errors"][0])              # the python engine says so
+        cmd = build.blender_command("/x/blender", marked, "/t/p.json", self.out, ["body", "peg"], "/o/gen.blend")
+        self.assertEqual(cmd[:5], ["/x/blender", "--background", "--factory-startup", "--python-exit-code", "1"])
+        self.assertEqual(cmd[5], "--python-expr")
+        self.assertIn(repr(build.ENGINES_DIR), cmd[6])                        # Python literals: \\ on Windows
+        self.assertIn(repr(os.path.dirname(os.path.abspath(marked))), cmd[6])
+        self.assertEqual(cmd[7:9], ["--python", os.path.abspath(marked)])
+        self.assertEqual(cmd[9:], ["--", "--params", "/t/p.json", "--out", os.path.abspath(self.out),
+                                   "--only", "body,peg", "--blend", "/o/gen.blend"])
+        cmd = build.bpy_command("/x/python3.13", marked, "/t/p.json", self.out, [])
+        self.assertEqual(cmd, ["/x/python3.13", os.path.abspath(marked), "--", "--params", "/t/p.json", "--out", os.path.abspath(self.out)])
+
+    @unittest.skipUnless(os.name != "nt", "uses a shell wrapper as a fake blender")
+    def test_fake_binary_builds_records_and_validates(self):
+        exe = self.fake(FAKE_BLENDER)
+        src = self.write("gen_blender.py", BLENDER_GEN)
+        prm = self.params({"_parts": {"body": {"expect": [10, 10, 10]}, "peg": {"expect": [10, 10, 10]}}, "w": 30.0})
+        printers = self.write("printers.json", json.dumps(X2D))
+        with mock.patch.dict(os.environ, {"BLENDER": exe}):
+            code, out = run("run", src, "--params", prm, "--out", self.out, "--no-wall-check", "--printer", printers)
+        self.assertEqual(code, 0, out.get("errors"))
+        self.assertEqual((out["engine"], out["gate"], out["R4"]), ("blender", "PASS", "PASS"))
+        self.assertEqual(out["engine_info"]["mode"], "binary")
+        self.assertEqual(out["engine_info"]["path"], exe)
+        self.assertEqual(out["engine_info"]["boolean_solver"], "MANIFOLD")
+        self.assertEqual([p["name"] for p in out["parts"]], ["body", "peg"])
+        self.assertEqual(out["blend"], os.path.join(os.path.abspath(self.out), "gen_blender.blend"))
+        self.assertTrue(os.path.isfile(out["blend"]))
+        for p in out["parts"]:
+            self.assertTrue(os.path.isfile(p["stl"] + ".manifest.json"))
+            checks = p["validate"]["files"][0]["checks"]
+            self.assertEqual(checks["D1"]["state"], "PASS", p["name"])
+            self.assertEqual(checks["R3"]["state"], "PASS", p["name"])
+        with open(out["parts"][0]["stl"] + ".manifest.json", encoding="utf-8") as f:
+            self.assertEqual(json.load(f)["engine"], "blender")
+        self.assertEqual([os.path.basename(s) for s in out["sources"]], ["gen_blender.py"])
+        self.assertTrue(os.path.isfile(out["threemf"]))
+        # A rebuild into the same out/ rewrites the working copy: build.py names no --blend.
+        with mock.patch.dict(os.environ, {"BLENDER": exe}):
+            code, again = run("run", src, "--params", prm, "--out", self.out, "--no-wall-check", "--printer", printers)
+        self.assertEqual((code, again["gate"], again["blend"]), (0, "PASS", out["blend"]), again.get("errors"))
+        self.assertNotIn("--blend", build.blender_command(exe, src, "/t/p.json", self.out, []))
+        # --only reaches the generator, and the engine is also selectable explicitly.
+        with mock.patch.dict(os.environ, {"BLENDER": exe}):
+            code, out = run("run", src, "--params", prm, "--out", os.path.join(self.d, "mech"), "--only", "peg",
+                            "--engine", "blender", "--no-wall-check", "--no-3mf")
+        self.assertEqual([p["name"] for p in out["parts"]], ["peg"])
+
+    @unittest.skipUnless(os.name != "nt", "uses a shell wrapper as a fake blender")
+    def test_timeout_and_failure_are_reported(self):
+        exe = self.fake(FAKE_BLENDER)
+        src = self.write("gen_blender.py", BLENDER_GEN)
+        with mock.patch.dict(os.environ, {"BLENDER": exe, "FAKE_BLENDER_SLEEP": "5"}):
+            code, out = run("run", src, "--out", self.out, "--timeout", "1")
+        self.assertEqual(code, 1)
+        self.assertFalse(out["ran"])
+        self.assertEqual(out["R4"], "FAIL")
+        self.assertIn("timed out after 1s", out["errors"][0])
+        bad = self.fake("import sys; print('Blender 4.5.0') if '--version' in sys.argv else sys.exit(1)", "bad_blender")
+        with mock.patch.dict(os.environ, {"BLENDER": bad}):
+            code, out = run("run", src, "--out", self.out)
+        self.assertEqual(code, 1)
+        self.assertIn("Blender generator failed (binary, exit 1)", out["errors"][0])
+        old = self.fake("print('Blender 4.2.3 LTS')", "old_blender")
+        with mock.patch.dict(os.environ, {"BLENDER": old}), mock.patch.object(build, "bpy_info", return_value=None):
+            code, out = run("run", src, "--out", self.out)
+        self.assertEqual(code, 1)
+        self.assertIn("Blender not usable", out["errors"][0])
+        self.assertIn("older than 4.5", out["errors"][0])                      # every reason is named
+        self.assertIn("import bpy` failed", out["errors"][0])
+
+    @unittest.skipUnless(os.name != "nt", "uses shell wrappers as a fake blender and a fake Python")
+    def test_an_unusable_binary_falls_back_to_a_usable_bpy_module(self):
+        """What detect calls usable is what runs: an old binary on PATH or in BLENDER does not
+        stop a build when a Python with a 4.5+ bpy module is there."""
+        src = self.write("gen_blender.py", BLENDER_GEN)
+        old = self.fake("print('Blender 4.2.3 LTS')", "old_blender")
+        python = self.fake(FAKE_BLENDER, "python_with_bpy")
+        probe = {"version": "4.5.3", "version_tuple": (4, 5, 3), "python": python}
+        with mock.patch.dict(os.environ, {"BLENDER": old}), mock.patch.object(build, "bpy_info", return_value=dict(probe)):
+            status = build.blender_status()
+            chosen = build.choose_blender()
+            code, out = run("run", src, "--out", self.out, "--no-wall-check", "--no-3mf")
+        self.assertTrue(build.blender_usable(status) and status["manifold_boolean"])
+        self.assertIn("the binary is not usable: build.py and render.py use the bpy module", status["notes"])
+        self.assertEqual((chosen["mode"], chosen["python"]), ("bpy", python))
+        self.assertIn("older than 4.5", chosen["skipped"][0])
+        self.assertEqual(code, 0, out.get("errors"))
+        self.assertEqual((out["engine_info"]["mode"], out["engine_info"]["python"]), ("bpy", python))
+        self.assertTrue(out["engine_info"]["notes"][0].endswith("used the bpy module instead"))
+        self.assertTrue(os.path.isfile(out["blend"]))
+        import render                                                           # scripts/ is on sys.path
+        self.assertIs(render.build, build)
+        with mock.patch.dict(os.environ, {"BLENDER": old}), mock.patch.object(build, "bpy_info", return_value=dict(probe)):
+            self.assertEqual(render.choose_blender(), (None, python, "4.5.3"))          # renders choose the same
+
+    def test_missing_blender_is_a_clear_error(self):
+        src = self.write("gen_blender.py", BLENDER_GEN)
+        with mock.patch.object(build, "find_blender", return_value=None), mock.patch.object(build, "bpy_info", return_value=None):
+            code, out = run("run", src, "--out", self.out)
+        self.assertEqual(code, 1)
+        self.assertEqual((out["ran"], out["gate"], out["R4"]), (False, "FAIL", "FAIL"))
+        self.assertIn("Blender not found", out["errors"][0])
+        self.assertIn("pip install bpy", out["errors"][0])
+        self.assertIn("4.5", out["errors"][0])
+        self.assertEqual(out["engine"], "blender")                              # picked by the marker
+
+    @unittest.skipUnless(HAS_BPY, "bpy module not installed")
+    def test_bpy_module_path_builds_for_real(self):
+        src = self.write("gen_blender.py", BLENDER_GEN)
+        prm = self.params({"_parts": {"body": {"expect": [30, 20, 8]}, "peg": {"expect": [8, 8, 5], "object": "body", "role": "fused"}},
+                           "w": 30.0, "d": 20.0, "h": 8.0})
+        printers = self.write("printers.json", json.dumps(X2D))
+        with mock.patch.object(build, "find_blender", return_value=None):
+            code, out = run("run", src, "--params", prm, "--out", self.out, "--blender-python", sys.executable,
+                            "--no-wall-check", "--printer", printers)
+        self.assertEqual(code, 0, out.get("errors"))
+        self.assertEqual((out["engine"], out["gate"], out["R4"], out["errors"]), ("blender", "PASS", "PASS", []))
+        self.assertEqual(out["engine_info"]["mode"], "bpy")
+        self.assertEqual(out["engine_info"]["python"], sys.executable)
+        self.assertIn(out["engine_info"]["boolean_solver"], ("MANIFOLD", "EXACT"))
+        self.assertTrue(os.path.isfile(out["blend"]))
+        with mock.patch.object(build, "find_blender", return_value=None):           # a rebuild into the same out/
+            code, again = run("run", src, "--params", prm, "--out", self.out, "--blender-python", sys.executable,
+                              "--no-wall-check", "--printer", printers)
+        self.assertEqual((code, again["gate"], again["blend"]), (0, "PASS", out["blend"]), again.get("errors"))
+        self.assertEqual({os.path.basename(s) for s in out["sources"]}, {"gen_blender.py", "blender_builder.py"})
+        parts = {p["name"]: p for p in out["parts"]}
+        self.assertEqual(parts["peg"]["assembly"]["checks"]["A1"]["state"], "PASS")
+        self.assertEqual(parts["body"]["validate"]["files"][0]["checks"]["M1"]["state"], "PASS")
+        self.assertEqual(out["objects"][0]["parts"], ["body", "peg"])
+        with open(parts["body"]["stl"] + ".manifest.json", encoding="utf-8") as f:
+            self.assertEqual(json.load(f)["sources"], ["blender_builder.py", "gen_blender.py"])
+
+    @unittest.skipUnless(HAS_BPY and os.name != "nt", "bpy module not installed")
+    def test_emulated_binary_path_builds_for_real(self):
+        """The exact command line build.py sends to `blender`, executed by a stand-in that runs
+        the --python-expr and the generator under the Python that has bpy."""
+        exe = self.fake(EMULATED_BLENDER, "emulated_blender")
+        src = self.write("gen_blender.py", BLENDER_GEN)
+        prm = self.params({"_parts": {"body": {"expect": [30, 20, 8]}, "peg": {"expect": [8, 8, 5], "object": "body", "role": "fused"}}})
+        printers = self.write("printers.json", json.dumps(X2D))
+        with mock.patch.dict(os.environ, {"BLENDER": exe}):
+            code, out = run("run", src, "--params", prm, "--out", self.out, "--no-wall-check", "--printer", printers)
+        self.assertEqual(code, 0, out.get("errors"))
+        self.assertEqual((out["gate"], out["engine_info"]["mode"], out["engine_info"]["path"]), ("PASS", "binary", exe))
+        self.assertTrue(os.path.isfile(out["blend"]))
+        with mock.patch.dict(os.environ, {"BLENDER": exe}):                          # a rebuild into the same out/
+            code, again = run("run", src, "--params", prm, "--out", self.out, "--no-wall-check", "--printer", printers)
+        self.assertEqual((code, again["gate"], again["blend"]), (0, "PASS", out["blend"]), again.get("errors"))
+        self.assertTrue(all(p["validate"]["files"][0]["checks"]["D1"]["state"] == "PASS" for p in out["parts"]))
 
 
 class ThreeMF(Base):

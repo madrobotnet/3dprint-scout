@@ -408,6 +408,7 @@ class BuildIntegration(unittest.TestCase):
             self.assertEqual(checks["R3"]["state"], "PASS")
 
 
+@unittest.skipUnless(HAS_M3D, "manifold3d not installed (parts.py imports it)")
 class DocumentedSignatures(unittest.TestCase):
     """engines/python.md lists parts.py calls with their arguments; the order must be the real one,
     or a caller who follows the table positionally binds values to the wrong argument."""

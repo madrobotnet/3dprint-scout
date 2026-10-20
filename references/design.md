@@ -31,6 +31,10 @@ Contents:
   `parts.bottom_chamfer(part, 0.4)`.
 - A 45° chamfer under any ledge, boss foot or lip (`parts.standoff(..., foot=1.0)`) removes
   the overhang; a fillet does not.
+- Fillets elsewhere (top edges, vertical edges, a freeform body's rim) need an engine that has
+  them: Fusion, or Blender's Bevel modifier (`blender_builder.bevel`, which leaves the bed edges
+  alone and `bed_chamfer` cuts those slightly steeper than 45°); OpenSCAD and Python chamfer
+  instead, or blend with `sdf.py`.
 
 ## Overhangs and self-supporting shapes
 
@@ -241,7 +245,10 @@ refuses a pin wall under 2.2 mm (measured above the teardrop's point, which reac
 
 - Minimums: emboss 0.6 mm high, engrave 0.6 mm deep, strokes 0.8 mm wide; 1.0 mm recommended
   (`tolerances.md`). A bold sans-serif keeps strokes wide; at 0.8 mm minimum stroke a bold
-  font needs a cap height of about 5 mm (derived: bold stroke ≈ 0.15 × cap height).
+  font needs a cap height of about 5 mm (derived: bold stroke ≈ 0.15 × cap height). Blender's
+  built-in font is a regular weight: its strokes reach 0.8 mm only at about a 7 mm cap height
+  (measured in the coaster example); pass a bold font file to `blender_builder.text` for
+  smaller text (it is packed into the `.blend`).
 - Engraved text on the top face prints sharpest. Embossed text on a vertical wall is fine when
   the relief is shallow (about 1 mm: the underside of each letter is a tiny overhang). Text on
   the bottom face takes the bed's finish; engrave it, and expect elephant foot to round it.

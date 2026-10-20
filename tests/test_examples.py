@@ -16,6 +16,7 @@ import build  # noqa: E402
 EXAMPLES = os.path.join(ROOT, "examples")
 HAS_SCAD = build.find_openscad() is not None
 HAS_M3D = find_spec("manifold3d") is not None and find_spec("numpy") is not None
+HAS_BPY = find_spec("bpy") is not None
 
 
 def run(cwd, *args):
@@ -35,6 +36,8 @@ class ExampleCase(unittest.TestCase):
         shutil.copytree(EXAMPLES, dst, ignore=shutil.ignore_patterns("out", "__pycache__", "*.png"))
         shutil.copytree(os.path.join(ROOT, "scripts"), os.path.join(tmp, "scripts"),
                         ignore=shutil.ignore_patterns("__pycache__"))
+        shutil.copytree(os.path.join(ROOT, "references", "engines"), os.path.join(tmp, "references", "engines"),
+                        ignore=shutil.ignore_patterns("__pycache__"))       # blender_builder.py, found relative to build.py
         return os.path.join(dst, name)
 
     def build(self, cwd, source, *extra):
@@ -138,9 +141,39 @@ class TestFitTest(ExampleCase):
                                "--views", "iso,top")
 
 
+@unittest.skipUnless(HAS_BPY and HAS_M3D, "needs the bpy module, manifold3d and numpy")
+class TestBlenderCoaster(ExampleCase):
+    def test_readme_commands(self):
+        cwd = self.copy("blender-coaster")
+        # The README's first command; --blender-python pins the bpy path so the test does not
+        # depend on a blender binary being installed next to it.
+        report = self.build(cwd, "coaster.py", "--blender-python", sys.executable)
+        self.assertEqual(report["engine"], "blender")                          # picked by the first-line marker
+        self.assertEqual(report["engine_info"]["mode"], "bpy")
+        self.assertTrue(os.path.isfile(os.path.join(cwd, "out", "coaster.blend")))
+        # The README promises at most one soft warning: P3 on the medallion (the letter strokes).
+        self.assertLessEqual(len(report["warnings"]), 1, report["warnings"])
+        for w in report["warnings"]:
+            self.assertIn("medallion", w)
+            self.assertIn("P3", w)
+        objects = {o["name"]: o for o in report["objects"]}
+        self.assertEqual(objects["coaster"]["parts"], ["coaster", "medallion"])
+        self.assertEqual(objects["coaster"]["gate"], "PASS")
+        self.assertEqual(objects["coaster"]["checks"]["P2"]["state"], "PASS")
+        parts = {p["name"]: p for p in report["parts"]}
+        self.assertEqual(parts["medallion"]["assembly"]["checks"]["A1"]["state"], "PASS")
+        checks = parts["coaster"]["validate"]["files"][0]["checks"]
+        self.assertEqual({k: checks[k]["state"] for k in ("D1", "M1", "M2", "M3", "M4", "M5", "P1", "P2")},
+                         {k: "PASS" for k in ("D1", "M1", "M2", "M3", "M4", "M5", "P1", "P2")})
+        self.assertEqual(parts["coaster"]["validate"]["files"][0]["metrics"]["bbox_mm"], [74.2, 74.2, 4.0])
+        code, out, err = run(cwd, "../../scripts/render.py", "out/coaster.stl", "out/medallion.stl", "-o", "out/preview.png",
+                             "--color", "medallion=Jade White", "--blender-python", sys.executable)
+        self.assertTrue(json.loads(out)["sane"], err[-2000:])
+
+
 class TestExampleFiles(unittest.TestCase):
     def test_every_example_has_readme_and_preview(self):
-        for name in ("aa-battery-box", "snap-box", "leaf-handle", "fit-test", "latch-box"):
+        for name in ("aa-battery-box", "snap-box", "leaf-handle", "fit-test", "latch-box", "blender-coaster"):
             for f in ("README.md", "preview.png", "thumb.png"):
                 self.assertTrue(os.path.isfile(os.path.join(EXAMPLES, name, f)), f"{name}/{f}")
 

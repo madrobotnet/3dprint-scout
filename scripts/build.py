@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 """
-build.py - run a generator script with OpenSCAD or Python (manifold3d), record a
+build.py - run a generator script with OpenSCAD, Python (manifold3d) or Blender, record a
 freshness manifest for every STL, write a core 3MF, and validate every part.
 
 Subcommands (all print ONE JSON document to stdout):
 
-  detect                       Phase 0 probe: engines, OpenSCAD backend, optional libs.
+  detect                       Phase 0 probe: engines, OpenSCAD backend, Blender, optional libs.
   run SOURCE [options]         Build all parts, write manifests + 3MF, validate.
-  record STL... --source F...  Write manifests for parts built elsewhere (Fusion), then validate.
+  record STL... --source F...  Write manifests for parts built elsewhere (Fusion, a live
+                               Blender), then validate.
 
 Parameters live in a JSON file. Keys that start with "_" are metadata and are not
 passed to the engine. "_parts" names the parts and what each should look like:
@@ -22,7 +23,13 @@ already hold the assembled positions.
 
 OpenSCAD receives every other key as -D name=value, plus -D part="<name>" per part.
 A Python generator must define build(params) -> {part_name: manifold3d.Manifold}.
-`record` takes STLs built elsewhere (Fusion): one STL per part, named after the part.
+A Blender generator (first line `# 3dprint-scout: engine=blender`, or --engine blender)
+imports references/engines/blender_builder.py and ends with `bb.main(build, PARAMETERS)`;
+it runs in the blender binary (--background --factory-startup) or, without one, in the
+Python that has the `bpy` module (--blender-python, or the Python running this script).
+Blender 4.5 LTS or newer.
+`record` takes STLs built elsewhere (Fusion, a live Blender): one STL per part, named
+after the part.
 
 Every STL is checked for sanity (G4) before anything is recorded: a 0-byte, truncated or
 NaN mesh gets no manifest, is left out of the 3MF and is listed in "errors" with
@@ -47,6 +54,7 @@ full description):
                   several parts), metrics, rotation_deg
   sources         files hashed into the manifests; pass the same list to validate.py
   threemf         the core 3MF written in --out
+  blend           the .blend a Blender build saved in --out (engine blender only)
   warnings, errors  everything worth reading, lifted from every part and object
 
 Exit codes: 0 = ran (read "gate"), 1 = build or usage error.
@@ -54,6 +62,7 @@ Exit codes: 0 = ran (read "gate"), 1 = build or usage error.
 from __future__ import annotations
 
 import argparse
+import glob
 import importlib.util
 import io
 import json
@@ -76,6 +85,11 @@ import validate  # noqa: E402
 import threemf   # noqa: E402
 
 SCHEMA = "3dprint-scout.build/1"
+ENGINES_DIR = os.path.join(os.path.dirname(HERE), "references", "engines")   # blender_builder.py lives here
+BLENDER_MARKER = "# 3dprint-scout: engine=blender"
+MIN_BLENDER = (4, 5)             # Blender 4.5 LTS: the Manifold boolean solver; text and renders tested from there
+BPY_PROBE_TIMEOUT = 120          # s; importing bpy loads most of Blender
+BLENDER_VERSION_TIMEOUT = 60     # s; `blender --version` on a cold disk
 
 
 # --------------------------------------------------------------------------- #
@@ -139,18 +153,165 @@ def python_info() -> dict:
     return out
 
 
-def cmd_detect(_args) -> dict:
+# --------------------------------------------------------------------------- #
+# Blender: a binary, or the bpy module in some Python
+# --------------------------------------------------------------------------- #
+def find_blender() -> str | None:
+    """BLENDER env, PATH, then the usual install places (installers rarely touch PATH): the
+    official installers, the Steam copy, flatpak and snap, an unpacked archive in the home
+    folder. The path found goes only into the detect JSON, never into a file."""
+    env = os.environ.get("BLENDER")
+    if env and os.path.isfile(env):
+        return env
+    hit = shutil.which("blender")
+    if hit:
+        return hit
+    home = os.path.expanduser("~")
+    patterns = []
+    if os.name == "nt":
+        for root in (os.environ.get("ProgramFiles"), os.environ.get("ProgramFiles(x86)")):
+            if root:
+                patterns.append(os.path.join(root, "Blender Foundation", "Blender *", "blender.exe"))
+                patterns.append(os.path.join(root, "Steam", "steamapps", "common", "Blender", "blender.exe"))
+    elif sys.platform == "darwin":
+        patterns += ["/Applications/Blender.app/Contents/MacOS/Blender",
+                     os.path.join(home, "Applications", "Blender.app", "Contents", "MacOS", "Blender"),
+                     os.path.join(home, "Library", "Application Support", "Steam", "steamapps", "common", "Blender",
+                                  "Blender.app", "Contents", "MacOS", "Blender")]
+    else:
+        patterns += ["/usr/bin/blender", "/usr/local/bin/blender", "/snap/bin/blender", "/opt/blender*/blender",
+                     "/var/lib/flatpak/exports/bin/org.blender.Blender",
+                     os.path.join(home, ".local", "share", "flatpak", "exports", "bin", "org.blender.Blender"),
+                     os.path.join(home, ".steam", "steam", "steamapps", "common", "Blender", "blender"),
+                     os.path.join(home, ".local", "share", "Steam", "steamapps", "common", "Blender", "blender"),
+                     os.path.join(home, "blender-*", "blender")]
+    for pat in patterns:
+        hits = sorted(glob.glob(pat), reverse=True)        # newest version folder first
+        for h in hits:
+            if os.path.isfile(h):
+                return h
+    return None
+
+
+def parse_blender_version(text: str) -> str | None:
+    """'Blender 4.2.3 LTS\\n\\tbuild date: ...' -> '4.2.3'."""
+    m = re.search(r"Blender\s+(\d+\.\d+(?:\.\d+)?)", text)
+    return m.group(1) if m else None
+
+
+def version_tuple(text: str | None) -> tuple:
+    try:
+        return tuple(int(x) for x in str(text).split(".")[:3])
+    except (TypeError, ValueError):
+        return ()
+
+
+def blender_info(exe: str) -> dict:
+    """{"path", "version"} of a Blender binary (`--version` runs without a window)."""
+    info = {"path": exe, "version": None}
+    try:
+        r = subprocess.run([exe, "--version"], capture_output=True, timeout=BLENDER_VERSION_TIMEOUT, **TEXT)
+        info["version"] = parse_blender_version(r.stdout + r.stderr)
+        if info["version"] is None:
+            info["error"] = f"could not read a version from `{exe} --version`"
+    except (OSError, subprocess.TimeoutExpired) as exc:
+        info["error"] = str(exc)
+    return info
+
+
+def bpy_pythons(explicit: str | None = None) -> list[str]:
+    """Interpreters to probe for the bpy module: the explicit one, BLENDER_PYTHON, this one."""
+    out = []
+    for cand in (explicit, os.environ.get("BLENDER_PYTHON"), sys.executable):
+        if cand and cand not in out:
+            out.append(cand)
+    return out
+
+
+BPY_PROBE = ("import json, sys, bpy; print('@@BPY ' + json.dumps({'version': bpy.app.version_string, "
+             "'version_tuple': list(bpy.app.version), 'python': sys.version.split()[0]}))")
+
+
+def bpy_info(python: str | None = None) -> dict | None:
+    """{"version", "python", ...} when `python` (or the usual candidates) can import bpy, else
+    None. Always a subprocess with a timeout (importing bpy is slow and must never happen in
+    this process), run from an empty temporary folder so a `bpy.py` or `json.py` lying in the
+    user's folder is not what gets imported."""
+    for exe in bpy_pythons(python):
+        try:
+            with tempfile.TemporaryDirectory() as empty:
+                r = subprocess.run([exe, "-c", BPY_PROBE], capture_output=True, timeout=BPY_PROBE_TIMEOUT, cwd=empty, **TEXT)
+        except subprocess.TimeoutExpired:
+            return {"error": f"import bpy timed out after {BPY_PROBE_TIMEOUT}s in {exe}", "python": exe}
+        except OSError:
+            continue
+        lines = [ln for ln in r.stdout.splitlines() if ln.startswith("@@BPY ")]
+        if r.returncode == 0 and lines:
+            info = json.loads(lines[-1][len("@@BPY "):])
+            info["python"] = exe
+            info["version_tuple"] = tuple(info.get("version_tuple", []))
+            return info
+    return None
+
+
+def too_old(version) -> str | None:
+    """A note when a Blender version is below the floor, else None."""
+    ver = version_tuple(version) if isinstance(version, str) else tuple(version or ())
+    if ver and ver[:2] < MIN_BLENDER:
+        return (f"Blender {'.'.join(map(str, ver))} is older than {MIN_BLENDER[0]}.{MIN_BLENDER[1]} LTS: not usable "
+                "(the Manifold boolean solver, text and renders need 4.5 or newer)")
+    return None
+
+
+def blender_status(python: str | None = None) -> dict:
+    """The `blender` block of `detect`: binary, bpy module, whether the Manifold boolean solver
+    is there on the path that would run (Blender 4.5+, the floor), and notes."""
+    exe = find_blender()
+    binary = blender_info(exe) if exe else None
+    module = bpy_info(python)
+    if module and "error" in module:
+        notes = [module["error"]]
+        module = None
+    else:
+        notes = []
+    binary_ok = bool(binary) and not binary.get("error") and not too_old(binary["version"])
+    module_ok = bool(module) and not too_old(module["version_tuple"])
+    for label, ver in (("binary", binary and version_tuple(binary["version"])),
+                       ("bpy", module and tuple(module["version_tuple"]))):
+        note = too_old(ver) if ver else None
+        if note:
+            notes.append(f"{label}: {note}")
+    if binary_ok and module:
+        notes.append("both a binary and the bpy module: build.py uses the binary (--blender-python forces bpy)")
+    elif binary and not binary_ok and module_ok:
+        notes.append("the binary is not usable: build.py and render.py use the bpy module")
+    # The same choice as choose_blender: the Manifold solver is there when what runs is 4.5+.
+    return {"binary": binary, "bpy": module, "manifold_boolean": binary_ok or module_ok, "notes": notes}
+
+
+def blender_usable(status: dict) -> bool:
+    b = status.get("binary")
+    if b and not b.get("error") and version_tuple(b["version"])[:2] >= MIN_BLENDER:
+        return True
+    p = status.get("bpy")
+    return bool(p and tuple(p.get("version_tuple", ()))[:2] >= MIN_BLENDER)
+
+
+def cmd_detect(args) -> dict:
     exe = find_openscad()
     py = python_info()
+    blender = blender_status(getattr(args, "blender_python", None))
     engines = {"openscad": openscad_info(exe) if exe else None,
                "python": {"manifold3d": py["manifold3d"]}}
-    order = [e for e, ok in (("openscad", bool(exe)), ("python", py["manifold3d"])) if ok]
+    order = [e for e, ok in (("openscad", bool(exe)), ("python", py["manifold3d"]),
+                             ("blender", blender_usable(blender))) if ok]
+    notes = ([] if not exe or engines["openscad"].get("manifold")
+             else ["OpenSCAD has no Manifold backend (CGAL only): boolean-heavy models are slow; "
+                   "a recent nightly build adds --backend=manifold"])
+    notes += [f"blender: {n}" for n in blender["notes"]]
     return {"schema": SCHEMA, "ran": True, "engines": engines, "available": order,
             "libraries": py, "fusion": "detect through the host's MCP tools, not here",
-            "notes": ([] if not exe or engines["openscad"].get("manifold")
-                      else ["OpenSCAD has no Manifold backend (CGAL only): boolean-heavy models are slow; "
-                            "a recent nightly build adds --backend=manifold"]),
-            "warnings": [], "errors": []}
+            "blender": blender, "notes": notes, "warnings": [], "errors": []}
 
 
 # --------------------------------------------------------------------------- #
@@ -281,6 +442,9 @@ def _hint(warns):
 
 
 def build_python(source, params, parts, out_dir, timeout):
+    if engine_marker(source) == "blender":
+        raise RuntimeError(f"{os.path.basename(source)} is a Blender generator (its first line is '{BLENDER_MARKER}'); "
+                           "run it with --engine blender or --engine auto, not with the Python engine")
     if importlib.util.find_spec("manifold3d") is None:
         raise RuntimeError("manifold3d is not installed (pip install manifold3d)")
     with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False, encoding="utf-8") as f:
@@ -349,6 +513,120 @@ def _pyrun(source, params_file, out_dir, parts_csv):
                    if getattr(m, "__file__", None) and m.__file__.endswith(".py")
                    and norm(m.__file__).startswith(roots) and norm(m.__file__) not in own})
     print("@@3DPS " + json.dumps({"parts": out, "deps": deps, "version": getattr(m3d, "__version__", "unknown")}))
+
+
+def engine_marker(source: str) -> str | None:
+    """'blender' when the generator's first line (after a shebang, if any) is the engine
+    marker, else None. Selection is explicit (--engine) or by this marker, never guessed from
+    imports. A UTF-8 BOM is tolerated."""
+    try:
+        with open(source, encoding="utf-8-sig", errors="replace") as f:
+            first = f.readline().strip()
+            if first.startswith("#!"):
+                first = f.readline().strip()
+    except OSError:
+        return None
+    return "blender" if first == BLENDER_MARKER else None
+
+
+def blender_command(exe, source, params_file, out_dir, parts, blend=None):
+    """The blender binary command line: background, factory start-up, a non-zero exit on a
+    Python exception, the engines folder and the generator's folder on sys.path, then the
+    generator with its own arguments after `--`. `blend` is only for a new, explicitly named
+    file; without it the generator rewrites its working copy `<out>/<generator>.blend`."""
+    expr = ("import sys; sys.path[:0] = [%r, %r]" % (os.path.dirname(os.path.abspath(source)), ENGINES_DIR))
+    cmd = [exe, "--background", "--factory-startup", "--python-exit-code", "1",
+           "--python-expr", expr, "--python", os.path.abspath(source), "--",
+           "--params", params_file, "--out", os.path.abspath(out_dir)]
+    if parts:
+        cmd += ["--only", ",".join(parts)]
+    if blend:
+        cmd += ["--blend", blend]
+    return cmd
+
+
+def bpy_command(python, source, params_file, out_dir, parts, blend=None):
+    """The same generator under a Python that has the bpy module."""
+    cmd = [python, os.path.abspath(source), "--", "--params", params_file, "--out", os.path.abspath(out_dir)]
+    if parts:
+        cmd += ["--only", ",".join(parts)]
+    if blend:
+        cmd += ["--blend", blend]
+    return cmd
+
+
+def choose_blender(blender_python=None):
+    """How a Blender generator or render runs, the same choice `detect` reports as usable:
+    {"mode": "binary", "exe", "info"} for a 4.5+ binary, else {"mode": "bpy", "python", "info"}
+    for a 4.5+ bpy module (--blender-python skips the binary), plus "skipped": why an unusable
+    binary was passed over. Raises RuntimeError with every reason when neither works."""
+    reasons = []
+    exe = None if blender_python else find_blender()
+    if exe:
+        info = blender_info(exe)
+        why = info.get("error") or too_old(info["version"])
+        if not why:
+            return {"mode": "binary", "exe": exe, "python": None, "info": info, "skipped": []}
+        reasons.append(f"Blender binary {exe}: {why}")
+    probe = bpy_info(blender_python)
+    if probe and "error" not in probe:
+        why = too_old(probe["version_tuple"])
+        if not why:
+            return {"mode": "bpy", "exe": None, "python": probe["python"], "info": probe, "skipped": reasons}
+        reasons.append(f"bpy module in {probe['python']}: {why}")
+    else:
+        reasons.append("`import bpy` failed in " + ", ".join(bpy_pythons(blender_python))
+                       + ((": " + probe["error"]) if probe else ""))
+    if exe:
+        head = "Blender not usable: "
+    elif blender_python:
+        head = "Blender not found: "
+    else:
+        head = "Blender not found: no `blender` binary on PATH or in the usual folders (set BLENDER=/path), and "
+    raise RuntimeError(head + "; ".join(reasons)
+                       + ". Install Blender 4.5 LTS or newer, or `pip install bpy` into that Python (--blender-python)")
+
+
+def build_blender(source, params, parts, out_dir, timeout, blender_python=None):
+    """Run a Blender generator in the binary (first) or the bpy module, read its @@3DPS line.
+    The .blend is the generator's own default, `<out>/<generator>.blend`: the working copy it
+    rewrites on every build (an explicit --blend would be a new file and refused on a rebuild)."""
+    chosen = choose_blender(blender_python)
+    mode, exe, python, info = chosen["mode"], chosen["exe"], chosen["python"], chosen["info"]
+    with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False, encoding="utf-8") as f:
+        json.dump(engine_params(params), f)
+        ptmp = f.name
+    env = dict(os.environ, PYTHONIOENCODING="utf-8")
+    if mode == "binary":
+        cmd = blender_command(exe, source, ptmp, out_dir, parts)
+    else:
+        cmd = bpy_command(python, source, ptmp, out_dir, parts)
+        env["PYTHONPATH"] = os.pathsep.join(p for p in (ENGINES_DIR, env.get("PYTHONPATH")) if p)
+    t0 = time.time()
+    try:
+        r = subprocess.run(cmd, capture_output=True, timeout=timeout, env=env, **TEXT)
+    except subprocess.TimeoutExpired:
+        raise RuntimeError(f"Blender ({mode}) timed out after {timeout}s")
+    finally:
+        os.unlink(ptmp)
+    lines = [ln for ln in r.stdout.splitlines() if ln.startswith("@@3DPS ")]
+    if r.returncode != 0 or not lines:
+        tail = "\n".join(ln for ln in (r.stdout + r.stderr).splitlines()
+                         if ln.strip() and not ln.startswith("EGL Error"))[-2500:]
+        raise RuntimeError(f"Blender generator failed ({mode}, exit {r.returncode}):\n{tail}")
+    rep = json.loads(lines[-1][len("@@3DPS "):])
+    seconds = round(time.time() - t0, 2)
+    results = [{"name": p["name"], "stl": p["stl"], "seconds": p.get("seconds", seconds),
+                "engine_warnings": [p["warning"]] if p.get("warning") else []} for p in rep["parts"]]
+    sources = sorted(set(rep.get("deps", [])) | {os.path.abspath(source)})
+    engine_info = {"blender": rep.get("blender") or info.get("version"), "mode": mode,
+                   "boolean_solver": rep.get("solver"), "blend": rep.get("blend"),
+                   "notes": [f"{why}; used the bpy module instead" for why in chosen["skipped"]] + rep.get("notes", [])}
+    if mode == "binary":
+        engine_info["path"] = exe
+    else:
+        engine_info["python"] = python
+    return results, sources, engine_info
 
 
 def write_binary_stl(path, verts, tris):
@@ -557,6 +835,8 @@ def cmd_run(args) -> dict:
     engine = args.engine
     if engine == "auto":
         engine = {".scad": "openscad", ".py": "python"}.get(os.path.splitext(source)[1].lower())
+        if engine == "python" and engine_marker(source) == "blender":
+            engine = "blender"
         if not engine:
             raise ValueError("cannot infer engine from file extension; pass --engine")
     stem = os.path.splitext(os.path.basename(source))[0]
@@ -588,6 +868,9 @@ def cmd_run(args) -> dict:
             parts, sources, info = build_openscad(source, params, list(specs), args.out, args.timeout)
         elif engine == "python":
             parts, sources, info = build_python(source, params, list(specs), args.out, args.timeout)
+        elif engine == "blender":
+            parts, sources, info = build_blender(source, params, list(specs), args.out, args.timeout,
+                                                 getattr(args, "blender_python", None))
         else:
             raise ValueError(f"engine '{engine}' is not run by build.py; use 'record' for Fusion")
     except RuntimeError as exc:
@@ -597,6 +880,8 @@ def cmd_run(args) -> dict:
     out["engine_info"] = info
     args.source_main = source
     out = finish(out, parts, sources, params, args.params, specs, args, engine)
+    if engine == "blender" and info.get("blend"):
+        out["blend"] = info["blend"]
     out["warnings"] += only_notes
     out["seconds"] = round(time.time() - t0, 2)
     return out
@@ -659,16 +944,24 @@ def main(argv=None):
     ap = _JsonArgParser(description="3dprint-scout build runner: build, record, validate, write a core 3MF",
                         epilog=OUTPUT_HELP, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="cmd", metavar="{detect,run,record}")
-    sub.add_parser("detect", help="Phase 0 probe: OpenSCAD (and its Manifold backend), manifold3d, optional libraries")
-    r = sub.add_parser("run", help="build every part of _parts with OpenSCAD (.scad) or Python (.py), then validate",
+    det = sub.add_parser("detect", help="Phase 0 probe: OpenSCAD (and its Manifold backend), manifold3d, Blender "
+                                        "(binary or bpy module), optional libraries")
+    det.add_argument("--blender-python", help="Python interpreter to probe for the bpy module (default: BLENDER_PYTHON, "
+                                              "then this one)")
+    r = sub.add_parser("run", help="build every part of _parts with OpenSCAD (.scad), Python (.py) or Blender "
+                                   "(.py with the engine marker), then validate",
                        epilog=OUTPUT_HELP, formatter_class=argparse.RawDescriptionHelpFormatter)
     r.add_argument("source", help="generator: model.scad or model.py")
-    r.add_argument("--engine", default="auto", choices=["auto", "openscad", "python"])
+    r.add_argument("--engine", default="auto", choices=["auto", "openscad", "python", "blender"],
+                   help="auto: .scad -> openscad, .py -> python, or blender when the first line is "
+                        f"'{BLENDER_MARKER}'")
+    r.add_argument("--blender-python", help="run a Blender generator with this Python's bpy module instead of the binary")
     r.add_argument("--timeout", type=int, default=900, help="seconds per generator run (default 900)")
     r.add_argument("--only", help="build only these _parts (comma list), e.g. the mechanism and the bit of its mating "
                                   "part it needs, for a test print before the full part")
     _common(r)
-    rec = sub.add_parser("record", help="record STLs built elsewhere (Fusion): manifests, core 3MF, validation",
+    rec = sub.add_parser("record", help="record STLs built elsewhere (Fusion, a live Blender): manifests, core 3MF, "
+                                        "validation",
                          epilog=("Each STL is one part named after its file (out/lid.stl -> part 'lid'); with\n"
                                  "--params the names match _parts and parts grouped there form objects.\n\n"
                                  + OUTPUT_HELP),
@@ -676,7 +969,8 @@ def main(argv=None):
     rec.add_argument("stl", nargs="+", help="one STL per part, exported in print orientation (mm)")
     rec.add_argument("--source", nargs="+", required=True,
                      help="the generator script(s) that built the STLs; hashed with --params for freshness (R3)")
-    rec.add_argument("--engine", default="fusion", help="engine name written to the manifests (default fusion)")
+    rec.add_argument("--engine", default="fusion", help="engine name written to the manifests (default fusion; "
+                                                        "blender for STLs exported from a live Blender)")
     _common(rec)
     try:
         args = ap.parse_args(argv)

@@ -20,7 +20,10 @@
    두 곳). 지어낸 숫자는 없어요. 모양을 정확히 모르는 물건에 끼울 부품이면, 작은 끼워보기 조각을
    먼저 만들어요(공차를 세 단계로 나누고 구멍 1·2·3개로 표시해요).
 5. **모델링** — 모양에 맞춰 엔진을 골라요. 기계 부품은 Fusion(MCP 연결), 없으면 OpenSCAD.
-   곡면이 많은 유기적인 모양, 그리고 다른 엔진이 없을 때는 Python([manifold3d](https://github.com/elalish/manifold)).
+   곡면이 많은 유기적인 모양이나 장식적인 모양은 [Blender](https://www.blender.org)가 있으면
+   Blender(MCP로 연결한 내 Blender, `blender` 실행 파일, 또는 `bpy` 모듈: 자유곡면에 진짜 필렛,
+   Manifold 불리언, 어떤 글꼴이든 글자, STL 옆에 편집 가능한 `.blend`). Blender가 없는 유기적인
+   모양, 그리고 다른 엔진이 하나도 없을 때는 Python([manifold3d](https://github.com/elalish/manifold)).
    Python 엔진에는 검증된 부품 라이브러리(모서리를 둥글리거나 깎은 상자, 나사·인서트 구멍, 물방울
    모양 구멍, 보스, 스냅 후크, 한 번에 출력하는 경첩, 글자, 나사산)와 매끈하게 이어지는 유기적인
    모양을 위한 SDF(부호 거리 함수) 도구가 함께 들어 있어요. 역할이 따로 있거나 색을 달리할 만한
@@ -34,7 +37,7 @@
    나란히 비교하고, 간단한 강도 계산(`strength.py`, Bambu Lab 데이터시트 값과 출처 있는 손힘 표)을
    거치고, 여유가 부족하면 그 부분만 몇 그램짜리로 먼저 뽑아 봐요. 한 번에 출력하는 뚜껑 경첩은
    여유와 상관없이 늘 그 시험편을 먼저 뽑아요. 모든 부품은 화면 없이도 렌더링한 미리보기
-   이미지(등각·정면·측면·위)를 받아요.
+   이미지(등각·정면·측면·위)를 받고, Blender가 있으면 내 필라멘트 색으로 렌더링한 이미지도 받아요.
 7. **전달** — 부품별 STL과 슬라이서에 맞는 3MF, 바꾼 출력 설정과 그 이유, 그리고 어떤 파트가
    따로 있고 색을 어떻게 바꾸는지 한 줄을 줘요.
 
@@ -50,12 +53,13 @@
 <a href="examples/leaf-handle/"><img src="examples/leaf-handle/thumb.png" width="200" alt="leaf door handle, SDF"></a>
 <a href="examples/fit-test/"><img src="examples/fit-test/thumb.png" width="200" alt="fit-test rings"></a>
 <a href="examples/latch-box/"><img src="examples/latch-box/thumb.png" width="200" alt="latch box, colour part and print-in-place latch"></a>
+<a href="examples/blender-coaster/"><img src="examples/blender-coaster/thumb.png" width="200" alt="scalloped coaster, Blender"></a>
 </p>
 
 AA 건전지 상자(OpenSCAD), 스냅핏 상자(부품 라이브러리), 나뭇잎 문 손잡이(SDF 도구), 끼워보기
-링, 그리고 색을 따로 줄 수 있는 라벨 부품과 한 번에 출력하는 걸쇠가 달린 걸쇠 상자를 스킬의
-스크립트로 만들었어요. 예제마다 소스, 매개변수, 검사 결과, 다시 빌드하는 명령이 들어 있어요.
-[examples/](examples/)를 보세요.
+링, 색을 따로 줄 수 있는 라벨 부품과 한 번에 출력하는 걸쇠가 달린 걸쇠 상자, 그리고 글자를 돋을새김한
+물결 테두리 컵받침(Blender)을 스킬의 스크립트로 만들었어요. 예제마다 소스, 매개변수, 검사 결과,
+다시 빌드하는 명령이 들어 있어요. [examples/](examples/)를 보세요.
 
 ## 설치
 
@@ -90,7 +94,9 @@ npx skills add madrobotnet/3dprint-scout
 
 - Python 3.9 이상 (3.9, 3.13에서 시험). 검증기와 3MF 작성기는 표준 라이브러리만 써요.
 - 모델링 엔진 하나: MCP로 연결한 **Fusion**, **OpenSCAD**(2021.01 또는 Manifold 백엔드가 있는 최신
-  빌드), 또는 `pip install manifold3d`.
+  빌드), 또는 `pip install manifold3d`. **Blender**는 선택 사항이에요. 유기적·장식적인 모양과
+  렌더링에 써요: MCP 커넥터로 연결한 내 Blender, `blender` 실행 파일, 또는 `pip install bpy`.
+  어느 쪽이든 4.5 LTS 이상이어야 해요(Manifold 불리언). 없어도 달라지는 건 없어요.
 - 미리보기 이미지, 치수 재기 도구, 끼움 검사의 접촉 면적 계산에는 `numpy`, 끼움 검사와 회전
   검사·객체 검사·끼워보기 조각·부품 라이브러리·SDF 도구에는 `manifold3d`, 벽 두께 검사에는
   `rtree`(numpy와 함께)가 필요해요. 부품에 글자를 넣으려면 `matplotlib`, 또는 `fonttools`와 글꼴
@@ -124,12 +130,20 @@ Bambu Lab 프린터에서는 Bambu Studio 프로젝트 파일을 만들어요(**
 | `.3dprint/printers.json` | 프린터 정보: 베드, 노즐, 슬라이서, 템플릿 (시리얼 번호·접속 코드·IP는 저장 안 함) |
 | `.3dprint/calibration.json` | 내 출력 결과 기록(어느 끼워보기 링이 맞았는지, 어떤 걸쇠가 버티고 부러졌는지). 내가 "네"라고 한 뒤에만 써요. 여기 값이 모든 표보다 우선이에요 |
 | `.3dprint/templates/` | Bambu Studio 템플릿. 직접 저장한 템플릿에는 계정 ID가 있으니 공개하지 마세요 |
-| `out/` | 작업 폴더. 빌드할 때마다 새로 써요: STL, 빌드 기록, 기본 3MF, 미리보기 이미지, 끼워보기 조각 |
+| `out/` | 작업 폴더. 빌드할 때마다 새로 써요: STL, 빌드 기록, 기본 3MF, Blender로 만들었다면 `.blend`, 미리보기 이미지, 끼워보기 조각 |
 | 새 전달 폴더 | 최종 파일. 기존 파일은 절대 덮어쓰지 않아요 |
 
 ## 현황
 
-**v0.3.1.** v0.3.0으로 해 본 시험 요청(걸쇠 기준으로 경첩을 키우다 상자까지 커진 SD카드 케이스)에서
+**v0.4.0.** Blender(4.5 LTS 이상)가 있으면 써요: MCP 커넥터로 연결한 내 Blender, `blender` 실행
+파일, 또는 `bpy` 모듈. 유기적·장식적인 모양에 진짜 필렛, Manifold 불리언, 어떤 글꼴이든 글자, 그리고
+STL 옆에 편집 가능한 `.blend`가 생기고, 미리보기를 필라멘트 색으로 Blender가 렌더링할 수 있어요. 내
+Blender에 연결했을 때는 별도의 씬에서 작업하고 출력 폴더에 새 파일만 써요: 열려 있는 파일을
+초기화하거나 저장하거나 덮어쓰는 일은 없고, 전달하는 `.blend`에 내 데이터가 섞여 들어가지도 않아요.
+`bpy` 모듈 4.5.14와 5.2.2, 그리고 실행 파일을 흉내 낸 테스트로 확인했고, 실제 `blender` 설치본이나
+Blender MCP 서버로는 아직 돌려 보지 않았어요. Blender가 없으면 v0.3.1과 똑같이 동작해요.
+
+v0.3.1은 v0.3.0으로 해 본 시험 요청(걸쇠 기준으로 경첩을 키우다 상자까지 커진 SD카드 케이스)에서
 나온 수정이에요: 기구 부재의 규칙을 용도별로 나눴어요. 손으로 조작하는 걸쇠·레버·클램프는 현장
 최소값을 그대로 쓰고, 마디가 번갈아 맞물리는 뚜껑 경첩은 새 `strength.py hinge` 계산(출처 있는 하중,
 안전율 2 이상)으로 크기를 정한 뒤 작은 시험편으로 확인해요. 기구가 물건을 몰래 키우지 않도록 멈춰서
@@ -142,7 +156,8 @@ v0.3.0은 파트를 객체로 묶는 기능과 그에 맞는 검사·3MF 작성�
 v0.1.0과 v0.2.0은 Bambu Lab X2D + Bambu Studio 02.08.02.61, OpenSCAD 2021.01, manifold3d 3.5.4로
 처음부터 끝까지 시험했고, 자동 생성 템플릿은 A1 mini, A1, P1S, X1C, H2D, H2C 프로필로도 확인했어요.
 v0.3의 여러 파트로 된 Bambu 객체, 서포트 인터페이스 설정, v0.2.1의 필라멘트 6개 템플릿 수정은
-2026-10-18에 앱에서 확인했어요. Fusion에서 아직 돌려 보지 않은 것: 정리한 Builder. 아직 전혀 시험하지
+2026-10-18에 앱에서 확인했어요. Fusion에서 아직 돌려 보지 않은 것: 정리한 Builder. 실제 Blender
+실행 파일이나 MCP 서버로 아직 돌려 보지 않은 것: v0.4의 Blender 경로. 아직 전혀 시험하지
 않은 것: OrcaSlicer. 예정: 프린터 프로필 가져오기, 브리지·최소 크기 검사. FDM 전용이고 레진은
 지원하지 않아요.
 

@@ -18,6 +18,12 @@ overwrite an existing path: if it exists, ask and stop (the scripts refuse as we
    Name every STL after its part. The core 3MF holds all parts in one file, laid out side by side;
    an object that only fits the bed rotated is placed with that rotation (D2's angle), the STL is
    not. A Bambu project keeps parts of one object together with their assembled positions.
+   A part built in Blender also gets its `out/<model>.blend` copied next to the STLs (one named
+   object per part, a collection per object, the parameters as custom properties on the
+   `PARAMETERS` empty; no path of the machine that built it), never overwriting. One line with it:
+   the generator script is the source of truth; editing the `.blend` by hand is fine, the next
+   rebuild comes from the script. The delivery image may be a `render.py` image when Blender is
+   there (`preview.py` otherwise).
 2. The parameter table and "anything to change?"
 3. Print settings: the per-object overrides with a reason for each, or the three-line recipe.
 4. **Parts**, one line: which parts are separate and how to recolour one ("label and latch are

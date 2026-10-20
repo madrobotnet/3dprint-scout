@@ -14,29 +14,46 @@ Find what works:
   own work, ask before the first write and prefer a new document. Never save automatically:
   Fusion for personal use caps editable documents at 10, and the generator script is the source
   of truth anyway.
-- **OpenSCAD, Python** — run `python3 "$SKILL_DIR/scripts/build.py" detect`. It finds OpenSCAD
-  (PATH and the default install folders), probes the fast `--backend=manifold` for real (a stable
-  2021.01 build is CGAL-only and slow), and checks for manifold3d and the optional libraries.
-  Never pass the obsolete `--enable=manifold`, which silently falls back to CGAL.
+- **OpenSCAD, Python, Blender** — run `python3 "$SKILL_DIR/scripts/build.py" detect`. It finds
+  OpenSCAD (PATH and the default install folders), probes the fast `--backend=manifold` for real
+  (a stable 2021.01 build is CGAL-only and slow), checks for manifold3d and the optional
+  libraries, and reports Blender in its `blender` block: a `blender` binary (PATH, `BLENDER=`,
+  the usual install folders, version from `--version`), the `bpy` module (probed in a
+  subprocess with a timeout: importing it is slow), and `manifold_boolean`. Blender 4.5 LTS or
+  newer only; an older one is listed with a note and not used. Never pass the obsolete
+  `--enable=manifold`, which silently falls back to CGAL.
+- **Live Blender** — a tool that runs Python in the user's own Blender (an MCP connector; names
+  differ between servers) and answers a harmless read, `bpy.app.version_string` (4.5 or newer),
+  counts as the live Blender path. A timeout or an error: retry once, then treat it as
+  unavailable and say why. Never install add-ons or change preferences there without asking;
+  the build adds a `3dprint-scout` scene next to theirs and writes only into its output folder
+  (`references/engines/blender.md`, "Live session").
 - **None** — in a disposable sandbox (a cloud code-execution container, not the user's own
   machine) `pip install manifold3d numpy rtree matplotlib` is fine: say so in one line and do
-  it. On the user's machine, ask before installing anything. Never try `apt` or `brew` for
-  OpenSCAD in a sandbox (minutes lost, and there is no display). If nothing works after that,
-  say what to install and stop.
+  it; `pip install bpy` too when the shape wants Blender (a few hundred MB; the Python version
+  must match a published wheel). On the user's machine, ask before installing anything. Never
+  try `apt` or `brew` for OpenSCAD in a sandbox (minutes lost, and there is no display). If
+  nothing works after that, say what to install and stop.
 
 Then choose **by the shape**, among the engines that work (rule A in SKILL.md):
 
 - **Mechanical or prismatic** (dimensions that must fit, holes, bosses, fillets, a part the user
-  may want to edit later) → Fusion, else OpenSCAD, else Python.
-- **Organic or freeform** (leaves, sculpted grips, terrain, reliefs, smooth blends) → Python,
-  which builds such surfaces directly from height functions; CAD sketches and CSG handle them
-  poorly.
+  may want to edit later) → Fusion, else OpenSCAD, else Python. Blender is never used for a
+  dimension-critical fit.
+- **Organic, freeform, sculpted or decorative** (leaves, sculpted grips, terrain, reliefs, smooth
+  blends, surface patterns, embossed art, fillets on a freeform body) → **Blender when it is
+  there** (binary, `bpy` module or live), else Python, which builds such surfaces from height
+  functions; CAD sketches and CSG handle them poorly.
+- **Mixed** (a mechanical body with a decorative part): the body in the CAD engine, the decorative
+  part in Blender as a separate `_parts` entry of the same object (`role: fused` where they meet
+  on a face, `references/parts.md`); say so.
 
 Before modeling, tell the user what the choice costs: OpenSCAD and Python have no native fillets
-(chamfers instead), and Python leaves a mesh, not editable CAD (every dimension stays a
-parameter in the script). The choice holds for the project: changing the engine later (Fusion
-→ Python, say, because a Fusion call failed or the shape turned out organic) is said to the
-user in one line with the reason before anything is built in the new engine, and recorded in
+(chamfers instead), Python leaves a mesh, not editable CAD (every dimension stays a parameter in
+the script), and Blender leaves an editable `.blend` (meshes, parameters as custom properties),
+not a parametric CAD history. The choice holds for the project: changing the engine later
+(Fusion → Python, say, because a Fusion call failed or the shape turned out organic) is said to
+the user in one line with the reason before anything is built in the new engine, and recorded in
 `_assumptions`; never a silent switch between what was announced and what was delivered.
 
 ## 2. Reference search tier
@@ -58,6 +75,16 @@ With Fusion, the MCP screenshot of the viewport is an extra. Without numpy say t
 preview; a missing preview is not an error, numbers stay the primary evidence. Do not
 use `openscad -o preview.png` headless on Linux: it exits cleanly and writes a **0-byte PNG**
 unless it runs under `xvfb-run -a`.
+
+With Blender (any of the three paths), `render.py` draws the same grid through Blender's
+Workbench engine, headless, with part colours from filament names, for STLs from any engine:
+
+```bash
+python3 "$SKILL_DIR/scripts/render.py" out/body.stl -o out/render.png --color "body=Jade White"
+```
+
+Same JSON and `sane` check; `preview.py` stays the fallback and the G4 check
+(`references/engines/blender.md`, "Renders").
 
 ## 4. Printer
 

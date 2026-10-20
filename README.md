@@ -21,7 +21,10 @@ Studio, that is a project file with the print settings already set per object.
    or two secondary sources that agree). Nothing is invented. For parts that must fit an object of
    uncertain shape, it makes small fit-test pieces first (three clearance steps, marked 1, 2, 3).
 5. **Modeling** — the engine is chosen by the shape: Fusion (through MCP), then OpenSCAD, for
-   mechanical parts; Python ([manifold3d](https://github.com/elalish/manifold)) for organic shapes,
+   mechanical parts; [Blender](https://www.blender.org) for organic and decorative shapes when it
+   is there (your own Blender through MCP, a `blender` binary, or the `bpy` module: real fillets
+   on freeform bodies, Manifold booleans, text in any font, an editable `.blend` next to the
+   STLs); Python ([manifold3d](https://github.com/elalish/manifold)) for organic shapes otherwise,
    and as the fallback. The Python engine comes with a tested part library (rounded and chamfered
    boxes, screw and insert holes, teardrop holes, bosses, snap hooks, a print-in-place hinge, text,
    threads) and a signed-distance-function toolkit for smooth, blended, organic shapes. Anything
@@ -38,7 +41,7 @@ Studio, that is a project file with the print settings already set per object.
    sheets and a cited hand-force table), and when the margin is short the mechanism alone is
    printed first, a few grams; a print-in-place lid hinge always gets that coupon, on top of
    its margin. Every part gets a preview image (iso, front, right, top) rendered without a
-   display.
+   display, and a Blender render in your filament's colour when Blender is there.
 7. **Delivery** — STL per part plus a 3MF that fits your slicer, with print-setting changes and the
    reason for each, and one line naming the separate parts and how to recolour them.
 
@@ -54,12 +57,14 @@ kit, a reference model), it measures the interface dimensions from the file and 
 <a href="examples/leaf-handle/"><img src="examples/leaf-handle/thumb.png" width="200" alt="leaf door handle, SDF"></a>
 <a href="examples/fit-test/"><img src="examples/fit-test/thumb.png" width="200" alt="fit-test rings"></a>
 <a href="examples/latch-box/"><img src="examples/latch-box/thumb.png" width="200" alt="latch box, colour part and print-in-place latch"></a>
+<a href="examples/blender-coaster/"><img src="examples/blender-coaster/thumb.png" width="200" alt="scalloped coaster, Blender"></a>
 </p>
 
 An AA battery box (OpenSCAD), a snap-fit box (part library), a leaf door handle (SDF toolkit),
-fit-test rings and a latch box with a separate colour part and a print-in-place latch, built with
-the skill's scripts. Each comes with its source, parameters, check results and the commands that
-rebuild it: see [examples/](examples/).
+fit-test rings, a latch box with a separate colour part and a print-in-place latch, and a
+scalloped coaster with embossed text (Blender), built with the skill's scripts. Each comes with
+its source, parameters, check results and the commands that rebuild it: see
+[examples/](examples/).
 
 ## Install
 
@@ -97,7 +102,10 @@ PCB"*, *"X2D 프린터 문 손잡이를 만들고 싶어"*.
 - Python 3.9 or newer (tested on 3.9 and 3.13). The validator and the 3MF writers use the standard
   library only.
 - One modeling engine: **Fusion** with an MCP connection, **OpenSCAD** (2021.01 or a newer build
-  with the Manifold backend), or `pip install manifold3d`.
+  with the Manifold backend), or `pip install manifold3d`. **Blender** is optional, for organic
+  and decorative shapes and for renders: your own Blender through an MCP connector, a `blender`
+  binary, or `pip install bpy`, each 4.5 LTS or newer (the Manifold boolean solver). Without it
+  nothing changes.
 - `numpy` for preview images, the measuring tool and the contact-area part of the fit check;
   `manifold3d` for the fit check and sweep, the object checks, the fit-test pieces, the part
   library and the SDF toolkit; `rtree` (with numpy) for the wall-thickness check. Text on parts
@@ -132,12 +140,20 @@ the X2D and H2D, objects that need both nozzles are placed where both can reach.
 | `.3dprint/printers.json` | Your printer: bed, nozzles, slicer, template (no serials, access codes or IPs) |
 | `.3dprint/calibration.json` | Your own print results (which fit-test ring fit, which latch held or broke), written only after you say yes; a value here beats every table |
 | `.3dprint/templates/` | Bambu Studio template. A saved one holds your account ID: keep it private |
-| `out/` | Working folder, rewritten on every build: STLs, build manifests, a core 3MF, preview images, fit-test pieces |
+| `out/` | Working folder, rewritten on every build: STLs, build manifests, a core 3MF, a `.blend` for Blender builds, preview images, fit-test pieces |
 | a new delivery folder | Final files. Existing files are never overwritten |
 
 ## Status
 
-**v0.3.1.** Splits the mechanism rules by duty after a test request with v0.3.0 (an SD-card
+**v0.4.0.** Uses Blender (4.5 LTS or newer) when it is there: your own Blender through an MCP
+connector, a `blender` binary or the `bpy` module. Organic and decorative shapes get real
+fillets, Manifold booleans, text in any font and an editable `.blend` next to the STLs;
+previews can be Blender renders in the filament's colour. In your own Blender it builds into a
+scene of its own and writes only new files into its output folder: your open file is never
+reset, saved or overwritten, and nothing of yours ends up in the `.blend` it delivers. Checked
+with the `bpy` module 4.5.14 and 5.2.2 and an emulated binary; not yet run against a real
+`blender` install or a Blender MCP server. Without Blender everything works as in v0.3.1.
+v0.3.1 splits the mechanism rules by duty after a test request with v0.3.0 (an SD-card
 case whose lid hinge was sized by the latch minimums and grew the box): hand-operated latches,
 levers and clamps keep the field minimums; lid hinges with alternating knuckles are sized by the
 new `strength.py hinge` case at a cited load and confirmed by a coupon print; a mechanism never
@@ -152,8 +168,9 @@ end to end on a Bambu Lab X2D with Bambu Studio 02.08.02.61, with OpenSCAD 2021.
 3.5.4; generated templates were also checked against the A1 mini, A1, P1S, X1C, H2D and H2C
 profiles. The v0.3 Bambu projects with several parts in one object, the support interface
 settings and the v0.2.1 six-filament fix were checked in the app on 2026-10-18. Not yet run in
-Fusion: the cleaned Builder; not yet tested at all: OrcaSlicer. Planned: a printer-profile
-importer, bridge and minimum-feature checks. FDM only; no resin.
+Fusion: the cleaned Builder; not yet run on a real Blender binary or MCP server: the v0.4
+Blender paths; not yet tested at all: OrcaSlicer. Planned: a printer-profile importer, bridge
+and minimum-feature checks. FDM only; no resin.
 
 ## Development
 

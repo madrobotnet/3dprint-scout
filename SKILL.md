@@ -1,6 +1,6 @@
 ---
 name: 3dprint-scout
-description: "Designs 3D-printable parts reference-first: finds existing models, then builds in Fusion, OpenSCAD or Python, verifies the mesh, saves STL/3MF. Use to 3D print an object. Not for STL edits or resin."
+description: "Designs 3D-printable parts reference-first: finds existing models, then builds in Fusion, OpenSCAD, Blender or Python, verifies the mesh, saves STL/3MF. Use to 3D print an object. Not for STL edits or resin."
 license: MIT
 ---
 
@@ -16,8 +16,8 @@ calling anything done on stale or unchecked evidence.
 - The user describes a real object to make and the goal is to print it (FDM).
 
 Before modeling, the skill finds existing models and lets the user pick: reference one, mix several,
-go original, or simply use an existing model. It then builds with Fusion (MCP), OpenSCAD, or a
-Python fallback, checks every part with numbers, and saves slicer-ready STL and 3MF.
+go original, or simply use an existing model. It then builds with Fusion (MCP), OpenSCAD, Blender
+or Python, checks every part with numbers, and saves slicer-ready STL and 3MF.
 
 **Not for** (say so and stop if one of these is the actual request): editing or repairing an STL the
 user already has, render or game assets, sculpting, photogrammetry, or resin printing.
@@ -60,8 +60,8 @@ Rules that hold in every phase, whatever file is open:
 - **Never write `post_process`, `*_gcode` or anything that runs programs into a 3MF**;
   `bambu3mf.py` writes allowlisted per-object keys only, and Bambu's profile files are read on
   the user's side, never copied.
-- **Never save a Fusion document automatically**: personal use caps editable documents at 10,
-  and the generator script is the source of truth.
+- **Never save a Fusion document automatically, nor reset, close or save over a live Blender's file**:
+  personal use caps editable Fusion documents at 10, and the generator script is the source of truth.
 - **Never model support structures into a part**: an overhang gets the slicer's supports or a redesign.
 - **A fit test or a mechanism-first print that was offered and skipped** goes into
   `_assumptions` ("not confirmed by a test print"); never say a test confirmed something it did not.
@@ -80,17 +80,17 @@ Read `references/phase-0-detect.md` now (required).
 Goal: find what works and report it in one line ("Using OpenSCAD (Fusion not connected);
 references via web search; previews via OpenSCAD."). No planned stop; ask only as below.
 
-- Engine: Fusion when a `fusion` tool answers a read call (after a timeout or an error retry once,
-  then treat it as unavailable and say why); otherwise OpenSCAD or Python via `build.py detect` (never `--enable=manifold`).
-  In a disposable sandbox `pip install manifold3d numpy rtree matplotlib` is fine, said in one line;
-  on the user's machine ask before installing anything; never `apt` or `brew` for OpenSCAD in a
-  sandbox. If nothing works, say what to install and stop.
+- Engine: Fusion when a `fusion` tool answers a read call, a live Blender when a tool runs Python in the
+  user's Blender and answers a harmless read (timeout or error: retry once, then unavailable, say why);
+  otherwise OpenSCAD, Python or Blender via `build.py detect` (never `--enable=manifold`). In a
+  disposable sandbox pip installs are fine, said in one line; on the user's machine ask before installing
+  anything; never `apt` or `brew` for OpenSCAD in a sandbox. If nothing works, say what to install and stop.
 - Rule A: choose **by the shape** among the engines that work: mechanical or prismatic → Fusion,
-  else OpenSCAD, else Python; organic or freeform → Python. Tell the user what the choice costs
-  (no native fillets outside Fusion; Python leaves a mesh, not editable CAD).
+  else OpenSCAD, else Python (Blender never for a fit); organic, freeform or decorative → Blender
+  when there, else Python; mixed → the decorative part as its own `_parts` entry in Blender. Say what
+  it costs (no native fillets outside Fusion and Blender; Python leaves a mesh, Blender a `.blend`, not CAD).
 - Fusion holding the user's own work: ask before the first write, prefer a new document.
-- Note the reference search tier (A marketplace tool, B web search, C neither), that `preview.py`
-  renders any STL (numpy only), and whether `.3dprint/printers.json` exists.
+- Note the reference search tier (A marketplace tool, B web search, C neither) and whether `.3dprint/printers.json` exists.
 
 ## Phase 1 — Intent and references (STOP)
 
@@ -150,7 +150,7 @@ before anything else is built.
   each in the dimension table (P7); a mechanism that would grow the object → stop and give the choices (`design.md`).
 - `.3dprint/params.json`: `_parts` with each part's `expect` from the dimension table (design
   intent, never a measured box), `object` / `role` for grouped parts, `_assumptions`.
-- Build with `build.py run` (`record` for Fusion), always with `--printer .3dprint/printers.json`;
+- Build with `build.py run` (`record` for Fusion or a live Blender), always with `--printer .3dprint/printers.json`;
   preview with `preview.py`; report size, volume and verdicts with the image; **stop for the
   user's look**. For a part with several bodies or a mechanism this stop is never skipped; a
   fit-test piece comes after it, not instead of it.
@@ -264,12 +264,12 @@ Scripts, run as `python3 "$SKILL_DIR/scripts/<name>.py"`:
 | Path | Purpose |
 |---|---|
 | `scripts/validate.py` | Mesh validator (this file's checklist); its JSON in `references/checks.md` |
-| `scripts/build.py` | `detect` (Phase 0), `run` (OpenSCAD / Python), `record` (parts built in Fusion); groups parts into objects; `--only` for a subset |
+| `scripts/build.py` | `detect` (Phase 0), `run` (OpenSCAD / Python / Blender), `record` (parts built in Fusion or a live Blender); groups parts into objects; `--only` for a subset |
 | `scripts/assembly.py` | Parts grouped into objects: D2 / P1 / P2 of the whole, A1 / A2 per part (used by build.py) |
 | `scripts/measure.py` | Measure a supplied STL / 3MF: objects and parts, slices with circle and corner fits, ray depth maps of a wall |
 | `scripts/strength.py` | Hand calculations for pins, beams, links, pin walls and a knuckle hinge (`hinge`, with the P7 floors per duty) from Bambu Lab data-sheet values and a cited hand-force table |
 | `scripts/calibration.py` | The user's own print results per printer and material in `.3dprint/calibration.json`: `add`, `show`, `lookup`; `--kind` keeps floors to the same kind of member |
-| `scripts/preview.py` | Iso / front / right / top PNG of one or more STLs, numpy only, with the G4 image check |
+| `scripts/preview.py`, `scripts/render.py` | Iso / front / right / top PNG of one or more STLs: numpy only with the G4 image check, or through Blender (Workbench, filament colours) when it is there, same JSON and check |
 | `scripts/fit.py` | F3: overlap, play, gap and contact between two placed STLs, verdict JSON; `--sweep-*` for a rotating part |
 | `scripts/fit_test.py` | Fit-test pieces of a mating profile in clearance steps, marked 1/2/3 |
 | `scripts/parts.py` | Part library for Python generators: boxes, chamfers, holes, bosses, snap fits, hinge, text, threads |
@@ -289,7 +289,7 @@ References, read when the line says so (phase files on entering the phase):
 | `references/phase-4-features-joints.md` | Phase 4: `fit.py` and the sweep, P7 with `strength.py`, printing the mechanism first, `fit_test.py` |
 | `references/phase-5-gate.md` | Phase 5: re-validation, `not_covered`, FAIL and WARN handling, print settings |
 | `references/phase-6-deliver.md` | Phase 6: files per slicer, the delivery list, verdicts and the calibration offer |
-| `references/engines/fusion.md`, `references/engines/openscad.md`, `references/engines/python.md` | Phase 3, the engine in use only: its rules and pitfalls; `references/engines/fusion_builder.py` is the Builder to paste into Fusion scripts |
+| `references/engines/fusion.md`, `references/engines/openscad.md`, `references/engines/python.md`, `references/engines/blender.md` | Phase 3, the engine in use only: its rules and pitfalls; `references/engines/fusion_builder.py` is the Builder to paste into Fusion scripts, `references/engines/blender_builder.py` the helper a Blender generator imports (binary, `bpy` module or a live Blender, and `render.py`'s renderer) |
 | `references/design.md` | Phase 3 and 4: design for FDM (chamfers, overhangs, walls, orientation, snap fits, screws and inserts, mechanisms that carry load, part seams, print-in-place, text), with sources |
 | `references/tolerances.md` | Phase 2 to 4: fits and clearances, each marked radial or diameter |
 | `references/parts.md` | A design with several bodies in one object: `_parts` schema (object, role), the object checks, printing the mechanism first, build.py's JSON, how Bambu Studio treats touching parts |
