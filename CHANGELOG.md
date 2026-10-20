@@ -68,7 +68,7 @@ Hangul keyring). What they found is fixed here, together with the first outside 
   names; `fit_test.py --overwrite` (an earlier series' extra pieces are removed); no `__pycache__` in the project; Fusion files through a
   connected folder; P6 may be decided from the generator and its log; a Contributors section
   in the READMEs.
-- **Tests**: 255 → 279, passing with Python 3.13 + Blender 5.2.2, Python 3.11 + Blender 4.5.14
+- **Tests**: 255 → 284, passing with Python 3.13 + Blender 5.2.2, Python 3.11 + Blender 4.5.14
   and without Blender or numpy. Not yet run: the official server's background tool with
   `BLENDER_PATH` set, and the binary path on macOS and Linux.
 
