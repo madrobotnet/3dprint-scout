@@ -134,8 +134,14 @@ class PureHelpers(unittest.TestCase):
         self.assertEqual((colours["box"], colours["lid"], warnings), (bb.palette_rgb(0), bb.palette_rgb(1), []))
         with self.assertRaises(ValueError):
             bb.parse_colors(["nope=black"], ["box"])
-        self.assertEqual(bb.preview_rgb((0.0, 0.0, 0.0)), (0.3, 0.3, 0.3))       # black lifted for the preview
+        self.assertEqual(bb.preview_rgb((0.0, 0.0, 0.0)), (0.15, 0.15, 0.15))    # black lifted a little for the preview
         self.assertEqual(bb.preview_rgb((1.0, 1.0, 1.0)), (1.0, 1.0, 1.0))
+        # Blender's colour properties are scene-linear; #rrggbb is sRGB (the standard transfer function).
+        self.assertEqual(bb.srgb_to_linear(0.0), 0.0)
+        self.assertAlmostEqual(bb.srgb_to_linear(1.0), 1.0)
+        self.assertAlmostEqual(bb.srgb_to_linear(0.5), 0.21404, places=5)
+        self.assertAlmostEqual(bb.srgb_to_linear(0.04), 0.04 / 12.92)
+        self.assertEqual(bb.linear_rgb((1.0, 1.0, 1.0)), (1.0, 1.0, 1.0))
         self.assertEqual(bb.rgb_hex((1.0, 0.0, 0.5)), "#ff0080")
 
     def test_foreground_bounds(self):
@@ -647,6 +653,36 @@ emit(r=r, again=again, black=black, blank=blank, leftovers=[o.name for o in bpy.
             head = f.read(24)
         self.assertTrue(head.startswith(b"\x89PNG\r\n\x1a\n"))
         self.assertEqual(struct.unpack(">II", head[16:24]), (640, 480))
+
+    def test_render_colours_read_true(self):
+        """A white part reads white and an orange one orange: colours go in scene-linear and the
+        studio light keeps faces towards the camera near their colour (the field test on
+        Blender 5.2.2 drew Jade White as (176, 178, 179) and Orange as (177, 126, 74))."""
+        png = os.path.join(self.tmp, "c.png")
+        rep = run_in_blender(f"""
+import numpy as np
+bb.new_scene_mm()
+w = bb.box([30, 30, 4], "white"); bb.part(w, "white")
+o = bb.box([30, 30, 4], "orange"); o.location = (40, 0, 0); bb.part(o, "orange")
+k = bb.box([30, 30, 4], "black"); k.location = (80, 0, 0); bb.part(k, "black")
+cols = {{"white": bb.filament_rgb("Jade White"), "orange": bb.hex_rgb("#ff6a13"), "black": bb.filament_rgb("Black")}}
+r = bb.render_views({png!r}, ["top"], cols, "workbench", (1100, 400))
+img = bpy.data.images.load({png!r})
+W, H = img.size
+px = np.empty(W * H * 4, dtype=np.float32); img.pixels.foreach_get(px)
+px = (px.reshape(H, W, 4)[..., :3] * 255).round().astype(int)
+row = px[H // 2]
+inside = [i for i in range(W) if abs(int(row[i][0]) - 246) > 12 or abs(int(row[i][2]) - 246) > 12]
+a, b = inside[0], inside[-1]
+pick = lambda f: [int(v) for v in row[int(a + (b - a) * f)]]
+emit(r=r, white=pick(30 / 220), orange=pick(110 / 220), black=pick(190 / 220), corner=[int(v) for v in px[H - 5][W - 5]])
+""")
+        self.assertTrue(rep["r"]["sane"], rep["r"])
+        self.assertTrue(all(abs(c - 246) <= 2 for c in rep["corner"]), rep)              # preview.py's background
+        self.assertGreaterEqual(min(rep["white"]), 225, rep)                            # white, not grey
+        r_, g_, b_ = rep["orange"]
+        self.assertTrue(r_ >= 215 and g_ <= 125 and b_ <= 60, rep)                      # orange, not tan
+        self.assertTrue(20 <= max(rep["black"]) <= 90, rep)                             # black: dark grey, edges show
 
 
 if __name__ == "__main__":

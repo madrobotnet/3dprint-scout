@@ -89,8 +89,11 @@ VIEWS = {
 DEFAULT_VIEWS = ["iso", "front", "right", "top"]
 PALETTE = ["#4682b4", "#dd783c", "#5aa05a", "#a064b4", "#c8aa32", "#50aab4"]
 NEUTRAL = (0.5, 0.5, 0.5)               # an unknown filament name: neutral grey, never a question
-BACKGROUND = (0.965, 0.965, 0.965)
-INK = (0.16, 0.16, 0.16)
+BACKGROUND = (0.965, 0.965, 0.965)    # sRGB, as preview.py's (246, 246, 246)
+INK = (0.16, 0.16, 0.16)               # sRGB
+DARK_LIFT = 0.15                        # black is drawn as dark grey (sRGB 0.15) so its edges show
+STUDIO_LIGHT = "paint.sl"               # Workbench studio light: faces towards the camera keep ~96 %
+                                        # of their colour (the default light leaves ~69 %: white read grey)
 MARGIN = 0.08
 ENGINE_NAMES = ("workbench", "eevee", "cycles")
 COLOUR_TABLE_NOTE = ("colours are approximate screen values of common Bambu filaments, for the preview only; "
@@ -227,12 +230,23 @@ def palette_rgb(i):
 
 
 def preview_rgb(rgb):
-    """The colour as drawn: very dark filaments are lifted towards grey so the shading still
-    shows their edges (black parts read as featureless otherwise). Preview only."""
+    """The colour as drawn (sRGB): very dark filaments are lifted a little towards grey so the
+    shading still shows their edges (black parts read as featureless otherwise). Preview only."""
     lum = 0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2]
     if lum >= 0.2:
         return tuple(rgb)
-    return tuple(0.3 + 0.7 * c for c in rgb)
+    return tuple(DARK_LIFT + (1 - DARK_LIFT) * c for c in rgb)
+
+
+def srgb_to_linear(c):
+    """One sRGB channel (0..1, as in #rrggbb) -> the scene-linear value Blender's colour
+    properties take. Object colours, material colours and the world colour are all linear;
+    an sRGB value put there unconverted renders washed out (orange #ff6a13 came out #ffad4e)."""
+    return c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4
+
+
+def linear_rgb(rgb):
+    return tuple(srgb_to_linear(c) for c in rgb)
 
 
 def parse_colors(items, names):
@@ -464,7 +478,7 @@ def new_scene_mm(name=SCENE_NAME):
         world = bpy.data.worlds.new(name)
         world[TAG] = True
         sc.world = world
-    world.color = BACKGROUND                            # Workbench renders need a world: black otherwise (4.5)
+    world.color = linear_rgb(BACKGROUND)                # Workbench renders need a world: black otherwise (4.5)
     _SCENE = sc
     return sc
 
@@ -1264,9 +1278,9 @@ def _label(cam, text_, scale, aspect, materials):
     w = scale if aspect >= 1 else scale * aspect
     h = scale / aspect if aspect >= 1 else scale
     ob.location = (-w / 2 + scale * 0.02, -h / 2 + scale * 0.02, -1.0)
-    ob.color = (*INK, 1.0)
+    ob.color = (*linear_rgb(INK), 1.0)
     mat = bpy.data.materials.new("_render_label")
-    mat.diffuse_color = (*INK, 1.0)
+    mat.diffuse_color = (*linear_rgb(INK), 1.0)
     mat.use_nodes = False
     cu.materials.append(mat)
     materials.append(mat)
@@ -1296,7 +1310,7 @@ def _colour_objects(objects, colors, materials):
     lifted for the preview; returns what to undo: [(mesh, previous material)]."""
     undo = []
     for obj in objects:
-        rgb = preview_rgb(colors.get(obj.get("part") or obj.name) or colors.get(obj.name) or palette_rgb(0))
+        rgb = linear_rgb(preview_rgb(colors.get(obj.get("part") or obj.name) or colors.get(obj.name) or palette_rgb(0)))
         obj.color = (*rgb, 1.0)
         mat = bpy.data.materials.new("_render_" + obj.name)
         mat.diffuse_color = (*rgb, 1.0)
@@ -1329,10 +1343,14 @@ def _setup_engine(sc, engine):
         world = bpy.data.worlds.new("_render_world")
         world[TAG] = True
         sc.world = world
-    world.color = BACKGROUND                            # Workbench: a scene without a world renders black on 4.5
+    world.color = linear_rgb(BACKGROUND)                # Workbench: a scene without a world renders black on 4.5
     if engine == "workbench":
         sh = sc.display.shading
         sh.light = "STUDIO"
+        try:
+            sh.studio_light = STUDIO_LIGHT              # bundled with Blender; the default one if it is missing
+        except TypeError:
+            pass
         sh.color_type = "OBJECT"
         sh.show_object_outline = True
         sh.show_cavity = True                   # ridges and valleys get a line: embossed text, grooves, fillets
@@ -1348,7 +1366,7 @@ def _setup_engine(sc, engine):
     world.use_nodes = True
     bg = world.node_tree.nodes.get("Background")
     if bg is not None:
-        bg.inputs[0].default_value = (*BACKGROUND, 1.0)
+        bg.inputs[0].default_value = (*linear_rgb(BACKGROUND), 1.0)
         bg.inputs[1].default_value = 1.0
     sun_data = bpy.data.lights.new("_render_sun", "SUN")
     sun_data[TAG] = True
@@ -1529,6 +1547,14 @@ def _deps():
     return sorted(deps)
 
 
+def run_mode():
+    """Where this runs: "bpy" (the module in some Python), "binary" (blender --background) or
+    "live" (a user's open Blender, reached through an MCP tool)."""
+    if not bpy.app.binary_path:
+        return "bpy"
+    return "binary" if bpy.app.background else "live"
+
+
 def blend_target(blend, out_dir, stem):
     """Where main() saves the .blend and whether it may replace it: the default
     `<out>/<stem>.blend` is the working copy and is rewritten; an explicit --blend must be a
@@ -1560,7 +1586,7 @@ def main(build, defaults=None, argv=None):
     params = load_params(args.params, defaults)
     t0 = time.time()
     new_scene_mm(args.scene)
-    LOG.append(f"Blender {bpy.app.version_string}, {'bpy module' if not bpy.app.binary_path else 'binary'}, "
+    LOG.append(f"Blender {bpy.app.version_string}, {run_mode()}, "
                f"boolean solver {boolean_solver()}")
     blend = None
     if not args.no_blend:
@@ -1580,7 +1606,7 @@ def main(build, defaults=None, argv=None):
     if blend:
         blend = save_blend(blend, overwrite=rewrite, out_dir=out_dir)
     print(summary(info, deps=_deps(), blend=blend, blender=bpy.app.version_string, solver=boolean_solver(),
-                  mode="bpy" if not bpy.app.binary_path else "binary", notes=list(LOG),
+                  mode=run_mode(), notes=list(LOG),
                   warnings=[f"{p['name']}: {p['warning']}" for p in info if p.get("warning")],
                   seconds=round(time.time() - t0, 2)))
     return info

@@ -23,8 +23,11 @@ Find what works:
   newer only; an older one is listed with a note and not used. Never pass the obsolete
   `--enable=manifold`, which silently falls back to CGAL.
 - **Live Blender** — a tool that runs Python in the user's own Blender (an MCP connector; names
-  differ between servers) and answers a harmless read, `bpy.app.version_string` (4.5 or newer),
-  counts as the live Blender path. A timeout or an error: retry once, then treat it as
+  differ between servers) and answers a harmless read, `import bpy; bpy.app.version_string`
+  (4.5 or newer), counts as the live Blender path. `detect` runs where your shell is: in a VM
+  or a cloud container linked to the user's computer it cannot see their Blender, so "no
+  Blender" from `detect` plus a working live tool means the live path, with files passed
+  through a folder the user connected. A timeout or an error: retry once, then treat it as
   unavailable and say why. Never install add-ons or change preferences there without asking;
   the build adds a `3dprint-scout` scene next to theirs and writes only into its output folder
   (`references/engines/blender.md`, "Live session").
