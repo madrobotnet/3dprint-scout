@@ -458,8 +458,8 @@ class BlenderEngine(Base):
         cmd = build.blender_command("/x/blender", marked, "/t/p.json", self.out, ["body", "peg"], "/o/gen.blend")
         self.assertEqual(cmd[:5], ["/x/blender", "--background", "--factory-startup", "--python-exit-code", "1"])
         self.assertEqual(cmd[5], "--python-expr")
-        self.assertIn(build.ENGINES_DIR, cmd[6])
-        self.assertIn(os.path.dirname(marked), cmd[6])
+        self.assertIn(repr(build.ENGINES_DIR), cmd[6])                        # Python literals: \\ on Windows
+        self.assertIn(repr(os.path.dirname(os.path.abspath(marked))), cmd[6])
         self.assertEqual(cmd[7:9], ["--python", os.path.abspath(marked)])
         self.assertEqual(cmd[9:], ["--", "--params", "/t/p.json", "--out", os.path.abspath(self.out),
                                    "--only", "body,peg", "--blend", "/o/gen.blend"])

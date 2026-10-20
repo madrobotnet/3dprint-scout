@@ -167,11 +167,13 @@ class PureHelpers(unittest.TestCase):
 
     def test_forbidden_strings_and_neutral_paths(self):
         bb = self.bb
-        forb = bb.forbidden_strings("/tmp/some/out")
-        self.assertIn(b"/tmp/some/out", forb)
+        out = os.path.abspath(os.path.join(os.sep, "tmp", "some", "out"))     # D:\tmp\some\out on Windows
+        forb = bb.forbidden_strings(out)
+        self.assertIn(out.encode("utf-8"), forb)
         self.assertTrue(all(len(f) >= 5 for f in forb))
-        self.assertEqual(bb.find_forbidden(b"xx /tmp/some/out/a.stl yy", forb), ["/tmp/some/out"])
-        self.assertEqual(bb.find_forbidden(b"nothing here", [b"/tmp/some/out"]), [])
+        found = bb.find_forbidden(b"xx " + out.encode("utf-8") + b"/a.stl yy", forb)
+        self.assertIn(out.lower() if os.sep == "\\" else out, found)       # case-insensitive on Windows
+        self.assertEqual(bb.find_forbidden(b"nothing here", [out.encode("utf-8")]), [])
         self.assertEqual(bb.neutral_filepath("/Users/someone/fonts/Bold.ttf"), "//Bold.ttf")
         self.assertEqual(bb.neutral_filepath("C:\\Users\\someone\\Bold.ttf"), "//Bold.ttf")
         self.assertEqual(bb.neutral_filepath(""), "")
