@@ -5,74 +5,98 @@
 Blender, used to the full when it is there. If the agent can reach Blender anywhere (an MCP
 connector to the user's own Blender, a `blender` binary on the machine it runs on, or the `bpy`
 module in some Python), the skill uses it for what the other engines lack on a freeform body:
-real fillets, robust booleans, text in any font, renders. Without Blender nothing changes.
+real fillets, robust booleans, text in any font, renders. Blender 4.5 LTS or newer, on every
+path (the Manifold boolean solver; the older Exact solver left unions of touching bodies open).
+Without Blender nothing changes.
 
 - **Detection** (`build.py detect`, Phase 0 file, SKILL.md Phase 0 line): a `blender` block with
-  the binary (PATH, `BLENDER=`, the usual install folders on Windows, macOS and Linux; version
-  from `--version` with a timeout), the `bpy` module (probed in a subprocess with a timeout,
+  the binary (PATH, `BLENDER=`, the usual install folders on Windows, macOS and Linux, Steam,
+  flatpak, snap, an unpacked archive in the home folder; version from `--version` with a
+  timeout), the `bpy` module (probed in a subprocess with a timeout and from an empty folder,
   never imported into `detect`'s own process: it loads most of Blender), `manifold_boolean`
-  (Blender 4.5+) and version notes (4.2 needed for `wm.stl_export`). A tool that runs Python in
-  the user's Blender and answers a harmless read is the live path; a timeout gets one retry.
-  `pip install bpy` is fine in a disposable sandbox, said in one line; on the user's machine ask.
+  and version notes (older than 4.5: listed, not used). A tool that runs Python in the user's
+  Blender and answers a harmless read is the live path; a timeout gets one retry. `pip install
+  bpy` is fine in a disposable sandbox, said in one line; on the user's machine ask.
 - **Rule A** (SKILL.md, Phase 0 file): mechanical or prismatic → Fusion, OpenSCAD, Python as
   before, never Blender for a fit; organic, freeform, sculpted or decorative → Blender when it is
   there, else Python; mixed parts build the body in the CAD engine and the decorative part in
-  Blender as its own `_parts` entry of the same object. The cost is said up front: Blender leaves
-  an editable `.blend`, not a parametric CAD history.
+  Blender as its own `_parts` entry of the same object (`blender.md`, "Mixed parts": each engine
+  with `--only`, then one `record` with both STLs and every source). The cost is said up
+  front: Blender leaves an editable `.blend`, not a parametric CAD history.
 - **The Blender engine** (`references/engines/blender.md`, `references/engines/blender_builder.py`).
   A generator is one script with a `PARAMETERS` block, first line `# 3dprint-scout:
-  engine=blender`, `import blender_builder as bb`, `build(p)` returning `{part: Object}`, and
-  `bb.main(build, PARAMETERS)` at the end; rebuilt from scratch each run. Helpers: `new_scene_mm`
-  (1 unit = 1 mm), `box` / `cylinder` / `prism` / `ring`, `bevel` (real fillets, segments from the
-  line width, bed edges left alone, a result with zero-area faces refused instead of welded),
-  `chamfer`, `bed_chamfer` (cut into the body, slightly steeper than 45° so P2 never counts it),
-  `boolean` / `join` (Manifold solver on 4.5+, Exact before; both inputs and the result checked
-  manifold; the solver reported), `text` (cap height, built-in font or a packed font file,
-  welded and checked), `part` (one collection per object, role kept), `params_to_props` (custom
-  properties on a `PARAMETERS` empty), `export_parts` (one binary STL per part, modifiers applied,
-  `global_scale` 1, scene unit off; a 10 mm cube is a 10 mm STL, tested), `save_blend` (the
-  scene's data-blocks only, no UI or preferences, fonts and images packed under their base
-  names, refuses to overwrite, refuses any absolute path and scans the written bytes for this
-  machine's folders), `render_views`. `build.py run --engine blender` (or the marker) runs the
-  binary (`--background --factory-startup --python-exit-code 1 --python-expr <paths> --python
-  gen.py -- --params … --out …`) or, without one, the Python that has `bpy` (`--blender-python`,
-  `BLENDER_PYTHON`, the running Python); the `.blend` lands in `out/` and the build JSON gets
-  `blend` and `engine_info.boolean_solver`. In a live Blender the same script runs through the
-  host's tool (a tiny loader sets `sys.argv`) and `build.py record --engine blender` takes the
-  STLs, hashing `blender_builder.py` with the generator. Validation is unchanged and
+  engine=blender` (a shebang may precede it), `import blender_builder as bb`, `build(p)` returning
+  `{part: Object}`, and `bb.main(build, PARAMETERS)` at the end; rebuilt from scratch each run.
+  Helpers: `new_scene_mm` (the `3dprint-scout` scene at 1 unit = 1 mm with its own world, next
+  to whatever is open), `box` / `cylinder` / `prism` / `ring`, `bevel` (real fillets, segments
+  from the line width, bed edges left alone, a result with zero-area faces refused instead of
+  welded), `chamfer`, `bed_chamfer` (cut into the body, slightly steeper than 45° so P2 never
+  counts it), `boolean` / `join` (Manifold solver, `solver="EXACT"` on request; both inputs and
+  the result checked manifold; the solver reported), `text` (cap height, built-in font or a
+  packed font file; each glyph welded on its own, touching glyphs unioned, letters that only
+  kiss along an edge get the character spacing tightened by 1 % steps until the union is one
+  closed body: "AA", "VV", "AARON" pass M1), `part` (one collection per object, made by the
+  module and never a user's collection of the same name), `params_to_props` (custom properties
+  on a `PARAMETERS` empty; a string that is an absolute path becomes its base name) and
+  `check_props` (a path in any property stops the build before an STL is written),
+  `export_parts` (one binary STL per part, modifiers applied, `global_scale` 1, scene unit off;
+  a 10 mm cube is a 10 mm STL, tested), `save_blend` (the build scene's data-blocks only, no UI
+  or preferences, compressed; fonts and images packed under their base names; refuses the open
+  file's path, an existing path and any absolute path; an uncompressed twin is scanned for this
+  machine's folders first and a hit leaves nothing behind), `render_views`. `build.py run
+  --engine blender` (or the marker) runs the binary (`--background --factory-startup
+  --python-exit-code 1 --python-expr <paths> --python gen.py -- --params … --out …`) or, without
+  one, the Python that has `bpy` (`--blender-python`, `BLENDER_PYTHON`, the running Python); the
+  `.blend` lands in `out/` and the build JSON gets `blend` and `engine_info.boolean_solver`. In a
+  live Blender the same script runs through the host's tool (a loader that checks both files'
+  md5, drops any stale helper and sets `sys.argv`) and `build.py record --engine blender` takes
+  the STLs, hashing `blender_builder.py` with the generator. Validation is unchanged and
   authoritative: `validate.py` on the exported STLs, nothing Blender says about sizes is trusted.
 - **Live-session safety**: the generator never resets, closes, saves over or discards the user's
-  open file; `new_scene_mm` wipes the session only in a background run with no file loaded and
-  nothing unsaved, otherwise it builds into a scene of its own and removes only what it tagged
-  earlier; `save_blend` writes a new file and packs only its own fonts (never `pack_all` on the
-  user's data); before opening a result in the user's Blender the agent reads
-  `bpy.data.is_dirty` and asks. Generated scripts write only under `--out`, use no network and
-  run no other program: the official MCP server runs code unguarded.
+  open file and never switches their window; it builds into its own scene, removes only what it
+  tagged on an earlier run, writes only new files inside `--out` (the default `.blend` in `out/`
+  is the one working copy it rewrites; `--blend` must be a new file inside `--out` and never the
+  open file), packs only its own fonts (never `pack_all` on the user's data) and refuses to write
+  a `.blend` if anything of the user's sits in the build scene or its collections. In an open
+  GUI session the agent says first that a `3dprint-scout` scene is added and asks when the file
+  has unsaved changes; the background tool is preferred. Generated scripts write only under
+  `--out`, use no network and run no other program: the official MCP server runs code unguarded.
 - **Renders** (`scripts/render.py`, Phase 0 / 1 / 6 files): STLs from any engine drawn by Blender's
   Workbench engine, headless, iso / front / right / top in the `preview.py` grid with a size
-  caption, EEVEE or Cycles on request, part colours from filament names (a small built-in table
-  of common Bambu colours, `#rrggbb`, the palette otherwise; never asked). Same JSON and `sane`
-  check as `preview.py`, which stays the fallback and the G4 check. Concept previews and the
-  delivery image may be these renders.
+  caption, EEVEE (4.x `BLENDER_EEVEE_NEXT`, 5.x `BLENDER_EEVEE`) or Cycles on request, part
+  colours from filament names: a small built-in table of approximate Bambu colours matched on
+  whole names, `#rrggbb`, the palette otherwise; an unknown name gets neutral grey and a
+  warning, checked before Blender starts, never a question; very dark colours are lifted for
+  the preview (`drawn` beside `colour`). Same JSON and `sane` check as `preview.py` plus one: a
+  render whose pixels nearly all differ from the background (a black or missing world) is not
+  sane. `preview.py` stays the fallback and the G4 check. Concept previews and the delivery
+  image may be these renders.
 - **Delivery** (Phase 6 file): a Blender build's `.blend` goes next to the STLs and 3MF, never
   overwriting, with one line: the script is the source of truth, hand edits are fine, the next
-  rebuild comes from the script.
+  rebuild comes from the script. `*.blend` and `*.blend1` are ignored by git.
 - **Example** `examples/blender-coaster`: a 74 mm scalloped coaster with a filleted rim, three
   grooves cut with the Manifold solver, a bed chamfer, and a medallion part carrying embossed
   text (gate PASS; one P3 warning on the letter strokes, explained in its README); preview and
-  thumb rendered by Blender; rebuilt by the tests when `bpy` is importable.
+  thumb rendered by Blender with the commands in the README; rebuilt by the tests when `bpy` is
+  importable (4.5.14 and 5.2.2 here).
 - **Docs**: `design.md` (fillets on freeform bodies through Blender's bevel; the built-in font's
-  stroke width), READMEs (Blender as an optional engine), SKILL.md file map and description
-  ("builds in Fusion, OpenSCAD, Blender or Python"), still 300 lines.
+  stroke width), READMEs (Blender as an optional engine, 4.5 LTS), SKILL.md file map and
+  description ("builds in Fusion, OpenSCAD, Blender or Python"), still 300 lines. A text object
+  left as its own part is one body per letter: union it onto a face or a plaque, or set `shells`.
 - **Tests and CI**: detection with mocked subprocesses (search order, version parse, probe
-  timeout, no Blender at all), the exact binary and `bpy` command lines, the marker, a stand-in
-  `blender` binary (build, `--only`, timeout, failure, version gate), `render.py`'s refusals and
-  JSON; with `bpy`: the 10 mm cube, the solver by version, a bevelled and a chamfered body through
-  `validate.py`, text, parts → collections, parameters → properties, `save_blend` (overwrite
-  refused, no path of the machine, reload), the live-session rule, renders, a real build through
-  the `bpy` path and through an emulated binary, and the example. A new CI job installs `bpy`
-  (pinned) on Python 3.13; the other jobs keep skipping the Blender tests. Checked here with the
-  `bpy` module 5.2.2; a real `blender` install and a Blender MCP server are still to be run.
+  timeout and working folder, no Blender at all, the 4.5 gate), the exact binary and `bpy`
+  command lines, the marker (shebang, BOM, the Python engine's refusal), a stand-in `blender`
+  binary (build, `--only`, timeout, failure, version gate), `render.py`'s refusals, colour
+  warnings and the no-background verdict; with `bpy`: the 10 mm cube, Manifold and the Exact
+  branch, a bevelled and a chamfered body through `validate.py`, text with touching letters,
+  parts → collections, parameters → properties, a path in a property, `save_blend` (overwrite
+  refused, no UI in the file, no path of the machine, reload), the live session (the user's open
+  file, their object and a same-named collection untouched; `--blend` guards), renders including
+  a black background, a real build through the `bpy` path and through an emulated binary, and
+  the example. Two CI jobs install `bpy` (4.5.14 on Python 3.11, 5.2.2 on 3.13); the other jobs
+  keep skipping the Blender tests. `tests/test_fit.py` and `tests/test_parts.py` now skip
+  cleanly without numpy / manifold3d instead of erroring. A real `blender` install and a Blender
+  MCP server are still to be run.
 
 ## 0.3.1 — 2026-10-19
 

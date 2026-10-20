@@ -8,20 +8,24 @@ needed; EEVEE or Cycles on request) with part colours from filament names.
   python3 render.py out/box.stl out/lid.stl -o out/render.png --color "lid=Jade White" --color box=#1a1a1a
   python3 render.py out/body.stl -o out/render.png --engine cycles --views iso --size 1200x900
 
-Needs Blender: the `blender` binary (PATH, BLENDER=/path, or the usual install folders) or
-the `bpy` module in some Python (--blender-python, BLENDER_PYTHON, or the Python running
-this script). Without one it says so and exits 1: preview.py is the fallback and stays the
-G4 check. The STLs are passed through unchanged (1 unit = 1 mm) and drawn where their
-coordinates put them, like preview.py.
+Needs Blender 4.5 LTS or newer: the `blender` binary (PATH, BLENDER=/path, or the usual
+install folders) or the `bpy` module in some Python (--blender-python, BLENDER_PYTHON, or
+the Python running this script). Without one it says so and exits 1: preview.py is the
+fallback and stays the G4 check. The STLs are passed through unchanged (1 unit = 1 mm) and
+drawn where their coordinates put them, like preview.py. Colours come from a small table of
+approximate Bambu filament colours or #rrggbb; an unknown name gets neutral grey and a
+warning, never a question (the names are checked before Blender starts).
 
 Prints one JSON document in preview.py's style: files written with the G4 sanity check of
-the image (a real PNG with pixels that show the part), the parts with their colours, the
-size in mm and the renderer. Exit 0 = rendered and sane, 2 = blank image (G4), 1 = usage,
-file or Blender error. Refuses to overwrite unless --overwrite is given.
+the image (a real PNG whose pixels show the part against a background), the parts with
+their colours, the size in mm and the renderer. Exit 0 = rendered and sane, 2 = image not
+usable (blank, or no background), 1 = usage, file or Blender error. Refuses to overwrite
+unless --overwrite is given.
 """
 from __future__ import annotations
 
 import argparse
+import importlib.util
 import json
 import os
 import subprocess
@@ -39,6 +43,14 @@ BUILDER = os.path.join(build.ENGINES_DIR, "blender_builder.py")
 ENGINES = ("workbench", "eevee", "cycles")
 
 
+def builder_module():
+    """blender_builder's pure helpers (colours, the G4 bound), imported without bpy."""
+    spec = importlib.util.spec_from_file_location("_blender_builder_helpers", BUILDER)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
 class RenderError(Exception):
     pass
 
@@ -48,7 +60,7 @@ class _JsonArgParser(argparse.ArgumentParser):
         raise RenderError(f"usage error: {message}")
 
 
-def render_command(stls, out, views, size, engine, colors, label=None, exe=None, python=None):
+def render_command(stls, out, views, size, engine, colors, label=None, exe=None, python=None, overwrite=False):
     """The command line: the blender binary running blender_builder.py as a script, or the bpy
     Python running it; the renderer's own arguments follow `--`."""
     args = ["--", "render", *[os.path.abspath(s) for s in stls], "-o", os.path.abspath(out),
@@ -57,6 +69,8 @@ def render_command(stls, out, views, size, engine, colors, label=None, exe=None,
         args += ["--color", c]
     if label is not None:
         args += ["--label", label]
+    if overwrite:
+        args.append("--overwrite")
     if exe:
         return [exe, "--background", "--factory-startup", "--python-exit-code", "1", "--python", BUILDER] + args
     return [python, BUILDER] + args
@@ -67,12 +81,12 @@ def choose_blender(blender_python=None):
     exe = None if blender_python else build.find_blender()
     if exe:
         info = build.blender_info(exe)
-        if not info.get("error") and build.version_tuple(info["version"])[:2] >= (4, 2):
+        if not info.get("error") and not build.too_old(info["version"]):
             return exe, None, info["version"]
     probe = build.bpy_info(blender_python)
-    if probe and "error" not in probe and tuple(probe["version_tuple"])[:2] >= (4, 2):
+    if probe and "error" not in probe and not build.too_old(probe["version_tuple"]):
         return None, probe["python"], probe["version"]
-    raise RenderError("Blender not found (no `blender` binary 4.2+ on PATH or in the usual folders, no bpy module in "
+    raise RenderError("Blender not found (no `blender` binary 4.5+ on PATH or in the usual folders, no bpy module 4.5+ in "
                       + ", ".join(build.bpy_pythons(blender_python)) + "); use preview.py, or install Blender / pip install bpy")
 
 
@@ -96,16 +110,19 @@ def run(args) -> dict:
         except ArtifactError as exc:
             raise RenderError(f"{path}: {exc}")
         names.append(os.path.splitext(os.path.basename(path))[0])
-    for c in args.color:
-        if "=" not in c or c.split("=", 1)[0] not in names:
-            raise RenderError(f"--color needs part=colour with a part among {names}, got {c!r}")
+    bb = builder_module()
+    try:
+        colours, warnings = bb.parse_colors(args.color, names)   # names checked here, before Blender starts
+    except ValueError as exc:
+        raise RenderError(str(exc))
     if not args.out.lower().endswith(".png"):
         raise RenderError("-o must end in .png")
     if os.path.exists(args.out) and not args.overwrite:
         raise RenderError(f"{args.out} already exists; pass --overwrite for a working file in out/, or choose a new name")
     exe, python, version = choose_blender(args.blender_python)
     os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)
-    cmd = render_command(args.stl, args.out, views, (width, height), args.engine, args.color, args.label, exe, python)
+    cmd = render_command(args.stl, args.out, views, (width, height), args.engine, args.color, args.label, exe, python,
+                         overwrite=args.overwrite)
     env = dict(os.environ, PYTHONIOENCODING="utf-8")
     t0 = time.time()
     try:
@@ -118,11 +135,14 @@ def run(args) -> dict:
                          if ln.strip() and not ln.startswith("EGL Error"))[-2000:]
         raise RenderError(f"Blender render failed (exit {r.returncode}):\n{tail}")
     rep = json.loads(lines[-1][len("@@3DPS "):])
-    sane, note = preview.png_sane(rep["path"], rep["fg"])
+    sane, note = preview.png_sane(rep["path"], rep["fg"])      # a real PNG with pixels, something drawn
+    if sane:
+        sane, note = bb.fg_sane(rep["fg"])                       # and a background behind it
     return {"files": [{"path": args.out, "views": views, "sane": sane, "note": note, "bytes": os.path.getsize(args.out)}],
-            "parts": rep["parts"], "size_mm": rep["size_mm"],
+            "parts": rep["parts"], "size_mm": rep["size_mm"], "colour_note": rep.get("colour_note", bb.COLOUR_TABLE_NOTE),
             "renderer": rep["renderer"] + (" (binary)" if exe else " (bpy module)"),
-            "seconds": round(time.time() - t0, 2), "sane": sane}
+            "seconds": round(time.time() - t0, 2), "sane": sane,
+            "warnings": warnings + [w for w in rep.get("warnings", []) if w not in warnings]}
 
 
 def main(argv=None):
@@ -135,13 +155,16 @@ def main(argv=None):
         ap.add_argument("--size", default="1600x1200")
         ap.add_argument("--engine", default="workbench", help="workbench (default, headless) | eevee | cycles")
         ap.add_argument("--color", action="append", default=[],
-                        help="part=filament name or #rrggbb, e.g. lid=\"Jade White\" (repeatable; default palette)")
+                        help="part=filament name or #rrggbb, e.g. lid=\"Jade White\" (repeatable; default palette; "
+                             "an unknown name gives neutral grey and a warning)")
         ap.add_argument("--label", help="caption text (default: the size in mm)")
         ap.add_argument("--blender-python", help="Python with the bpy module (forces the bpy path)")
         ap.add_argument("--timeout", type=int, default=600, help="seconds (default 600)")
         ap.add_argument("--overwrite", action="store_true")
         args = ap.parse_args(sys.argv[1:] if argv is None else argv)
-        out.update(run(args))
+        result = run(args)
+        out["warnings"] += result.pop("warnings", [])
+        out.update(result)
         out["ran"] = True
     except (RenderError, OSError, ValueError) as exc:
         out["errors"].append(str(exc))

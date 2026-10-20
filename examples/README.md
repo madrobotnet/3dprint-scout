@@ -19,7 +19,7 @@ Run the commands from the example's folder. You need Python 3.9 or newer and:
 
 - `pip install manifold3d numpy` for all examples (`rtree` too for the wall-thickness check);
 - [OpenSCAD](https://openscad.org) for `aa-battery-box`;
-- [Blender](https://www.blender.org) 4.2 or newer (the `blender` binary, or `pip install bpy` into a
+- [Blender](https://www.blender.org) 4.5 LTS or newer (the `blender` binary, or `pip install bpy` into a
   Python it has a wheel for) for `blender-coaster`.
 
 Builds write to `out/` (STL per part, a build manifest, a core 3MF and the validation results);

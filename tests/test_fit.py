@@ -321,6 +321,7 @@ class Sweep(unittest.TestCase):
         self.assertEqual(fit.parse_angles("-10:0:5"), [0.0, -5.0, -10.0])
 
 
+@unittest.skipUnless(HAS_NP, "numpy not installed")
 class PointTriangle(unittest.TestCase):
     def test_distances(self):
         import numpy as np

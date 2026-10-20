@@ -19,12 +19,15 @@ Find what works:
   (a stable 2021.01 build is CGAL-only and slow), checks for manifold3d and the optional
   libraries, and reports Blender in its `blender` block: a `blender` binary (PATH, `BLENDER=`,
   the usual install folders, version from `--version`), the `bpy` module (probed in a
-  subprocess with a timeout: importing it is slow), and `manifold_boolean` (Blender 4.5+). Never
-  pass the obsolete `--enable=manifold`, which silently falls back to CGAL.
+  subprocess with a timeout: importing it is slow), and `manifold_boolean`. Blender 4.5 LTS or
+  newer only; an older one is listed with a note and not used. Never pass the obsolete
+  `--enable=manifold`, which silently falls back to CGAL.
 - **Live Blender** — a tool that runs Python in the user's own Blender (an MCP connector; names
-  differ between servers) and answers a harmless read, `bpy.app.version_string`, counts as the
-  live Blender path. A timeout or an error: retry once, then treat it as unavailable and say
-  why. Never install add-ons or change preferences there without asking.
+  differ between servers) and answers a harmless read, `bpy.app.version_string` (4.5 or newer),
+  counts as the live Blender path. A timeout or an error: retry once, then treat it as
+  unavailable and say why. Never install add-ons or change preferences there without asking;
+  the build adds a `3dprint-scout` scene next to theirs and writes only into its output folder
+  (`references/engines/blender.md`, "Live session").
 - **None** — in a disposable sandbox (a cloud code-execution container, not the user's own
   machine) `pip install manifold3d numpy rtree matplotlib` is fine: say so in one line and do
   it; `pip install bpy` too when the shape wants Blender (a few hundred MB; the Python version

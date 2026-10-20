@@ -10,3 +10,7 @@ deliver/
 *.3mf
 *.stl
 *.zip
+
+# Blender working files: the build rewrites out/<model>.blend; deliverables are copied elsewhere.
+*.blend
+*.blend1

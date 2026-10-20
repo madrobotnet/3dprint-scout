@@ -43,11 +43,13 @@ class Base(unittest.TestCase):
 class CommandLine(Base):
     def test_binary_and_bpy_commands(self):
         cmd = render.render_command([self.stl], self.png, ["iso", "top"], (800, 600), "workbench", ["body=black"],
-                                    label="x", exe="/x/blender")
+                                    label="x", exe="/x/blender", overwrite=True)
         self.assertEqual(cmd[:7], ["/x/blender", "--background", "--factory-startup", "--python-exit-code", "1",
                                    "--python", render.BUILDER])
         self.assertEqual(cmd[7:], ["--", "render", self.stl, "-o", self.png, "--views", "iso,top", "--size", "800x600",
-                                   "--engine", "workbench", "--color", "body=black", "--label", "x"])
+                                   "--engine", "workbench", "--color", "body=black", "--label", "x", "--overwrite"])
+        cmd = render.render_command([self.stl], self.png, ["iso"], (400, 300), "workbench", [], exe="/x/blender")
+        self.assertNotIn("--overwrite", cmd)
         cmd = render.render_command([self.stl], self.png, ["iso"], (400, 300), "cycles", [], python="/x/python")
         self.assertEqual(cmd[:3], ["/x/python", render.BUILDER, "--"])
         self.assertTrue(os.path.isfile(render.BUILDER))
@@ -70,7 +72,7 @@ class CommandLine(Base):
             code, out = run(self.stl, "-o", os.path.join(self.d, "x.jpg"))
             self.assertIn(".png", out["errors"][0])
             code, out = run(self.stl, "-o", os.path.join(self.d, "y.png"), "--color", "lid=black")
-            self.assertIn("--color", out["errors"][0])
+            self.assertIn("--color", out["errors"][0])                          # a part that is not rendered
             code, out = run(self.stl, "-o", os.path.join(self.d, "y.png"), "--views", "sideways")
             self.assertIn("unknown view", out["errors"][0])
             code, out = run(self.stl, "-o", os.path.join(self.d, "y.png"), "--engine", "octane")
@@ -81,6 +83,33 @@ class CommandLine(Base):
             self.assertIn("0 bytes", out["errors"][0])
         self.assertFalse(sub.called)                                            # Blender never ran
         self.assertEqual(code, 1)
+
+    def test_unknown_colour_is_a_warning_and_no_background_is_not_sane(self):
+        """An unknown filament name never aborts (neutral grey, a warning); a render whose pixels
+        nearly all differ from the background (a black world) is not sane: exit 2."""
+        os.makedirs(os.path.dirname(self.png))
+        with open(self.png, "wb") as f:                                        # a real PNG header, like Blender writes
+            f.write(b"\x89PNG\r\n\x1a\n" + b"\x00\x00\x00\rIHDR" + b"\x00\x00\x01\x90\x00\x00\x01\x2c" + b"\x08\x02\x00\x00\x00" + b"\0" * 32)
+        rep = {"path": self.png, "fg": 0.99, "size_mm": [40, 30, 6], "renderer": "Blender x workbench", "views": ["iso"],
+               "parts": [{"name": "body", "colour": "#808080", "drawn": "#808080"}], "warnings": []}
+        done = build.subprocess.CompletedProcess([], 0, "@@3DPS " + json.dumps(rep) + "\n", "")
+        with mock.patch.object(render, "choose_blender", return_value=("/x/blender", None, "4.5.0")), \
+                mock.patch.object(build.subprocess, "run", return_value=done) as sub:
+            code, out = run(self.stl, "-o", self.png, "--overwrite", "--color", "body=Ice Blue")
+        self.assertEqual(code, 2)
+        self.assertTrue(out["ran"])
+        self.assertFalse(out["sane"])
+        self.assertIn("no background", out["files"][0]["note"])
+        self.assertEqual(len(out["warnings"]), 1)
+        self.assertIn("unknown filament colour 'Ice Blue'", out["warnings"][0])
+        self.assertIn("approximate", out["colour_note"])
+        self.assertIn("--overwrite", sub.call_args[0][0])
+        rep["fg"] = 0.2
+        done = build.subprocess.CompletedProcess([], 0, "@@3DPS " + json.dumps(rep) + "\n", "")
+        with mock.patch.object(render, "choose_blender", return_value=("/x/blender", None, "4.5.0")), \
+                mock.patch.object(build.subprocess, "run", return_value=done):
+            code, out = run(self.stl, "-o", self.png, "--overwrite")
+        self.assertEqual((code, out["sane"], out["warnings"]), (0, True, []))
 
     def test_failed_render_keeps_the_json_contract(self):
         done = build.subprocess.CompletedProcess([], 1, "", "Traceback: boom")
@@ -110,6 +139,8 @@ class WithBlender(Base):
         self.assertEqual(out["size_mm"], [40.0, 30.0, 8.0])
         self.assertEqual([p["name"] for p in out["parts"]], ["body", "lid"])
         self.assertEqual(out["parts"][1]["colour"], "#ffffff")
+        self.assertEqual(out["warnings"], [])
+        self.assertIn("approximate", out["colour_note"])
         self.assertIn("Blender", out["renderer"])
         self.assertIn("bpy module", out["renderer"])
         with open(self.png, "rb") as f:

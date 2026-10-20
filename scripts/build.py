@@ -27,6 +27,7 @@ A Blender generator (first line `# 3dprint-scout: engine=blender`, or --engine b
 imports references/engines/blender_builder.py and ends with `bb.main(build, PARAMETERS)`;
 it runs in the blender binary (--background --factory-startup) or, without one, in the
 Python that has the `bpy` module (--blender-python, or the Python running this script).
+Blender 4.5 LTS or newer.
 `record` takes STLs built elsewhere (Fusion, a live Blender): one STL per part, named
 after the part.
 
@@ -86,6 +87,7 @@ import threemf   # noqa: E402
 SCHEMA = "3dprint-scout.build/1"
 ENGINES_DIR = os.path.join(os.path.dirname(HERE), "references", "engines")   # blender_builder.py lives here
 BLENDER_MARKER = "# 3dprint-scout: engine=blender"
+MIN_BLENDER = (4, 5)             # Blender 4.5 LTS: the Manifold boolean solver; text and renders tested from there
 BPY_PROBE_TIMEOUT = 120          # s; importing bpy loads most of Blender
 BLENDER_VERSION_TIMEOUT = 60     # s; `blender --version` on a cold disk
 
@@ -155,23 +157,34 @@ def python_info() -> dict:
 # Blender: a binary, or the bpy module in some Python
 # --------------------------------------------------------------------------- #
 def find_blender() -> str | None:
-    """BLENDER env, PATH, then the usual install places (installers rarely touch PATH)."""
+    """BLENDER env, PATH, then the usual install places (installers rarely touch PATH): the
+    official installers, the Steam copy, flatpak and snap, an unpacked archive in the home
+    folder. The path found goes only into the detect JSON, never into a file."""
     env = os.environ.get("BLENDER")
     if env and os.path.isfile(env):
         return env
     hit = shutil.which("blender")
     if hit:
         return hit
+    home = os.path.expanduser("~")
     patterns = []
     if os.name == "nt":
         for root in (os.environ.get("ProgramFiles"), os.environ.get("ProgramFiles(x86)")):
             if root:
                 patterns.append(os.path.join(root, "Blender Foundation", "Blender *", "blender.exe"))
+                patterns.append(os.path.join(root, "Steam", "steamapps", "common", "Blender", "blender.exe"))
     elif sys.platform == "darwin":
         patterns += ["/Applications/Blender.app/Contents/MacOS/Blender",
-                     os.path.expanduser("~/Applications/Blender.app/Contents/MacOS/Blender")]
+                     os.path.join(home, "Applications", "Blender.app", "Contents", "MacOS", "Blender"),
+                     os.path.join(home, "Library", "Application Support", "Steam", "steamapps", "common", "Blender",
+                                  "Blender.app", "Contents", "MacOS", "Blender")]
     else:
-        patterns += ["/usr/bin/blender", "/usr/local/bin/blender", "/snap/bin/blender", "/opt/blender*/blender"]
+        patterns += ["/usr/bin/blender", "/usr/local/bin/blender", "/snap/bin/blender", "/opt/blender*/blender",
+                     "/var/lib/flatpak/exports/bin/org.blender.Blender",
+                     os.path.join(home, ".local", "share", "flatpak", "exports", "bin", "org.blender.Blender"),
+                     os.path.join(home, ".steam", "steam", "steamapps", "common", "Blender", "blender"),
+                     os.path.join(home, ".local", "share", "Steam", "steamapps", "common", "Blender", "blender"),
+                     os.path.join(home, "blender-*", "blender")]
     for pat in patterns:
         hits = sorted(glob.glob(pat), reverse=True)        # newest version folder first
         for h in hits:
@@ -221,11 +234,13 @@ BPY_PROBE = ("import json, sys, bpy; print('@@BPY ' + json.dumps({'version': bpy
 
 def bpy_info(python: str | None = None) -> dict | None:
     """{"version", "python", ...} when `python` (or the usual candidates) can import bpy, else
-    None. Always a subprocess with a timeout: importing bpy is slow and must never happen in
-    this process."""
+    None. Always a subprocess with a timeout (importing bpy is slow and must never happen in
+    this process), run from an empty temporary folder so a `bpy.py` or `json.py` lying in the
+    user's folder is not what gets imported."""
     for exe in bpy_pythons(python):
         try:
-            r = subprocess.run([exe, "-c", BPY_PROBE], capture_output=True, timeout=BPY_PROBE_TIMEOUT, **TEXT)
+            with tempfile.TemporaryDirectory() as empty:
+                r = subprocess.run([exe, "-c", BPY_PROBE], capture_output=True, timeout=BPY_PROBE_TIMEOUT, cwd=empty, **TEXT)
         except subprocess.TimeoutExpired:
             return {"error": f"import bpy timed out after {BPY_PROBE_TIMEOUT}s in {exe}", "python": exe}
         except OSError:
@@ -239,9 +254,18 @@ def bpy_info(python: str | None = None) -> dict | None:
     return None
 
 
+def too_old(version) -> str | None:
+    """A note when a Blender version is below the floor, else None."""
+    ver = version_tuple(version) if isinstance(version, str) else tuple(version or ())
+    if ver and ver[:2] < MIN_BLENDER:
+        return (f"Blender {'.'.join(map(str, ver))} is older than {MIN_BLENDER[0]}.{MIN_BLENDER[1]} LTS: not usable "
+                "(the Manifold boolean solver, text and renders need 4.5 or newer)")
+    return None
+
+
 def blender_status(python: str | None = None) -> dict:
     """The `blender` block of `detect`: binary, bpy module, whether the Manifold boolean solver
-    (Blender 4.5+) is available on the path that would run, and notes."""
+    is there on the path that would run (Blender 4.5+, the floor), and notes."""
     exe = find_blender()
     binary = blender_info(exe) if exe else None
     module = bpy_info(python)
@@ -257,21 +281,21 @@ def blender_status(python: str | None = None) -> dict:
         chosen = tuple(module["version_tuple"])
     for label, ver in (("binary", binary and version_tuple(binary["version"])),
                        ("bpy", module and tuple(module["version_tuple"]))):
-        if ver and ver[:2] < (4, 2):
-            notes.append(f"Blender {label} {'.'.join(map(str, ver))} is older than 4.2: no wm.stl_export, not usable")
-    if chosen and (4, 2) <= chosen[:2] < (4, 5):
-        notes.append("Blender before 4.5 has no Manifold boolean solver; the Exact solver runs instead")
+        note = too_old(ver) if ver else None
+        if note:
+            notes.append(f"{label}: {note}")
     if binary and module:
         notes.append("both a binary and the bpy module: build.py uses the binary (--blender-python forces bpy)")
-    return {"binary": binary, "bpy": module, "manifold_boolean": bool(chosen) and chosen[:2] >= (4, 5), "notes": notes}
+    return {"binary": binary, "bpy": module, "manifold_boolean": bool(chosen) and chosen[:2] >= MIN_BLENDER,
+            "notes": notes}
 
 
 def blender_usable(status: dict) -> bool:
     b = status.get("binary")
-    if b and not b.get("error") and version_tuple(b["version"])[:2] >= (4, 2):
+    if b and not b.get("error") and version_tuple(b["version"])[:2] >= MIN_BLENDER:
         return True
     p = status.get("bpy")
-    return bool(p and tuple(p.get("version_tuple", ()))[:2] >= (4, 2))
+    return bool(p and tuple(p.get("version_tuple", ()))[:2] >= MIN_BLENDER)
 
 
 def cmd_detect(args) -> dict:
@@ -279,8 +303,7 @@ def cmd_detect(args) -> dict:
     py = python_info()
     blender = blender_status(getattr(args, "blender_python", None))
     engines = {"openscad": openscad_info(exe) if exe else None,
-               "python": {"manifold3d": py["manifold3d"]},
-               "blender": blender}
+               "python": {"manifold3d": py["manifold3d"]}}
     order = [e for e, ok in (("openscad", bool(exe)), ("python", py["manifold3d"]),
                              ("blender", blender_usable(blender))) if ok]
     notes = ([] if not exe or engines["openscad"].get("manifold")
@@ -420,6 +443,9 @@ def _hint(warns):
 
 
 def build_python(source, params, parts, out_dir, timeout):
+    if engine_marker(source) == "blender":
+        raise RuntimeError(f"{os.path.basename(source)} is a Blender generator (its first line is '{BLENDER_MARKER}'); "
+                           "run it with --engine blender or --engine auto, not with the Python engine")
     if importlib.util.find_spec("manifold3d") is None:
         raise RuntimeError("manifold3d is not installed (pip install manifold3d)")
     with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False, encoding="utf-8") as f:
@@ -491,11 +517,14 @@ def _pyrun(source, params_file, out_dir, parts_csv):
 
 
 def engine_marker(source: str) -> str | None:
-    """'blender' when the generator's first line is the engine marker, else None. Selection is
-    explicit (--engine) or by this marker, never guessed from imports."""
+    """'blender' when the generator's first line (after a shebang, if any) is the engine
+    marker, else None. Selection is explicit (--engine) or by this marker, never guessed from
+    imports. A UTF-8 BOM is tolerated."""
     try:
-        with open(source, encoding="utf-8", errors="replace") as f:
+        with open(source, encoding="utf-8-sig", errors="replace") as f:
             first = f.readline().strip()
+            if first.startswith("#!"):
+                first = f.readline().strip()
     except OSError:
         return None
     return "blender" if first == BLENDER_MARKER else None
@@ -532,17 +561,17 @@ def build_blender(source, params, parts, out_dir, timeout, blender_python=None):
     mode, python = "binary", None
     if exe:
         info = blender_info(exe)
-        if info.get("error") or version_tuple(info["version"])[:2] < (4, 2):
-            raise RuntimeError(f"Blender binary {exe}: {info.get('error') or 'version ' + str(info['version']) + ' is older than 4.2 (no wm.stl_export)'}")
+        if info.get("error") or too_old(info["version"]):
+            raise RuntimeError(f"Blender binary {exe}: {info.get('error') or too_old(info['version'])}")
     else:
         probe = bpy_info(blender_python)
         if not probe or "error" in probe:
             raise RuntimeError("Blender not found: no `blender` binary on PATH or in the usual folders (set BLENDER=/path), "
                                "and `import bpy` failed in " + ", ".join(bpy_pythons(blender_python))
                                + ((": " + probe["error"]) if probe else "")
-                               + ". Install Blender 4.2 or newer, or `pip install bpy` into that Python (--blender-python)")
-        if tuple(probe["version_tuple"])[:2] < (4, 2):
-            raise RuntimeError(f"bpy {probe['version']} is older than 4.2 (no wm.stl_export)")
+                               + ". Install Blender 4.5 LTS or newer, or `pip install bpy` into that Python (--blender-python)")
+        if too_old(probe["version_tuple"]):
+            raise RuntimeError(f"bpy module: {too_old(probe['version_tuple'])}")
         mode, python, info = "bpy", probe["python"], probe
     with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False, encoding="utf-8") as f:
         json.dump(engine_params(params), f)

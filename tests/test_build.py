@@ -304,7 +304,7 @@ FAKE_BLENDER = r"""
 import json, os, struct, sys, time
 a = sys.argv[1:]
 if "--version" in a:
-    print("Blender 4.2.0 LTS\n\tbuild date: 2024-07-16"); sys.exit(0)
+    print("Blender 4.5.0 LTS\n\tbuild date: 2025-07-15"); sys.exit(0)
 if os.environ.get("FAKE_BLENDER_SLEEP"):
     time.sleep(float(os.environ["FAKE_BLENDER_SLEEP"]))
 assert a[:4] == ["--background", "--factory-startup", "--python-exit-code", "1"], a
@@ -330,7 +330,7 @@ if blend:
     open(blend, "wb").write(b"BLENDER-v402fake")
 src = a[a.index("--python") + 1]
 print("Blender quit")
-print("@@3DPS " + json.dumps({"parts": parts, "deps": [src], "blend": blend, "blender": "4.2.0 LTS", "solver": "EXACT",
+print("@@3DPS " + json.dumps({"parts": parts, "deps": [src], "blend": blend, "blender": "4.5.0 LTS", "solver": "MANIFOLD",
                               "mode": "binary", "notes": ["fake"], "warnings": []}))
 """
 
@@ -390,6 +390,8 @@ class BlenderDetect(Base):
         self.assertIn("timed out", info["error"])
         self.assertEqual(run_.call_args[0][0][:2], ["/x/python", "-c"])
         self.assertEqual(run_.call_args[1]["timeout"], build.BPY_PROBE_TIMEOUT)
+        cwd = run_.call_args[1]["cwd"]                                         # an empty folder, not the user's
+        self.assertNotEqual(os.path.abspath(cwd), os.path.abspath(os.getcwd()))
         done = subprocess.CompletedProcess([], 0, '@@BPY {"version": "4.5.0", "version_tuple": [4, 5, 0], "python": "3.11.9"}\n', "")
         with mock.patch.object(build.subprocess, "run", return_value=done):
             info = build.bpy_info("/x/python")
@@ -404,21 +406,22 @@ class BlenderDetect(Base):
         self.assertEqual(status, {"binary": None, "bpy": None, "manifold_boolean": False, "notes": []})
         self.assertEqual(code, 0)
         self.assertNotIn("blender", out["available"])
-        self.assertEqual(out["blender"], status)
-        self.assertEqual(out["engines"]["blender"], status)
+        self.assertEqual(out["blender"], status)                               # one place for the block
+        self.assertNotIn("blender", out["engines"])
 
     def test_status_version_gates(self):
         old = {"version": "4.4.0", "version_tuple": (4, 4, 0), "python": "/x/python"}
         with mock.patch.object(build, "find_blender", return_value=None), mock.patch.object(build, "bpy_info", return_value=old):
             status = build.blender_status()
         self.assertFalse(status["manifold_boolean"])
-        self.assertTrue(any("Exact solver" in n for n in status["notes"]))
-        self.assertTrue(build.blender_usable(status))
-        ancient = {"version": "3.6.0", "version_tuple": (3, 6, 0), "python": "/x/python"}
-        with mock.patch.object(build, "find_blender", return_value=None), mock.patch.object(build, "bpy_info", return_value=ancient):
+        self.assertFalse(build.blender_usable(status))                         # 4.5 LTS is the floor
+        self.assertTrue(any("older than 4.5" in n for n in status["notes"]))
+        floor = {"version": "4.5.14", "version_tuple": (4, 5, 14), "python": "/x/python"}
+        with mock.patch.object(build, "find_blender", return_value=None), mock.patch.object(build, "bpy_info", return_value=floor):
             status = build.blender_status()
-        self.assertFalse(build.blender_usable(status))
-        self.assertTrue(any("older than 4.2" in n for n in status["notes"]))
+        self.assertTrue(status["manifold_boolean"])
+        self.assertTrue(build.blender_usable(status))
+        self.assertEqual(status["notes"], [])
         with mock.patch.object(build, "find_blender", return_value="/x/blender"), \
                 mock.patch.object(build, "blender_info", return_value={"path": "/x/blender", "version": "4.5.1"}), \
                 mock.patch.object(build, "bpy_info", return_value={"error": "import bpy timed out after 120s in /x/python", "python": "/x/python"}):
@@ -443,6 +446,15 @@ class BlenderEngine(Base):
         self.assertEqual(build.engine_marker(marked), "blender")
         self.assertIsNone(build.engine_marker(plain))
         self.assertIsNone(build.engine_marker(os.path.join(self.d, "missing.py")))
+        shebang = self.write("gen_shebang.py", "#!/usr/bin/env python3\n" + BLENDER_GEN)
+        self.assertEqual(build.engine_marker(shebang), "blender")               # a shebang may come first
+        bom = os.path.join(self.d, "gen_bom.py")
+        with open(bom, "wb") as f:
+            f.write(b"\xef\xbb\xbf" + BLENDER_GEN.encode("utf-8"))
+        self.assertEqual(build.engine_marker(bom), "blender")                   # a UTF-8 BOM is tolerated
+        code, out = run("run", marked, "--engine", "python", "--out", self.out)
+        self.assertEqual(code, 1)
+        self.assertIn("is a Blender generator", out["errors"][0])              # the python engine says so
         cmd = build.blender_command("/x/blender", marked, "/t/p.json", self.out, ["body", "peg"], "/o/gen.blend")
         self.assertEqual(cmd[:5], ["/x/blender", "--background", "--factory-startup", "--python-exit-code", "1"])
         self.assertEqual(cmd[5], "--python-expr")
@@ -466,7 +478,7 @@ class BlenderEngine(Base):
         self.assertEqual((out["engine"], out["gate"], out["R4"]), ("blender", "PASS", "PASS"))
         self.assertEqual(out["engine_info"]["mode"], "binary")
         self.assertEqual(out["engine_info"]["path"], exe)
-        self.assertEqual(out["engine_info"]["boolean_solver"], "EXACT")
+        self.assertEqual(out["engine_info"]["boolean_solver"], "MANIFOLD")
         self.assertEqual([p["name"] for p in out["parts"]], ["body", "peg"])
         self.assertEqual(out["blend"], os.path.join(os.path.abspath(self.out), "gen_blender.blend"))
         self.assertTrue(os.path.isfile(out["blend"]))
@@ -495,15 +507,15 @@ class BlenderEngine(Base):
         self.assertFalse(out["ran"])
         self.assertEqual(out["R4"], "FAIL")
         self.assertIn("timed out after 1s", out["errors"][0])
-        bad = self.fake("import sys; print('Blender 4.2.0') if '--version' in sys.argv else sys.exit(1)", "bad_blender")
+        bad = self.fake("import sys; print('Blender 4.5.0') if '--version' in sys.argv else sys.exit(1)", "bad_blender")
         with mock.patch.dict(os.environ, {"BLENDER": bad}):
             code, out = run("run", src, "--out", self.out)
         self.assertEqual(code, 1)
         self.assertIn("Blender generator failed (binary, exit 1)", out["errors"][0])
-        old = self.fake("print('Blender 3.6.0')", "old_blender")
+        old = self.fake("print('Blender 4.2.3 LTS')", "old_blender")
         with mock.patch.dict(os.environ, {"BLENDER": old}):
             code, out = run("run", src, "--out", self.out)
-        self.assertIn("older than 4.2", out["errors"][0])
+        self.assertIn("older than 4.5", out["errors"][0])
 
     def test_missing_blender_is_a_clear_error(self):
         src = self.write("gen_blender.py", BLENDER_GEN)
@@ -513,6 +525,7 @@ class BlenderEngine(Base):
         self.assertEqual((out["ran"], out["gate"], out["R4"]), (False, "FAIL", "FAIL"))
         self.assertIn("Blender not found", out["errors"][0])
         self.assertIn("pip install bpy", out["errors"][0])
+        self.assertIn("4.5", out["errors"][0])
         self.assertEqual(out["engine"], "blender")                              # picked by the marker
 
     @unittest.skipUnless(HAS_BPY, "bpy module not installed")

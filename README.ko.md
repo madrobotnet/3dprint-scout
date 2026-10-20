@@ -20,10 +20,10 @@
    두 곳). 지어낸 숫자는 없어요. 모양을 정확히 모르는 물건에 끼울 부품이면, 작은 끼워보기 조각을
    먼저 만들어요(공차를 세 단계로 나누고 구멍 1·2·3개로 표시해요).
 5. **모델링** — 모양에 맞춰 엔진을 골라요. 기계 부품은 Fusion(MCP 연결), 없으면 OpenSCAD.
-   곡면이 많은 유기적인 모양이나 장식적인 모양은 [Blender](https://www.blender.org)가 있을 때
+   곡면이 많은 유기적인 모양이나 장식적인 모양은 [Blender](https://www.blender.org)가 있으면
    Blender(MCP로 연결한 내 Blender, `blender` 실행 파일, 또는 `bpy` 모듈: 자유곡면에 진짜 필렛,
-   Manifold 불리언, 어떤 글꼴이든 글자, STL 옆에 편집 가능한 `.blend`), 없으면 그리고 다른 엔진이
-   없을 때는 Python([manifold3d](https://github.com/elalish/manifold)).
+   Manifold 불리언, 어떤 글꼴이든 글자, STL 옆에 편집 가능한 `.blend`). Blender가 없는 유기적인
+   모양, 그리고 다른 엔진이 하나도 없을 때는 Python([manifold3d](https://github.com/elalish/manifold)).
    Python 엔진에는 검증된 부품 라이브러리(모서리를 둥글리거나 깎은 상자, 나사·인서트 구멍, 물방울
    모양 구멍, 보스, 스냅 후크, 한 번에 출력하는 경첩, 글자, 나사산)와 매끈하게 이어지는 유기적인
    모양을 위한 SDF(부호 거리 함수) 도구가 함께 들어 있어요. 역할이 따로 있거나 색을 달리할 만한
@@ -95,8 +95,8 @@ npx skills add madrobotnet/3dprint-scout
 - Python 3.9 이상 (3.9, 3.13에서 시험). 검증기와 3MF 작성기는 표준 라이브러리만 써요.
 - 모델링 엔진 하나: MCP로 연결한 **Fusion**, **OpenSCAD**(2021.01 또는 Manifold 백엔드가 있는 최신
   빌드), 또는 `pip install manifold3d`. **Blender**는 선택 사항이에요. 유기적·장식적인 모양과
-  렌더링에 써요: MCP 커넥터로 연결한 내 Blender, `blender` 실행 파일(4.2 이상, Manifold 불리언은
-  4.5부터), 또는 `pip install bpy`. 없어도 달라지는 건 없어요.
+  렌더링에 써요: MCP 커넥터로 연결한 내 Blender, `blender` 실행 파일, 또는 `pip install bpy`.
+  어느 쪽이든 4.5 LTS 이상이어야 해요(Manifold 불리언). 없어도 달라지는 건 없어요.
 - 미리보기 이미지, 치수 재기 도구, 끼움 검사의 접촉 면적 계산에는 `numpy`, 끼움 검사와 회전
   검사·객체 검사·끼워보기 조각·부품 라이브러리·SDF 도구에는 `manifold3d`, 벽 두께 검사에는
   `rtree`(numpy와 함께)가 필요해요. 부품에 글자를 넣으려면 `matplotlib`, 또는 `fonttools`와 글꼴
@@ -135,12 +135,13 @@ Bambu Lab 프린터에서는 Bambu Studio 프로젝트 파일을 만들어요(**
 
 ## 현황
 
-**v0.4.0.** Blender가 있으면 써요: MCP 커넥터로 연결한 내 Blender, `blender` 실행 파일, 또는 `bpy`
-모듈. 유기적·장식적인 모양에 진짜 필렛, Manifold 불리언, 어떤 글꼴이든 글자, 그리고 STL 옆에 편집
-가능한 `.blend`가 생기고, 미리보기를 필라멘트 색으로 Blender가 렌더링할 수 있어요. 내 Blender에
-연결했을 때 열려 있는 파일을 초기화하거나 덮어쓰는 일은 절대 없어요. `bpy` 모듈(5.2)과 실행 파일을
-흉내 낸 테스트로 확인했고, 실제 `blender` 설치본이나 Blender MCP 서버로는 아직 돌려 보지 않았어요.
-Blender가 없으면 v0.3.1과 똑같이 동작해요.
+**v0.4.0.** Blender(4.5 LTS 이상)가 있으면 써요: MCP 커넥터로 연결한 내 Blender, `blender` 실행
+파일, 또는 `bpy` 모듈. 유기적·장식적인 모양에 진짜 필렛, Manifold 불리언, 어떤 글꼴이든 글자, 그리고
+STL 옆에 편집 가능한 `.blend`가 생기고, 미리보기를 필라멘트 색으로 Blender가 렌더링할 수 있어요. 내
+Blender에 연결했을 때는 별도의 씬에서 작업하고 출력 폴더에 새 파일만 써요: 열려 있는 파일을
+초기화하거나 저장하거나 덮어쓰는 일은 없고, 전달하는 `.blend`에 내 데이터가 섞여 들어가지도 않아요.
+`bpy` 모듈 4.5.14와 5.2.2, 그리고 실행 파일을 흉내 낸 테스트로 확인했고, 실제 `blender` 설치본이나
+Blender MCP 서버로는 아직 돌려 보지 않았어요. Blender가 없으면 v0.3.1과 똑같이 동작해요.
 
 v0.3.1은 v0.3.0으로 해 본 시험 요청(걸쇠 기준으로 경첩을 키우다 상자까지 커진 SD카드 케이스)에서
 나온 수정이에요: 기구 부재의 규칙을 용도별로 나눴어요. 손으로 조작하는 걸쇠·레버·클램프는 현장
