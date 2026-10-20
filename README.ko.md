@@ -175,6 +175,15 @@ python3 -m unittest discover -s tests
 각 단계의 진행 방법(`references/phase-0-detect.md`부터 `phase-6-deliver.md`까지), 엔진별 규칙, 공차,
 Bambu 관련 내용은 `references/`에 있고 그 단계에 들어갈 때 읽어요.
 
+## 기여자
+
+3dprint-scout를 함께 다듬어 주신 분들이에요.
+
+- [@fivetaku](https://github.com/fivetaku): fit 보고서에 측정한 STL을 기록하고 `fit.py --check`로
+  확인하는 기능([#9](../../pull/9)), Blender MCP 작업 흐름 메모([#8](../../issues/8)).
+
+이슈와 PR은 언제든 환영해요.
+
 ## 응원하기
 
 이 스킬이 시간을 아껴 줬다면 커피 한 잔으로 응원해 주세요.

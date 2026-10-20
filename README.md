@@ -186,6 +186,16 @@ and the checklist. Each phase's how-to (`references/phase-0-detect.md` to `phase
 the engine rules, tolerances and the Bambu details live in `references/` and are read on
 entering the phase that names them.
 
+## Contributors
+
+Thanks to everyone who has made 3dprint-scout better:
+
+- [@fivetaku](https://github.com/fivetaku): fit reports that record which STLs they measured, and
+  `fit.py --check` ([#9](../../pull/9)); workflow notes from a Blender MCP pipeline
+  ([#8](../../issues/8)).
+
+Issues and pull requests are welcome.
+
 ## Support
 
 If this skill saved you some time, you can buy me a coffee.
