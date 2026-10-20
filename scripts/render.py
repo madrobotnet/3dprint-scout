@@ -17,8 +17,10 @@ approximate Bambu filament colours or #rrggbb; an unknown name gets neutral grey
 warning, never a question (the names are checked before Blender starts).
 
 Prints one JSON document in preview.py's style: files written with the G4 sanity check of
-the image (a real PNG whose pixels show the part against a background), the parts with
-their colours, the size in mm and the renderer. Exit 0 = rendered and sane, 2 = image not
+the image (a real PNG whose pixels show the part against a background; `fg` and `fg_views`
+are the fractions of pixels showing the part, per view), the parts with their colours (and
+the colour drawn: very light and very dark filaments are moved a little off the background
+and off black), the size in mm and the renderer. Exit 0 = rendered and sane, 2 = image not
 usable (blank, or no background), 1 = usage, file or Blender error. Refuses to overwrite
 unless --overwrite is given.
 """
@@ -133,7 +135,8 @@ def run(args) -> dict:
     sane, note = preview.png_sane(rep["path"], rep["fg"])      # a real PNG with pixels, something drawn
     if sane:
         sane, note = bb.fg_sane(rep["fg"], rep.get("fg_views"))  # a background behind it, every view drawn
-    return {"files": [{"path": args.out, "views": views, "sane": sane, "note": note, "bytes": os.path.getsize(args.out)}],
+    return {"files": [{"path": args.out, "views": views, "sane": sane, "note": note, "fg": rep["fg"],
+                       "fg_views": rep.get("fg_views"), "bytes": os.path.getsize(args.out)}],
             "parts": rep["parts"], "size_mm": rep["size_mm"], "colour_note": rep.get("colour_note", bb.COLOUR_TABLE_NOTE),
             "renderer": rep["renderer"] + (" (binary)" if exe else " (bpy module)"),
             "seconds": round(time.time() - t0, 2), "sane": sane,

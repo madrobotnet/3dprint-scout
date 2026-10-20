@@ -29,12 +29,18 @@ it runs in the blender binary (--background --factory-startup) or, without one, 
 Python that has the `bpy` module (--blender-python, or the Python running this script).
 Blender 4.5 LTS or newer.
 `record` takes STLs built elsewhere (Fusion, a live Blender): one STL per part, named
-after the part.
+after the part. An STL that already has a manifest describing this very file (from `run`,
+or an earlier record) keeps it: its sources join "sources" (a generator's own imports stay
+in the hash; R3 hashes each manifest's own files out of that list), and when that manifest
+is stale the part is not re-stamped: R3 FAILs and says to rebuild it (parts[].prior_manifest
+tells what was found). Only an STL without such a manifest gets a new one.
 
 Every STL is checked for sanity (G4) before anything is recorded: a 0-byte, truncated or
 NaN mesh gets no manifest, is left out of the 3MF and is listed in "errors" with
 "artifact_sane": false on its part; the other parts are still recorded and validated. The
-validator's own errors and warnings are repeated in the top-level "errors" / "warnings".
+validator's own errors and warnings are repeated in the top-level "errors" / "warnings", and
+every hard FAIL of a part, an object or an assembly check is one line in "errors"
+("<part> <check> FAIL: <note>"), so those two lists are enough to read first.
 A missing printers.json is a warning (D2 stays UNVERIFIED), not a failure.
 
 `--out` (default out/) is the build's working folder: every run rewrites its STLs,
@@ -55,7 +61,8 @@ full description):
   sources         files hashed into the manifests; pass the same list to validate.py
   threemf         the core 3MF written in --out
   blend           the .blend a Blender build saved in --out (engine blender only)
-  warnings, errors  everything worth reading, lifted from every part and object
+  warnings, errors  everything worth reading, lifted from every part and object (every hard
+                  FAIL is one line in errors)
 
 Exit codes: 0 = ran (read "gate"), 1 = build or usage error.
 """
@@ -331,12 +338,24 @@ engine_params = validate.engine_params      # one definition: the freshness hash
 
 
 def part_specs(params: dict, default_name: str) -> dict:
+    """{part name: spec} from params "_parts": an object {"name": {...}} (the documented form),
+    a plain list of names, or nothing (one part named after the generator)."""
     parts = params.get("_parts")
     if not parts:
         return {default_name: {}}
     if isinstance(parts, list):
+        if not all(isinstance(p, str) and p for p in parts):
+            raise ValueError('params.json "_parts": a list holds part names (strings), e.g. ["body", "lid"]; '
+                             'the full form is an object {"body": {"expect": [60, 40, 25]}, ...}')
         return {p: {} for p in parts}
-    return dict(parts)
+    if not isinstance(parts, dict):
+        raise ValueError(f'params.json "_parts" must be an object {{"body": {{"expect": [60, 40, 25]}}, ...}} '
+                         f'(or a list of part names), got {type(parts).__name__}: {str(parts)[:60]!r}')
+    bad = [n for n, spec in parts.items() if spec is not None and not isinstance(spec, dict)]
+    if bad:
+        raise ValueError(f'params.json "_parts": the entry of {bad[0]!r} must be an object such as '
+                         f'{{"expect": [60, 40, 25]}}, got {type(parts[bad[0]]).__name__}')
+    return {n: dict(spec or {}) for n, spec in parts.items()}
 
 
 def scad_literal(v) -> str:
@@ -453,7 +472,8 @@ def build_python(source, params, parts, out_dir, timeout):
     try:
         cmd = [sys.executable, os.path.abspath(__file__), "_pyrun", os.path.abspath(source), ptmp,
                os.path.abspath(out_dir), ",".join(parts)]
-        env = dict(os.environ, PYTHONIOENCODING="utf-8")   # the child prints its report as UTF-8
+        # The child prints its report as UTF-8, and leaves no __pycache__ in the user's project.
+        env = dict(os.environ, PYTHONIOENCODING="utf-8", PYTHONDONTWRITEBYTECODE="1")
         r = subprocess.run(cmd, capture_output=True, timeout=timeout, env=env, **TEXT)
     except subprocess.TimeoutExpired:
         raise RuntimeError(f"Python generator timed out after {timeout}s")
@@ -596,7 +616,7 @@ def build_blender(source, params, parts, out_dir, timeout, blender_python=None):
     with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False, encoding="utf-8") as f:
         json.dump(engine_params(params), f)
         ptmp = f.name
-    env = dict(os.environ, PYTHONIOENCODING="utf-8")
+    env = dict(os.environ, PYTHONIOENCODING="utf-8", PYTHONDONTWRITEBYTECODE="1")   # no __pycache__ in the project
     if mode == "binary":
         cmd = blender_command(exe, source, ptmp, out_dir, parts)
     else:
@@ -669,6 +689,35 @@ def validate_part(stl, spec, sources, params_path, args) -> dict:
     return json.loads(buf.getvalue())
 
 
+def _unjudge_partial(rep: dict, info: dict) -> None:
+    """An object built only in part (--only): what the subset cannot decide becomes UNVERIFIED.
+    A verdict the built parts reach on their own stays: D2 FAIL (the whole is larger still),
+    A1 / A2 FAIL on an overlap or a contact between built parts. A PASS, a WARN, P1 and P2 (the
+    subset's lowest face is not the bed) and A1 "touches nothing" need the missing parts."""
+    why = (f"object built in part with --only ({len(info['built'])} of {info['total']} parts, "
+           f"missing {', '.join(info['missing'])})")
+    for cid, ck in rep["checks"].items():
+        if cid == "D2" and ck["state"] == "FAIL":
+            continue
+        ck.update(state="UNVERIFIED", note=f"{why}: {ck.get('note') or 'not judged on the subset'}")
+        ck.pop("return_to", None)
+    for pr in rep["parts"].values():
+        for cid, ck in pr["checks"].items():
+            definite = ck["state"] == "FAIL" and ("overlap" in ck.get("note", "") or "touches or" in ck.get("note", ""))
+            if not definite:
+                ck.update(state="UNVERIFIED", note=f"{why}: {ck.get('note') or 'not judged on the subset'}")
+                ck.pop("return_to", None)
+    rep["warnings"] = [w for w in rep["warnings"] if " P1: " not in w and " P2: " not in w
+                       and " A1: " not in w and " A2: " not in w]
+
+
+def _fail_lines(who: str, checks: dict) -> list[str]:
+    """One line per hard FAIL, '<part> <check> FAIL: <note>', for the top-level errors list:
+    a part's D1 or M5, an object's D2, a fused part's A1 (soft checks only WARN, G8)."""
+    return [f"{who} {cid} FAIL" + (f": {ck['note']}" if ck.get("note") else "")
+            for cid, ck in checks.items() if ck.get("state") == "FAIL" and ck.get("kind") == "hard"]
+
+
 def overall_gate(reports) -> str:
     gates = [r.get("gate") for r in reports]
     if any(g == "FAIL" for g in gates):
@@ -728,8 +777,14 @@ def finish(out, parts, sources, params, params_path, specs, args, engine):
             p["artifact_error"] = str(exc)
             out["errors"].append(f"{p['name']}: broken artifact ({exc}); no manifest written, left out of the 3MF")
     sane = [p for p in parts if p["artifact_sane"]]
+    # record (S3-1): a part whose earlier manifest describes this very STL keeps it. A fresh one
+    # is the better record (that engine, that part's own sources); a stale one must not be
+    # re-stamped, which would bless an STL its own generator no longer produces.
+    prior = {p["stl"]: p.pop("_prior") for p in parts if p.get("_prior")}
+    stale = {stl: pr for stl, pr in prior.items() if not pr["fresh"]}
     for p in sane:
-        validate.write_manifest(p["stl"], sources, params, engine)
+        if p["stl"] not in prior:
+            validate.write_manifest(p["stl"], sources, params, engine)
 
     # Parts grouped into objects (assembly.py). A bad grouping is a usage error, not a build error.
     try:
@@ -742,15 +797,30 @@ def finish(out, parts, sources, params, params_path, specs, args, engine):
         p["object"] = of_part[p["name"]]["name"]
         p["role"] = assembly.part_role(specs.get(p["name"])) if len(of_part[p["name"]]["parts"]) > 1 else None
 
-    if not args.no_3mf and sane:
-        name = args.threemf or os.path.splitext(os.path.basename(args.source_main))[0] + ".3mf"
+    # Objects with some of their parts built (--only, S3-5): no core 3MF item, the subset would
+    # be dropped onto the bed where the missing parts should carry it.
+    partial = getattr(args, "partial_objects", None) or {}
+    partial_parts = {n for g in groups if g["name"] in partial for n in g["parts"]}
+    for g in groups:
+        info = partial.get(g["name"])
+        if info:
+            out["warnings"].append(f"object '{info['object']}': built {len(info['built'])} of {info['total']} parts with "
+                                   f"--only (missing: {', '.join(info['missing'])}); the whole object is not judged "
+                                   "(D2 / P1 / P2 and A1 / A2 UNVERIFIED unless the built parts fail on their own) "
+                                   "and it gets no core 3MF item; place the test print in the slicer")
+    whole = [p for p in sane if p["name"] not in partial_parts]
+    if not args.no_3mf and sane and not whole:
+        out["warnings"].append("core 3MF not written: every part belongs to an object built only in part (--only)")
+    if not args.no_3mf and whole:
+        stem = getattr(args, "threemf_stem", None) or os.path.splitext(os.path.basename(args.source_main))[0]
+        name = args.threemf or stem + ".3mf"
         path = os.path.join(args.out, name)
         try:
             # out/ is the build's working folder: this file is rewritten on every build.
-            placed = threemf.write_core_3mf([(p["name"], p["stl"]) for p in sane], path,
-                                            bed=usable_bed(args), objects=groups)
+            placed = threemf.write_core_3mf([(p["name"], p["stl"]) for p in whole], path,
+                                            bed=usable_bed(args), objects=[g for g in groups if g["name"] not in partial])
             out["threemf"] = path
-            for p in sane:
+            for p in whole:
                 p["rotation_deg"] = placed[p["name"]]["rotation_deg"]
                 if p["rotation_deg"]:
                     out["warnings"].append(f"{p['name']}: placed rotated {p['rotation_deg']} deg in the 3MF "
@@ -760,11 +830,24 @@ def finish(out, parts, sources, params, params_path, specs, args, engine):
 
     reports = []
     for p in sane:
+        own = stale.get(p["stl"])
         rep = validate_part(p["stl"], specs.get(p["name"], {}), sources, params_path, args)
+        if own:
+            for f in rep.get("files", []):
+                if "checks" in f:
+                    f["checks"]["R3"] = validate.chk(
+                        "FAIL", "hard", {"manifest_engine": own["engine"], "manifest_sources": own["names"]},
+                        f"STALE: the manifest of the {own['engine']} build that made this STL does not match its "
+                        f"sources ({', '.join(own['names']) or 'none recorded'}) and the current parameters; record did "
+                        "not re-stamp it. Rebuild (or re-export) this part, then record again", return_to="current")
+            rep["gate"] = validate.gate_of(rep.get("files", []))
         p["validate"] = rep
         reports.append(rep)
-        # Lift the validator's own errors and warnings; nothing stays hidden in parts[].validate.
+        # Lift the validator's own errors and warnings, and every hard FAIL as one line, so the
+        # two top-level lists are enough to read; nothing stays hidden in parts[].validate.
         out["errors"] += [f"{p['name']}: {e}" for e in rep.get("errors", [])]
+        for f in rep.get("files", []):
+            out["errors"] += _fail_lines(p["name"], f.get("checks", {}))
         out["warnings"] += [f"{p['name']}: {w}" for w in p.get("engine_warnings", [])]
         out["warnings"] += [f"{p['name']}: {w}" for w in rep.get("warnings", [])]
 
@@ -799,18 +882,18 @@ def finish(out, parts, sources, params, params_path, specs, args, engine):
                         rep["checks"]["D2"]["note"] = (rep["checks"]["D2"].get("note", "") +
                                                        f"; usable area = intersection of tools {tool_ids} (several parts or "
                                                        "filaments may need every nozzle)").lstrip("; ")
+                    if g["name"] in partial:
+                        _unjudge_partial(rep, partial[g["name"]])
                     entry.update(checks=rep["checks"], metrics=rep["metrics"], rotation_deg=rep["rotation_deg"],
                                  method=rep["method"], gate=assembly.object_gate(rep))
+                    if g["name"] in partial:
+                        entry["partial"] = partial[g["name"]]
                     for n, pr in rep["parts"].items():
                         by_name[n]["assembly"] = {"object": g["name"], "role": pr["role"], "checks": pr["checks"]}
                     out["warnings"] += [f"object '{g['name']}': {w}" for w in rep["warnings"]]
-                    for cid, ck in rep["checks"].items():
-                        if ck["state"] == "FAIL":
-                            out["warnings"].append(f"object '{g['name']}' {cid} FAIL: {ck.get('note', '')}")
+                    out["errors"] += _fail_lines(f"object '{g['name']}'", rep["checks"])
                     for n, pr in rep["parts"].items():
-                        for cid, ck in pr["checks"].items():
-                            if ck["state"] == "FAIL":
-                                out["warnings"].append(f"{n} {cid} FAIL: {ck.get('note', '')}")
+                        out["errors"] += _fail_lines(n, pr["checks"])
             else:
                 entry["gate"] = "FAIL"
             object_gates.append(entry["gate"])
@@ -842,6 +925,7 @@ def cmd_run(args) -> dict:
     stem = os.path.splitext(os.path.basename(source))[0]
     specs = part_specs(params, stem)
     only_notes = []
+    args.partial_objects = {}
     if args.only is not None:
         wanted = [n.strip() for n in args.only.split(",") if n.strip()]
         if not wanted:
@@ -860,6 +944,16 @@ def cmd_run(args) -> dict:
                 spec.pop("role", None)
                 only_notes.append(f"{n}: built alone with --only, the other parts of object '{obj}' were not; "
                                   "object checks (A1 / A2, D2 of the whole) skipped")
+        # An object with some but not all of its parts built (S3-5): its checks cannot judge the
+        # whole, and a core 3MF item would drop the subset onto the bed. Keyed as finish() groups
+        # them: the object's name, or the part's own name for a part built alone.
+        for obj in dict.fromkeys(object_of(m) for m in full):
+            members = [m for m in full if object_of(m) == obj]
+            built = [m for m in members if m in specs]
+            if 0 < len(built) < len(members):
+                info = {"object": obj, "built": built, "missing": [m for m in members if m not in built],
+                        "total": len(members)}
+                args.partial_objects[built[0] if len(built) == 1 else obj] = info
     os.makedirs(args.out, exist_ok=True)
     out = {"schema": SCHEMA, "ran": True, "engine": engine, "source": source, "gate": None,
            "warnings": [], "errors": []}
@@ -887,23 +981,92 @@ def cmd_run(args) -> dict:
     return out
 
 
+def _resolve_source(name: str, given: list[str]) -> str | None:
+    """The file a manifest's recorded source name (a base name) stands for: a --source of that
+    name, else a file of that name next to one of them, in the skill's own library folders
+    (blender_builder.py, parts.py, sdf.py) or in the working directory."""
+    for s in given:
+        if os.path.basename(s) == name:
+            return s
+    folders = [os.path.dirname(s) for s in given] + [ENGINES_DIR, HERE, os.getcwd()]
+    for folder in folders:
+        cand = os.path.join(folder, name)
+        if os.path.isfile(cand):
+            return os.path.abspath(cand)
+    return None
+
+
+def prior_manifest(stl: str, given: list[str], params: dict) -> tuple[dict | None, list[str]]:
+    """What an earlier build recorded for this STL, when its manifest describes this very file
+    (artifact_sha256 matches): {"engine", "names", "sources" (resolved paths), "fresh"} and the
+    notes to lift. `fresh` is that manifest's own verdict against its recorded sources and the
+    current parameters; a source that cannot be found makes it not fresh (nothing is guessed).
+    None when there is no such manifest."""
+    mf = validate.manifest_path(stl)
+    if not os.path.isfile(mf):
+        return None, []
+    try:
+        with open(mf, encoding="utf-8") as f:
+            man = json.load(f)
+        if not isinstance(man, dict) or man.get("artifact_sha256") != validate.file_sha256(stl):
+            return None, []
+    except (OSError, json.JSONDecodeError, ValueError):
+        return None, [f"{os.path.basename(stl)}: its manifest could not be read; a new one is written"]
+    names = [str(n) for n in (man.get("sources") or [])]
+    resolved, notes = [], []
+    for n in names:
+        path = _resolve_source(n, given)
+        if path:
+            resolved.append(path)
+        else:
+            notes.append(f"{os.path.basename(stl)}: its manifest names the source {n!r}, which is not among --source "
+                         "and was not found next to them; pass it with --source, or rebuild the part")
+    fresh = bool(names) and len(resolved) == len(names) and man.get("input_hash") == validate.hash_inputs(resolved, params)
+    return {"engine": man.get("engine") or "unknown", "names": names, "sources": resolved, "fresh": fresh}, notes
+
+
+def threemf_stem(objects: list[str]) -> str:
+    """The core 3MF's name for `record`: the object (one), the objects joined, or the first
+    and a count when that would be long; never the first source's name (S3-15)."""
+    joined = "_".join(objects)
+    return objects[0] if len(objects) == 1 else joined if len(joined) <= 60 else f"{objects[0]}_and_{len(objects) - 1}_more"
+
+
 def cmd_record(args) -> dict:
+    t0 = time.time()
     params = load_params(args.params)
     missing = [s for s in args.source if not os.path.isfile(s)]
     if missing:
         raise ValueError(f"source not found: {missing}")
     specs = part_specs(params, "part")
-    parts = []
-    for stl in args.stl:
-        name = os.path.splitext(os.path.basename(stl))[0]
-        parts.append({"name": name, "stl": stl, "engine_warnings": []})
-        specs.setdefault(name, {})
+    given = [os.path.abspath(s) for s in args.source]
     out = {"schema": SCHEMA, "ran": True, "engine": args.engine, "source": args.source[0], "gate": None,
            "warnings": [], "errors": []}
+    parts, extra = [], set()
+    for stl in args.stl:
+        name = os.path.splitext(os.path.basename(stl))[0]
+        part = {"name": name, "stl": stl, "engine_warnings": []}
+        # An STL that `run` (or an earlier record) already described: its manifest's own freshness
+        # decides whether it may be re-stamped, and its sources join the freshness hash (S3-1, S3-2).
+        prior, notes = prior_manifest(stl, given, params)
+        out["warnings"] += notes
+        if prior:
+            extra.update(prior["sources"])
+            part["prior_manifest"] = {"engine": prior["engine"], "sources": prior["names"], "fresh": prior["fresh"]}
+            part["_prior"] = prior                             # finish() keeps it; a stale one is an R3 FAIL
+        parts.append(part)
+        specs.setdefault(name, {})
     os.makedirs(args.out, exist_ok=True)
     args.source_main = args.source[0]
-    return finish(out, parts, sorted(os.path.abspath(s) for s in args.source), params, args.params, specs, args,
-                  args.engine)
+    try:
+        objects = [g["name"] for g in assembly.group_parts({p["name"]: specs.get(p["name"], {}) for p in parts})]
+    except assembly.AssemblyError:                            # finish() reports it; the file is named after the parts
+        objects = [p["name"] for p in parts]
+    args.threemf_stem = threemf_stem(objects)
+    sources = sorted(set(given) | extra, key=lambda s: (os.path.basename(s), s))
+    out = finish(out, parts, sources, params, args.params, specs, args, args.engine)
+    out["seconds"] = round(time.time() - t0, 2)
+    return out
 
 
 class _JsonArgParser(argparse.ArgumentParser):
@@ -919,14 +1082,15 @@ Prints one JSON document (schema 3dprint-scout.build/1):
   objects[] name, parts, gate, checks (D2 / P1 / P2 of the whole object when it has
             several parts), metrics, rotation_deg
   sources   files hashed into the manifests (pass the same list to validate.py)
-  threemf   core 3MF written in --out;  warnings / errors: read these two lists first
+  threemf   core 3MF written in --out;  warnings / errors: read these two lists first (every
+            hard FAIL of a part, object or assembly check is one line in errors)
 Full description: references/parts.md. Exit 0 = ran (read gate), 1 = build or usage error."""
 
 
 def _common(p):
     p.add_argument("--params", help="params.json: _parts (expect, object, role), engine parameters")
     p.add_argument("--out", default="out", help="working folder, rewritten on every build (default out)")
-    p.add_argument("--3mf", dest="threemf", help="3MF file name (default: <source>.3mf)")
+    p.add_argument("--3mf", dest="threemf", help="3MF file name (default: run: <source>.3mf; record: <object>.3mf)")
     p.add_argument("--no-3mf", action="store_true", help="skip the core 3MF")
     p.add_argument("--tol", type=float, help="D1 tolerance in mm (default 0.1)")
     p.add_argument("--printer", help=".3dprint/printers.json (a missing file leaves D2 UNVERIFIED)")

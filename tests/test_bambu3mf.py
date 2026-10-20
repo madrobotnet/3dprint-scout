@@ -470,6 +470,18 @@ class Safety(Base):
         self.assertEqual(code, 0)
         self.assertTrue(out["ran"])
         self.assertEqual(out["printer_model"], "Test Printer")
+        for argv in (["--help"], ["-h"]):                                       # S3-17: usage, not an ENOENT in JSON
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                code = bambu3mf.main(argv)
+            self.assertEqual(code, 0)
+            self.assertTrue(buf.getvalue().startswith("usage: bambu3mf.py job.json"))
+            self.assertIn('"template"', buf.getvalue())
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            code = bambu3mf.main([])
+        self.assertEqual(code, 1)
+        self.assertIn("-h for the job file format", json.loads(buf.getvalue())["errors"][0])
 
 
 if __name__ == "__main__":

@@ -25,8 +25,9 @@ Schema (params.json, metadata keys never reach the engine):
 Checks (IDs continue the SKILL.md table):
   per object (only when it has several parts): D2, P1, P2 on the union of its parts, so
     a fused part that floats or overhangs on its own is judged as part of the whole;
-  per part: A1 (fused: shares faces with another fused part, no overlap; hard; N/A when its
-    only partners are free parts) and A2 (free: FAIL on contact or overlap, WARN below the
+  per part: A1 (fused: shares faces with another fused part, no overlap, and when the part
+    is several bodies (letters) every body does; hard; N/A when its only partners are free
+    parts) and A2 (free: FAIL on contact or overlap, WARN below the
     clearance less a 0.01 mm / 2 % tessellation slack, like fit.py's F3; hard).
 
 The union and the gap measurements need manifold3d; without it the object's D2 and P1
@@ -52,6 +53,8 @@ SKIN = 0.01                      # mm; bodies exported separately (Fusion, OpenS
 #                                  few hundredths of a mm3. Allowed overlap = SKIN x shared area.
 GAP_SEARCH = 5.0                 # mm; a part farther than this from every other part "floats"
 TOUCH_EPS = 0.01                 # mm; a gap below this means the surfaces touch (same tessellation slack)
+CONTACT_TOL = SKIN + TOUCH_EPS   # mm; a downward face this close to two parts' surfaces is contact, not overhang
+CONTACT_CELL = 2.0               # mm; grid cell of that search (the tolerance itself would be far too fine)
 
 
 class AssemblyError(ValueError):
@@ -137,6 +140,66 @@ def _tris_of(man):
     return [(tuple(V[a]), tuple(V[b]), tuple(V[c])) for a, b, c in mesh.tri_verts.tolist()]
 
 
+def _contact_overhang(union, mans, overhang_angle):
+    """Overhang area of the union that is contact, not overhang: downward faces within
+    CONTACT_TOL of the surfaces of two or more parts, the unmerged underside of a fused part
+    sitting on another part (letters cut to a curved face, exported by another engine, keep
+    their own tessellation, so the union leaves both faces in place; S3-4). Returns
+    (area_mm2, triangle count), or None when numpy is not there."""
+    try:
+        import numpy as np
+        from fit import distances_to_mesh
+    except ImportError:
+        return None
+    mesh = union.to_mesh()
+    V = np.asarray(mesh.vert_properties[:, :3], dtype=np.float64)
+    F = np.asarray(mesh.tri_verts, dtype=np.int64)
+    A, B, C = V[F[:, 0]], V[F[:, 1]], V[F[:, 2]]
+    n = np.cross(B - A, C - A)
+    area2 = np.linalg.norm(n, axis=1)
+    ok = area2 > 2 * validate.DEGENERATE_AREA
+    nz = np.where(ok, n[:, 2] / np.where(ok, area2, 1.0), 0.0)
+    theta = np.degrees(np.arccos(np.clip(-nz, -1.0, 1.0)))
+    zmin = V[:, 2].min()
+    on_bed = (np.maximum(np.maximum(A[:, 2], B[:, 2]), C[:, 2]) <= zmin + validate.BED_EPS) & (nz < -0.99)
+    over = ok & ~on_bed & (theta < 90.0 - overhang_angle)
+    if not over.any():
+        return 0.0, 0
+    P = (A[over] + B[over] + C[over]) / 3
+    hits = np.zeros(len(P), dtype=np.int64)
+    for man in mans.values():
+        m = man.to_mesh()
+        Vp = np.asarray(m.vert_properties[:, :3], dtype=np.float64)
+        Fp = np.asarray(m.tri_verts, dtype=np.int64)
+        hits += distances_to_mesh(P, Vp, Fp, CONTACT_TOL, cell=CONTACT_CELL) <= CONTACT_TOL
+    contact = hits >= 2
+    return float((area2[over][contact] / 2).sum()), int(contact.sum())
+
+
+def _loose_shells(man, partners):
+    """([{shell, bbox_min_mm, bbox_max_mm, gap_mm}], shell count): the separate bodies of a
+    fused part that neither touch nor overlap any of the partner manifolds. One body: ([], 1)."""
+    comps = man.decompose()
+    if len(comps) <= 1:
+        return [], 1
+    loose = []
+    for i, c in enumerate(comps):
+        nearest = GAP_SEARCH
+        for q in partners:
+            inter = c ^ q
+            if not inter.is_empty() and inter.volume() > 0:
+                nearest = 0.0
+                break
+            nearest = min(nearest, c.min_gap(q, GAP_SEARCH))
+            if nearest <= TOUCH_EPS:
+                break
+        if nearest > TOUCH_EPS:
+            lo, hi = c.bounding_box()[:3], c.bounding_box()[3:]
+            loose.append({"shell": i, "bbox_min_mm": [round(v, 2) for v in lo], "bbox_max_mm": [round(v, 2) for v in hi],
+                          "gap_mm": round(nearest, 3)})
+    return loose, len(comps)
+
+
 # --------------------------------------------------------------------------- #
 # Object-level checks
 # --------------------------------------------------------------------------- #
@@ -150,8 +213,9 @@ def _p1_p2(m, overhang_angle):
                          "" if p1 else "little or no flat area on the bed (whole object)"),
             validate.chk("PASS" if p2 else "WARN", "soft",
                          {"overhang_pct": m["overhang_pct"], "overhang_area_mm2": m["overhang_area_mm2"],
-                          "max_angle_deg": overhang_angle},
-                         "" if p2 else "the assembled object overhangs: supports or a redesign"))
+                          "steepest_deg": m.get("overhang_steepest_deg"), "limit_deg": overhang_angle},
+                         "" if p2 else f"the assembled object overhangs: supports or a redesign ({m['overhang_pct']} % of "
+                                       f"the surface is flatter than {overhang_angle:g} deg from vertical)"))
 
 
 def check_object(obj: dict, stls: dict, specs: dict, bed=None, bed_source=None, overhang_angle=45.0,
@@ -165,6 +229,7 @@ def check_object(obj: dict, stls: dict, specs: dict, bed=None, bed_source=None, 
     out = {"name": obj["name"], "parts": {}, "checks": {}, "metrics": {}, "warnings": []}
     m3d = _manifold()
     mans = None
+    contact = None
     if m3d is not None:
         mans = {n: _to_manifold(m3d, tris[n], n) for n in names}
         union = mans[names[0]]
@@ -172,6 +237,12 @@ def check_object(obj: dict, stls: dict, specs: dict, bed=None, bed_source=None, 
             union = union + mans[n]
         m = validate.analyse(_tris_of(union), overhang_angle)
         out["method"] = "union of the parts (manifold3d): shared faces vanish, so overhang and bed contact are the object's"
+        contact = _contact_overhang(union, mans, overhang_angle)
+        if contact and contact[0] > 0:
+            # Faces the union kept on both sides of a contact (different tessellations) are not overhang.
+            m["overhang_area_mm2"] = round(max(0.0, m["overhang_area_mm2"] - contact[0]), 3)
+            m["overhang_pct"] = round(100.0 * m["overhang_area_mm2"] / m["area_mm2"], 2) if m["area_mm2"] else 0.0
+            m["contact_area_mm2"] = round(contact[0], 3)
     else:
         m = validate.analyse([t for n in names for t in tris[n]], overhang_angle)
         out["method"] = "concatenated triangles (manifold3d not installed): bounding box and bed contact only"
@@ -189,9 +260,17 @@ def check_object(obj: dict, stls: dict, specs: dict, bed=None, bed_source=None, 
                                            note="needs manifold3d to remove the faces the parts share")
     else:
         out["checks"]["P2"] = p2
+        if contact is None:
+            p2["note"] = (p2.get("note", "") + "; numpy missing: downward faces of fused contacts the union did not merge "
+                          "(different tessellations) may inflate this").lstrip("; ")
+        elif contact[0] > 0:
+            p2["value"]["contact_area_mm2"] = round(contact[0], 3)
+            p2["note"] = (p2.get("note", "") + f"; {contact[0]:.1f} mm2 of downward faces within {CONTACT_TOL} mm of "
+                          "another part (fused contacts the union did not merge) left out").lstrip("; ")
     m.pop("_hull", None)
-    out["metrics"] = {k: m[k] for k in ("triangles", "bbox_mm", "bbox_min_mm", "volume_mm3", "shells",
-                                        "bed_contact_mm2", "overhang_area_mm2", "overhang_pct")}
+    keys = ("triangles", "bbox_mm", "bbox_min_mm", "volume_mm3", "shells", "bed_contact_mm2", "overhang_area_mm2",
+            "overhang_pct", "contact_area_mm2")
+    out["metrics"] = {k: m[k] for k in keys if k in m}
     out["rotation_deg"] = (out["checks"]["D2"].get("value") or {}).get("rotation_deg", 0) or 0
 
     # A1 / A2 per part.
@@ -239,8 +318,24 @@ def check_object(obj: dict, stls: dict, specs: dict, bed=None, bed_source=None, 
                     "by its own rules)", "phase4")
             elif touching:
                 value["touches"] = [p["part"] for p in touching]
-                entry["checks"]["A1"] = validate.chk("PASS", "hard", value,
-                                                     "shares faces with " + ", ".join(value["touches"]))
+                # A fused part of several bodies (letters, dots): every body must sit on the object,
+                # not only the part as a whole; a floating letter is a FAIL (S3-3).
+                loose, n_shells = _loose_shells(mans[n], [mans[p["part"]] for p in fused_partners])
+                value["shells"] = n_shells
+                if loose:
+                    value["loose_shells"] = loose
+                    what = "; ".join(f"shell {s['shell']} at x {s['bbox_min_mm'][0]}..{s['bbox_max_mm'][0]}, "
+                                     f"y {s['bbox_min_mm'][1]}..{s['bbox_max_mm'][1]}, z {s['bbox_min_mm'][2]}.."
+                                     f"{s['bbox_max_mm'][2]} ({s['gap_mm']} mm off)" for s in loose)
+                    entry["checks"]["A1"] = validate.chk(
+                        "FAIL", "hard", value,
+                        f"{len(loose)} of its {n_shells} bodies touch nothing of the object: {what}; a fused part's "
+                        "every body (each letter, each dot) must sit on another part, move or sink it", "phase4")
+                else:
+                    note = "shares faces with " + ", ".join(value["touches"])
+                    if n_shells > 1:
+                        note += f" (all {n_shells} bodies)"
+                    entry["checks"]["A1"] = validate.chk("PASS", "hard", value, note)
             else:
                 near = f"nearest part {nearest['part']} at {nearest['gap_mm']} mm" if nearest else "no other part"
                 entry["checks"]["A1"] = validate.chk(

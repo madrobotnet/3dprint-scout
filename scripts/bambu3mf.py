@@ -706,10 +706,13 @@ def build(job: dict) -> dict:
 
 def main(argv=None):
     argv = sys.argv[1:] if argv is None else argv
+    if any(a in ("-h", "--help") for a in argv):
+        print("usage: bambu3mf.py job.json\n\n" + __doc__.strip())
+        return 0
     out = {"schema": SCHEMA, "ran": False, "warnings": [], "errors": []}
     try:
         if len(argv) != 1:
-            raise JobError("usage: bambu3mf.py job.json")
+            raise JobError("usage: bambu3mf.py job.json (-h for the job file format)")
         with open(argv[0], encoding="utf-8") as f:
             job = json.load(f)
         for key in ("template", "out", "parts"):

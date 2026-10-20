@@ -10,6 +10,7 @@ library only; one JSON document per call.
   python3 strength.py link --b 4 --h 2.5 --length 15 --bow 0 --load finger_push --material pla_basic --orientation xy
   python3 strength.py bearing --d 3.3 --t 8 --edge 2.2 --load finger_push --material pla_basic --orientation xy
   python3 strength.py hinge --pin-d 2.4 --knuckle-d 7.4 --knuckles 5 --length 36 --gap 0.3 --clearance 0.3 --pin integral --duty lid --load finger_pull --material pla_basic --orientation xy
+  python3 strength.py snap --length 16 --h 1.6 --b 6 --undercut 0.8 --material pla_basic --orientation xy [--repeated]
   python3 strength.py materials            # the data table with its sources
   python3 strength.py loads                # the hand-force table with its source
   python3 strength.py duties               # the P7 floors per duty (latch, lid, decorative) with their sources
@@ -80,6 +81,19 @@ Cases
            the checks are reported with "informational": true. The "moments_nmm" keys depend
            on the layout: interior_end_nmm and interior_mid_nmm (integral, interior knuckles),
            interior_nmm (loose, interior knuckles), end_nmm (an end knuckle, k even).
+
+  snap     a straight cantilever snap arm printed flat, as parts.snap_hook builds it: length L
+           (--length), thickness h in the flexing direction (--h), width b (--b), deflected by
+           the undercut y (--undercut) at full travel. Strain at the root e = 1.5 h y / (L^2 Q)
+           (BASF snap-fit design manual; Q 1 for a rigid wall, about 2 for a thin one, --q)
+           against the material family's one-time design strain (SNAP_STRAIN, the copy
+           parts.snap_fit_check uses; x 0.6 with --repeated for a joint opened often): PASS or
+           FAIL, no margin on top (the limit holds it). The deflection force P = 3 E I y / (Q L^3)
+           is the arm's own load (no --load: a hand force is bounded by the release force); the
+           bending stress at the root, sigma = E e, is checked against the bending strength at
+           --sf. Insertion and release forces over the entry ramp (--entry-angle, 30) and the
+           retention face (--retention-angle, 90 = none without a release window):
+           W = P (mu + tan a) / (1 - mu tan a) with --friction (0.3, a starting point).
 
 Loads: a number in N, or a hand-force key from the table (finger_push, finger_pull,
 pinch_lateral, pinch_palmar, grasp) whose design value is the male mean plus one standard
@@ -211,14 +225,26 @@ DUTIES = {
 }
 DUTY_NAMES = tuple(DUTIES)
 
+# One-time design strain for a cantilever snap arm printed flat (the beam flexing within the
+# layer plane), by material family (the one copy; parts.py reads it from here). Starting
+# points, calibrate with a test hook: derived from bulk one-time values (Bayer: PC 4 %,
+# PC/ABS 2.5 %) and printed break strains (Fictiv: PLA 4-8 %, ABS 7 %, nylon 4-15 %) with a
+# safety factor for layer bonds (references/design.md, snap fits). A joint opened often takes
+# 60 % of it (Bayer design guide).
+SNAP_STRAIN = {"PLA": 0.010, "PETG": 0.015, "ABS": 0.020, "ASA": 0.020, "PC": 0.025, "PA": 0.030, "NYLON": 0.030}
+SNAP_REPEATED = 0.6
+SNAP_FRICTION = 0.3         # plastic on plastic, dry: a starting point (BASF snap-fit design manual table), --friction
+
 
 HINGE_ONLY = ("pin_d", "knuckle_d", "knuckles", "knuckle_len", "clearance", "hole", "pin", "duty")
+SNAP_ONLY = ("undercut", "q", "entry_angle", "retention_angle", "friction", "repeated")
 # Options of the other cases that mean nothing to a hinge (--length, --gap and --load-across-layers are shared).
 NOT_HINGE = ("d", "engagement", "support_t", "shear", "support", "b", "h", "bow", "t", "edge")
 CASE_INPUTS = {"pin": {"d", "engagement", "support_t", "gap", "shear", "support", "load_across_layers"},
                "beam": {"b", "h", "length", "support"}, "link": {"b", "h", "length", "bow"}, "bearing": {"d", "t", "edge"},
                "hinge": {"pin_d", "knuckle_d", "knuckles", "length", "knuckle_len", "gap", "clearance", "hole", "pin", "duty",
-                         "load_across_layers"}}
+                         "load_across_layers"},
+               "snap": {"b", "h", "length", "undercut", "q", "repeated", "entry_angle", "retention_angle", "friction"}}
 
 
 class StrengthError(Exception):
@@ -590,6 +616,100 @@ def case_hinge(args, mat, F, o):
     return checks, notes, extra
 
 
+def snap_strain(length: float, thickness: float, deflection: float, q: float = 1.0) -> float:
+    """Maximum strain at the root of a uniform cantilever deflected by `deflection` at its tip:
+    e = 1.5 t y / (L^2 Q) (BASF snap-fit design manual; Q = 1 for a beam on a rigid wall, about
+    2 for a short beam on a thin wall). The same formula as parts.snap_fit_strain."""
+    if length <= 0 or thickness <= 0:
+        raise StrengthError("--length and --h must be positive")
+    if q <= 0:
+        raise StrengthError("--q must be positive (1 for a rigid wall, up to about 2 for a thin one)")
+    return 1.5 * thickness * deflection / (length ** 2 * q)
+
+
+def snap_family(mat: dict) -> str:
+    """The SNAP_STRAIN family of a Bambu material key: pla_basic -> PLA, petg_hf -> PETG."""
+    family = mat["key"].split("_")[0].upper()
+    if family not in SNAP_STRAIN:
+        raise StrengthError(f"no snap strain limit for {mat['key']}; families: {', '.join(SNAP_STRAIN)}")
+    return family
+
+
+def mating_force(P: float, angle_deg: float, mu: float):
+    """Force to push the arm over a ramp of `angle_deg` from the mating direction while it
+    carries the deflection force P: W = P (mu + tan a) / (1 - mu tan a) (BASF). None at 90
+    degrees or past the self-locking angle (the joint does not come apart that way)."""
+    if angle_deg >= 90.0:
+        return None
+    t = math.tan(math.radians(angle_deg))
+    if 1.0 - mu * t <= 0:
+        return None
+    return P * (mu + t) / (1.0 - mu * t)
+
+
+def case_snap(args, mat, o):
+    """A straight cantilever snap arm printed flat (parts.snap_hook): strain at full deflection
+    against the material family's one-time design strain (x 0.6 when the joint is opened often),
+    the force that deflection takes (the arm's own load, no hand-force key), the bending
+    stress it causes (sigma = E e) against the bending strength, and the insertion and release
+    forces over the ramps. Returns (checks, notes, extra, load N, load description)."""
+    positive(args, "b", "h", "length", "undercut")
+    non_negative(args, "friction")
+    if args.load is not None:
+        raise StrengthError("a snap arm's load is its own deflection force (from the undercut): do not pass --load; "
+                            "a hand force is bounded by the release force this case reports")
+    q = 1.0 if args.q is None else args.q
+    entry = 30.0 if args.entry_angle is None else args.entry_angle
+    retention = 90.0 if args.retention_angle is None else args.retention_angle
+    mu = SNAP_FRICTION if args.friction is None else args.friction
+    if not 0 < entry < 90 or not 0 < retention <= 90:
+        raise StrengthError("--entry-angle is between 0 and 90 degrees, --retention-angle between 0 and 90 (90: no release)")
+    args.q, args.entry_angle, args.retention_angle, args.friction = q, entry, retention, mu
+    b, h, L, y = args.b, args.h, args.length, args.undercut
+    family = snap_family(mat)
+    limit = SNAP_STRAIN[family] * (SNAP_REPEATED if args.repeated else 1.0)
+    e = snap_strain(L, h, y, q)
+    max_y = limit * L ** 2 * q / (1.5 * h)
+    E = mat["flex_modulus"][o]
+    I = b * h ** 3 / 12
+    P = 3 * E * I * y / (q * L ** 3)                      # y = Q P L^3 / (3 E I)
+    sigma = E * e                                         # = 6 P L / (b h^2) for a cantilever
+    checks = {
+        "strain": {"state": "PASS" if e <= limit else "FAIL", "strain": round(e, 5), "limit": limit,
+                   "sf_achieved": round(limit / e, 2) if e > 0 else None, "sf_required": 1.0,
+                   "formula": "e = 1.5 h y / (L^2 Q) at the root, full deflection y = the undercut",
+                   "strength_basis": f"one-time design strain of {family} {SNAP_STRAIN[family]:.1%}"
+                                     + (f" x {SNAP_REPEATED} for a joint opened often" if args.repeated else "")
+                                     + " (design.md, snap fits: starting points, calibrate with a test hook)"},
+        "bending": check("bending", sigma, mat["flex"][o], args.sf, "sigma = E e = 6 P L / (b h^2) at the root",
+                         f"bending strength {o.upper()} {mat['flex'][o]} MPa, modulus {E} MPa (ISO 178)"),
+    }
+    w_in, w_rel = mating_force(P, entry, mu), mating_force(P, retention, mu)
+    notes = [f"deflection force P = 3 E I y / (Q L^3) = {P:.2f} N for y = {y} mm (E {E} MPa {o.upper()}, "
+             f"I = b h^3 / 12 = {I:.4f} mm4, Q = {q:g}): the arm's own load; a hand force on the joint is bounded by "
+             "the release force, not by a hand-force key",
+             f"max deflection at the strain limit: {max_y:.3f} mm (undercut {y} mm"
+             + (" is over it: lengthen or thin the arm, never thicken it" if y > max_y + 1e-9 else " fits") + ")",
+             f"insertion force over the {entry:g} deg entry ramp: "
+             + (f"{w_in:.1f} N" if w_in is not None else "not computable (self-locking ramp)")
+             + f"; release force over the {retention:g} deg retention face: "
+             + (f"{w_rel:.1f} N" if w_rel is not None else "none (90 deg or self-locking: it needs a release window "
+                                                            "or a tool, parts.snap_hook)")
+             + f"; W = P (mu + tan a) / (1 - mu tan a) with mu = {mu:g} (plastic on plastic, dry: a starting point)",
+             "the arm prints flat and flexes within the layer plane (parts.snap_hook): pass --orientation xy for its "
+             "modulus and strength; z is the conservative default" if o == "z" else
+             "orientation xy: the arm prints flat and flexes within the layer plane (parts.snap_hook)",
+             f"length / thickness = {L / h:.1f} (design.md: about 5 to 10 for a PLA arm)"]
+    extra = {"snap": {"strain": round(e, 5), "limit": limit, "family": family, "repeated": bool(args.repeated),
+                      "max_deflection_mm": round(max_y, 3), "deflection_force_N": round(P, 3),
+                      "insertion_force_N": round(w_in, 2) if w_in is not None else None,
+                      "release_force_N": round(w_rel, 2) if w_rel is not None else None,
+                      "friction": mu, "q": q, "I_mm4": round(I, 4), "length_to_thickness": round(L / h, 2)}}
+    load_desc = (f"the arm's own deflection force at the {y} mm undercut (3 E I y / (Q L^3)); no hand-force key "
+                 "applies to a flexure")
+    return checks, notes, extra, P, load_desc
+
+
 def hinge_minimums(duty: str, pin_d: float, wall: float, knuckle_len: float, knuckles: int) -> dict:
     """Compare a hinge's pin, wall, knuckle length and, for a lid, knuckle count with the P7
     floors of its duty."""
@@ -624,7 +744,7 @@ def run(args) -> dict:
         return {"duties": DUTIES, "note": "P7 floors per duty (design.md, Mechanisms that carry load); parts.hinge(duty=...) "
                                           "refuses thinner values; a lid hinge is sized by the hinge case plus a coupon print"}
     mat = material(args.material)
-    F, load_desc = load_value(args.load)
+    F, load_desc = load_value(args.load) if args.case != "snap" else (None, None)
     o = args.orientation
     if o not in ("xy", "z"):
         raise StrengthError("--orientation is xy (stress within the layer plane) or z (stress across layers)")
@@ -639,7 +759,11 @@ def run(args) -> dict:
         stray = [f"--{n.replace('_', '-')}" for n in HINGE_ONLY if getattr(args, n) is not None]
         if stray:
             raise StrengthError(f"{', '.join(stray)} belong to the hinge case only (this is case {args.case})")
-    else:
+    if args.case != "snap":
+        stray = [f"--{n.replace('_', '-')}" for n in SNAP_ONLY if getattr(args, n) not in (None, False)]
+        if stray:
+            raise StrengthError(f"{', '.join(stray)} belong to the snap case only (this is case {args.case})")
+    if args.case == "hinge":
         stray = [f"--{n.replace('_', '-')}" for n in NOT_HINGE if getattr(args, n) is not None]
         if stray:
             raise StrengthError(f"{', '.join(stray)} do not apply to the hinge case (they belong to pin, beam, link or "
@@ -656,8 +780,10 @@ def run(args) -> dict:
         checks, notes = case_bearing(args, mat, F, o)
     elif args.case == "hinge":
         checks, notes, extra = case_hinge(args, mat, F, o)
+    elif args.case == "snap":
+        checks, notes, extra, F, load_desc = case_snap(args, mat, o)
     else:
-        raise StrengthError("case must be pin, beam, link, bearing, hinge, materials, loads or duties")
+        raise StrengthError("case must be pin, beam, link, bearing, hinge, snap, materials, loads or duties")
     states = [c["state"] for c in checks.values()]
     gate = "FAIL" if "FAIL" in states else "WARN" if "WARN" in states else "PASS"
     duty = getattr(args, "duty", None) if args.case == "hinge" else None
@@ -668,7 +794,7 @@ def run(args) -> dict:
         gate = "FAIL"
     worst = min(checks.values(), key=lambda c: c["sf_achieved"] if c["sf_achieved"] is not None else math.inf)
     assumptions = [
-        f"load {F} N: {load_desc}",
+        f"load {round(F, 3) if args.case == 'snap' else F} N: {load_desc}",
         f"material {mat['name']} ({mat['tds']}, retrieved {mat['retrieved']}), {o.upper()} values: the stress "
         + ("acts within the layer plane" if o == "xy" else "crosses the layers (layer adhesion)") + ("; z is the conservative default" if args.orientation_defaulted else ""),
         f"safety factor {args.sf}: data-sheet specimens are 100 % infill, dried and annealed; a part has walls, infill, "
@@ -677,11 +803,20 @@ def run(args) -> dict:
         "(fillet the roots), no fatigue, no impact, no lever ratio (pass the amplified force when a lever multiplies "
         "the hand force)",
     ] + notes
+    if args.case == "snap":
+        assumptions[2] = (f"safety factor {args.sf} on the bending stress only; the strain check compares the strain "
+                          "with the one-time design limit as it is (the limit already holds the layer-bond margin)")
     keep = {"load", "material", "orientation", "sf"} | CASE_INPUTS[args.case]
     inputs = {k: v for k, v in vars(args).items() if k in keep and v is not None and v is not False}
     next_step = {"PASS": "size holds on paper; the margin covers the usual unknowns",
                  "WARN": "short margin: thicken the member, or print the mechanism alone first (SKILL.md, Phase 4)",
                  "FAIL": "the member breaks on paper: redesign before printing"}[gate]
+    if args.case == "snap":
+        next_step = {"PASS": "the arm holds on paper; print the snap alone first and feel the insertion force (Phase 4)",
+                     "WARN": "short bending margin: lengthen the arm or reduce the undercut (not thicker: that raises the "
+                             "strain), or print the snap alone first",
+                     "FAIL": "the arm yields or breaks on paper: lengthen it, thin it or reduce the undercut, never "
+                             "thicken it"}[gate]
     if floors_fail:
         below = [k for k, v in extra["minimums"].items() if isinstance(v, dict) and v.get("state") == "FAIL"]
         next_step = (f"under the {extra['minimums']['duty']} floors ({', '.join(below)}): " +
@@ -731,8 +866,9 @@ def main(argv=None):
     out = {"schema": SCHEMA, "ran": False, "warnings": [], "errors": []}
     try:
         ap = _JsonArgParser(description="hand calculations for load-carrying members (Bambu Lab data-sheet values)")
-        ap.add_argument("case", choices=["pin", "beam", "link", "bearing", "hinge", "materials", "loads", "duties"])
-        ap.add_argument("--load", help="force in N, or finger_push, finger_press, finger_pull, pinch_lateral, pinch_palmar, grasp")
+        ap.add_argument("case", choices=["pin", "beam", "link", "bearing", "hinge", "snap", "materials", "loads", "duties"])
+        ap.add_argument("--load", help="force in N, or finger_push, finger_press, finger_pull, pinch_lateral, pinch_palmar, grasp "
+                                       "(not for snap: its load is its own deflection force)")
         ap.add_argument("--material", help="pla_basic, pla_matte, pla_pure, petg_basic, petg_hf, abs, asa")
         ap.add_argument("--orientation", help="xy (stress within the layer plane) or z (across layers; default)")
         ap.add_argument("--sf", type=float, default=DEFAULT_SF, help=f"required safety factor (default {DEFAULT_SF})")
@@ -769,10 +905,19 @@ def main(argv=None):
         ap.add_argument("--duty", default=None, choices=list(DUTY_NAMES),
                         help="hinge: compare pin, wall, knuckle length (lid: and count) with this duty's P7 floors; "
                              "lid needs --sf 2 or more and a coupon print on top")
+        ap.add_argument("--undercut", type=float, help="snap: the catch's undercut = the arm's deflection at full travel (mm)")
+        ap.add_argument("--q", type=float, default=None, help="snap: deflection magnification, 1 (rigid wall, default) to about 2 (thin wall)")
+        ap.add_argument("--repeated", action="store_true", help="snap: the joint is opened often (60 %% of the strain limit)")
+        ap.add_argument("--entry-angle", type=float, dest="entry_angle", default=None, help="snap: lead-in ramp angle (deg, default 30)")
+        ap.add_argument("--retention-angle", type=float, dest="retention_angle", default=None,
+                        help="snap: retention face angle (deg, default 90: no release without a window)")
+        ap.add_argument("--friction", type=float, default=None, help=f"snap: friction coefficient over the ramps (default {SNAP_FRICTION})")
         args = ap.parse_args(join_negative_values(sys.argv[1:] if argv is None else argv))
         args.orientation_defaulted = args.orientation is None
         if args.orientation is None:
             args.orientation = "z"
+        if args.case == "snap" and args.material is None:
+            raise StrengthError("--material is required (the snap arm's load is its own deflection force, no --load)")
         if args.case in ("pin", "beam", "link", "bearing", "hinge"):
             if args.load is None or args.material is None:
                 raise StrengthError("--load and --material are required")
@@ -789,6 +934,8 @@ def main(argv=None):
                 args.bow = 0.0
             if args.case != "hinge" and args.gap is None:
                 args.gap = 0.0                           # the hinge resolves its own defaults (0.3, tolerances.md)
+        if args.case == "snap" and args.gap is None:
+            args.gap = 0.0
         out.update(run(args))
         out["ran"] = True
     except (StrengthError, ValueError) as exc:

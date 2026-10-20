@@ -118,6 +118,32 @@ class FitTestPieces(unittest.TestCase):
         f = validate_stl(out["steps"][0]["stl"])
         self.assertEqual(f["checks"]["M1"]["state"], "PASS")
 
+    def test_overwrite_only_under_the_working_folder(self):
+        """S4-10: a rerun into out/ replaces the pieces with --overwrite; a folder outside the
+        current directory (a delivered copy) is never replaced."""
+        cwd = os.getcwd()
+        os.chdir(self.d)
+        try:
+            code, out = run_fit_test("--profile", "circle", "--size", "12", "--out", "out/fit", "--steps", "2")
+            self.assertEqual(code, 0, out["errors"])
+            code, out = run_fit_test("--profile", "circle", "--size", "12", "--out", "out/fit", "--steps", "2")
+            self.assertEqual(code, 1)
+            self.assertIn("already exists", out["errors"][0])
+            self.assertIn("--overwrite", out["errors"][0])
+            code, out = run_fit_test("--profile", "circle", "--size", "12.4", "--out", "out/fit", "--steps", "2", "--overwrite")
+            self.assertEqual(code, 0, out["errors"])
+            self.assertEqual(out["profile"]["size_mm"], [12.4, 12.4])
+            with open(os.path.join("out", "fit", "fit.json"), encoding="utf-8") as f:
+                self.assertEqual(json.load(f)["profile"]["size_mm"], [12.4, 12.4])     # rewritten
+            with tempfile.TemporaryDirectory() as elsewhere:
+                code, out = run_fit_test("--profile", "circle", "--size", "12", "--out", elsewhere, "--steps", "1")
+                self.assertEqual(code, 0, out["errors"])
+                code, out = run_fit_test("--profile", "circle", "--size", "12", "--out", elsewhere, "--steps", "1", "--overwrite")
+                self.assertEqual(code, 1)
+                self.assertIn("working folder under the current directory only", out["errors"][0])
+        finally:
+            os.chdir(cwd)
+
     def test_usage_errors_are_json(self):
         code, out = run_fit_test("--profile", "rect", "--size", "10", "--out", os.path.join(self.d, "x"))
         self.assertEqual(code, 1)
@@ -199,6 +225,9 @@ class FitCheck(unittest.TestCase):
         # plug 56.6 x 36.6 overlaps the 2 mm walls by 0.3 mm on each side over 5 mm height
         self.assertAlmostEqual(f3["value"]["interference_mm3"], (56.6 * 36.6 - 56 * 36) * 5, delta=1.0)
         self.assertEqual(out["metrics"]["play"], [])                               # not measured when overlapping
+        self.assertIn("designed snap or press fit", f3["note"])                     # S2-F06: not "shrink" for a snap
+        self.assertIn("intended undercut", f3["note"])
+        self.assertIn("otherwise one part must shrink", f3["note"])
 
     def test_far_apart_and_custom_directions(self):
         code, out = run_fit(self.box, self.lids["lid"], "--b-translate", "0,0,100")

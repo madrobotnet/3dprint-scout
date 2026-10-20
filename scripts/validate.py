@@ -227,6 +227,7 @@ def analyse(tris, overhang_angle=45.0) -> dict:
     degenerate = duplicate = 0
     volume = area_total = 0.0
     overhang_area = bed_area = 0.0
+    steepest = 0.0                         # the most overhanging face off the bed, degrees from vertical
     # Overhang: angle between face normal and straight down (-Z). A face is an
     # overhang when that angle is below (90 - max overhang angle from vertical).
     theta_limit = 90.0 - overhang_angle
@@ -257,8 +258,11 @@ def analyse(tris, overhang_angle=45.0) -> dict:
         on_bed = max(a[2], b[2], c[2]) <= zmin + BED_EPS
         if on_bed and nz < -0.99:
             bed_area += area
-        elif theta < theta_limit:
-            overhang_area += area
+        else:
+            if theta < theta_limit:
+                overhang_area += area
+            if nz < 0:
+                steepest = max(steepest, 90.0 - theta)
 
     # Edge topology. For a closed, consistently oriented mesh every undirected
     # edge is used by exactly two faces, once in each direction.
@@ -318,6 +322,7 @@ def analyse(tris, overhang_angle=45.0) -> dict:
         "bed_contact_mm2": round(bed_area, 3),
         "overhang_area_mm2": round(overhang_area, 3),
         "overhang_pct": round(100.0 * overhang_area / area_total, 2) if area_total else 0.0,
+        "overhang_steepest_deg": round(steepest, 1),
         "_hull": hull,
     }
 
@@ -564,7 +569,8 @@ def wall_thickness(tris, min_wall, samples=2000):
     state = "PASS" if p5 >= min_wall else "WARN"
     return (state, {"wall_p5_mm": round(p5, 3), "min_wall_mm": min_wall, "rays": int(len(picked)),
                     "max_depth_mm": P3_MAX_DEPTH},
-            "5th-percentile thickness from ray casting (approximate; depth capped)")
+            f"5th-percentile wall {p5:.2f} mm against the {min_wall:g} mm minimum (ray casting, approximate; depth "
+            f"capped at {P3_MAX_DEPTH:g} mm; on raised or inlaid text it measures the letters' depth)")
 
 
 # --------------------------------------------------------------------------- #
@@ -669,8 +675,10 @@ def run_checks(path, tris, m, args, bed, bed_source):
     p2_ok = m["overhang_pct"] <= 2.0
     c["P2"] = chk("PASS" if p2_ok else "WARN", "soft",
                   {"overhang_pct": m["overhang_pct"], "overhang_area_mm2": m["overhang_area_mm2"],
-                   "max_angle_deg": args.overhang_angle},
-                  "" if p2_ok else "overhangs need supports or a redesign")
+                   "steepest_deg": m["overhang_steepest_deg"], "limit_deg": args.overhang_angle},
+                  "" if p2_ok else f"overhangs need supports or a redesign ({m['overhang_pct']} % of the surface is "
+                                   f"flatter than {args.overhang_angle:g} deg from vertical, the steepest face "
+                                   f"{m['overhang_steepest_deg']} deg)")
 
     # P3 wall thickness (optional deps), P4-P6 not decidable here in v1
     st, val, note = wall_thickness(tris, args.min_wall) if args.wall_check else ("UNVERIFIED", None, "skipped")
@@ -694,11 +702,14 @@ def run_checks(path, tris, m, args, bed, bed_source):
                 params = json.load(f)
         given = source_names(args.source)
         built = man.get("sources")
-        fresh = man.get("input_hash") == hash_inputs(args.source, params)
+        # The manifest names what the STL was built from; extra --source files (another part's
+        # generator in a mixed build) do not make it stale. A missing one does.
+        own = [s for s in args.source if os.path.basename(s) in set(built)] if built and set(built) <= set(given) else args.source
+        fresh = man.get("input_hash") == hash_inputs(own, params)
         same = man.get("artifact_sha256") == file_sha256(path)
         if fresh and same:
             c["R3"] = chk("PASS", "hard")
-        elif not fresh and built is not None and given != built:
+        elif not fresh and built is not None and not set(built) <= set(given):
             c["R3"] = chk("FAIL", "hard", {"manifest_sources": built, "given_sources": given},
                           f"STALE or wrong --source list: the build hashed {built}, --source gave {given}; "
                           "pass the same files (build.py prints them as \"sources\"), or rebuild if the includes changed",

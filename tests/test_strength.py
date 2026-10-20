@@ -477,6 +477,81 @@ class Hinge(unittest.TestCase):
             self.assertIn("don't force the lid past fully open", f.read())
 
 
+class Snap(unittest.TestCase):
+    """S2-F02 / F07: the snap case uses parts.snap_fit_check's formula and limits; its load is
+    the arm's own deflection force, and the release force bounds what a hand can do."""
+
+    def test_matches_parts_snap_fit_check(self):
+        code, out = run("snap", "--length", "16", "--h", "1.6", "--b", "6", "--undercut", "0.8", "--material", "pla_basic",
+                        "--orientation", "xy")
+        self.assertEqual(code, 0, out.get("errors"))
+        self.assertEqual((out["case"], out["gate"]), ("snap", "PASS"))
+        snap = out["snap"]
+        self.assertAlmostEqual(snap["strain"], 1.5 * 1.6 * 0.8 / 16 ** 2, places=5)                # e = 1.5 h y / L^2
+        self.assertEqual((snap["limit"], snap["family"], snap["repeated"]), (0.01, "PLA", False))
+        self.assertAlmostEqual(snap["max_deflection_mm"], 0.01 * 16 ** 2 / (1.5 * 1.6), places=3)
+        self.assertEqual(out["checks"]["strain"]["state"], "PASS")
+        self.assertEqual(out["checks"]["strain"]["sf_required"], 1.0)                              # the limit carries the margin
+        try:
+            import parts                                                                            # needs manifold3d
+        except ImportError:
+            parts = None
+        if parts is not None:
+            ref = parts.snap_fit_check(16, 1.6, 0.8, "PLA")
+            self.assertEqual((snap["strain"], snap["limit"], snap["max_deflection_mm"]),
+                             (ref["strain"], ref["limit"], ref["max_deflection_mm"]))
+            self.assertEqual(dict(parts.SNAP_STRAIN), strength.SNAP_STRAIN)                        # one table
+            rep = parts.snap_fit_check(16, 1.6, 0.8, "PLA", repeated=True)
+            code, r = run("snap", "--length", "16", "--h", "1.6", "--b", "6", "--undercut", "0.8", "--material", "pla_basic", "--repeated")
+            self.assertEqual((r["snap"]["limit"], r["snap"]["repeated"]), (rep["limit"], True))
+        # The load is the deflection force P = 3 E I y / L^3 with the XY bending modulus; the bending
+        # stress at the root is E e; both ramps follow the BASF mating-force formula.
+        E, I = 2750, 6 * 1.6 ** 3 / 12
+        P = 3 * E * I * 0.8 / 16 ** 3
+        self.assertAlmostEqual(out["load_N"], P, places=2)
+        self.assertAlmostEqual(snap["deflection_force_N"], P, places=2)
+        self.assertAlmostEqual(out["checks"]["bending"]["stress_mpa"], E * snap["strain"], delta=0.02)
+        self.assertAlmostEqual(out["checks"]["bending"]["stress_mpa"], 6 * P * 16 / (6 * 1.6 ** 2), delta=0.02)
+        t = math.tan(math.radians(30))
+        self.assertAlmostEqual(snap["insertion_force_N"], P * (0.3 + t) / (1 - 0.3 * t), places=2)
+        self.assertIsNone(snap["release_force_N"])                                                 # 90 deg: a release window
+        self.assertTrue(any("own deflection force" in a for a in out["assumptions"]))
+        self.assertTrue(any("release window" in a for a in out["assumptions"]))
+        self.assertEqual(out["inputs"]["entry_angle"], 30.0)
+        self.assertNotIn("load", out["inputs"])
+        code, r = run("snap", "--length", "16", "--h", "1.6", "--b", "6", "--undercut", "0.8", "--material", "pla_basic",
+                      "--retention-angle", "45", "--friction", "0.2", "--q", "2")
+        t = math.tan(math.radians(45))
+        self.assertAlmostEqual(r["snap"]["release_force_N"], r["load_N"] * (0.2 + t) / (1 - 0.2 * t), places=2)
+        self.assertAlmostEqual(r["snap"]["strain"], 1.5 * 1.6 * 0.8 / (16 ** 2 * 2), places=5)      # Q halves the strain
+        self.assertEqual(r["orientation"], "z")                                                     # the conservative default
+        self.assertTrue(any("pass --orientation xy" in a for a in r["assumptions"]))
+
+    def test_over_the_limit_fails_and_says_lengthen(self):
+        code, out = run("snap", "--length", "10", "--h", "2.0", "--b", "6", "--undercut", "1.0", "--material", "pla_basic",
+                        "--orientation", "xy")
+        self.assertEqual(out["gate"], "FAIL")
+        self.assertEqual(out["checks"]["strain"]["state"], "FAIL")                                 # 3 % against 1 %
+        self.assertIn("lengthen", out["next_step"])
+        self.assertIn("never thicken", out["next_step"])
+        self.assertTrue(any("is over it" in a for a in out["assumptions"]))
+
+    def test_usage(self):
+        code, out = run("snap", "--length", "16", "--h", "1.6", "--b", "6", "--undercut", "0.8", "--material", "pla_basic",
+                        "--load", "finger_pull")
+        self.assertEqual(code, 1)
+        self.assertIn("own deflection force", out["errors"][0])                                     # no hand-force key
+        code, out = run("snap", "--length", "16", "--h", "1.6", "--b", "6", "--material", "pla_basic")
+        self.assertEqual(code, 1)
+        self.assertIn("--undercut", out["errors"][0])
+        code, out = run("beam", "--b", "6", "--h", "3", "--length", "20", "--load", "70", "--material", "petg_basic", "--undercut", "1")
+        self.assertEqual(code, 1)
+        self.assertIn("snap case only", out["errors"][0])
+        code, out = run("snap", "--length", "16", "--h", "1.6", "--b", "6", "--undercut", "0.8")
+        self.assertEqual(code, 1)
+        self.assertIn("--material", out["errors"][0])
+
+
 class FieldComparison(unittest.TestCase):
     """The two latches of design.md ("Mechanisms that carry load") under the same finger-push
     design load, 70.6 N, with the load share stated: the failed latch has two curved arms and

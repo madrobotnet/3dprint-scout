@@ -170,9 +170,10 @@ def sample_surface(V, F, n, rng):
     return pts, total
 
 
-def distances_to_mesh(P, V, F, cutoff):
+def distances_to_mesh(P, V, F, cutoff, cell=None):
     """For each point, the distance to the mesh if it is below `cutoff`, else inf. A uniform
-    grid of cell size `cutoff` over the triangle boxes is the broad phase."""
+    grid of cell size `cell` (default `cutoff`; never smaller, so the neighbouring cells hold
+    every triangle within the cutoff) over the triangle boxes is the broad phase."""
     import numpy as np
     n = len(P)
     out = np.full(n, np.inf)
@@ -182,7 +183,7 @@ def distances_to_mesh(P, V, F, cutoff):
     lo = np.minimum(np.minimum(A, B), C)
     hi = np.maximum(np.maximum(A, B), C)
     origin = lo.min(axis=0) - cutoff
-    cell = float(cutoff)
+    cell = max(float(cutoff), float(cell or 0.0))
     buckets = {}
     lo_c = np.floor((lo - origin) / cell).astype(np.int64)
     hi_c = np.floor((hi - origin) / cell).astype(np.int64)
@@ -460,8 +461,9 @@ def check(args) -> dict:
     far = gap >= args.search - 1e-9
     play_text = ", ".join(f"{p['play_mm']:.3f}" if p["contact"] else f">{args.search:g}" for p in plays)
     if interference > args.max_interference:
-        state, note = "FAIL", (f"parts overlap by {interference:.3f} mm3: one of them must shrink where they meet "
-                               "(check the clearance in params.json, F2)")
+        state, note = "FAIL", (f"parts overlap by {interference:.3f} mm3: if this overlap is a designed snap or press "
+                               "fit, compare it with the intended undercut (the designed interference, not a clearance); "
+                               "otherwise one part must shrink where they meet (check the clearance in params.json, F2)")
     elif far:
         state, note = "WARN", (f"no part of B is within {args.search} mm of A: either the placement flags are wrong "
                                "or the parts do not mate here")
