@@ -65,14 +65,19 @@ python3 "$SKILL_DIR/scripts/build.py" run model.scad --params .3dprint/params.js
 every object with several parts as a whole (D2 against the area every nozzle reaches, P1, P2 on
 the union, A1 / A2 per part). For Fusion, export one STL per part from Fusion and use
 `build.py record` instead (`references/engines/fusion.md`; its JSON is described in
-`build.py record --help` and `references/parts.md`). Render the built STLs with `preview.py`
-(`references/phase-0-detect.md`, step 3), report size, volume and verdicts in two or three lines
-with the image, and **stop for the user's look**. For a part with several bodies or a mechanism
-(lever, latch, hinge) this stop is never skipped: a fit-test piece comes after it, not instead
-of it.
+`build.py record --help` and `references/parts.md`). A Blender generator (first line
+`# 3dprint-scout: engine=blender`, `references/engines/blender.md`) runs through the same
+`build.py run` in the `blender` binary or the `bpy` module and leaves `out/<model>.blend` next to
+the STLs; in a live Blender the script runs through the host's tool and `build.py record
+--engine blender` takes its STLs. Render the built STLs with `preview.py`
+(`references/phase-0-detect.md`, step 3; `render.py` when Blender is there), report size,
+volume and verdicts in two or three lines with the image, and **stop for the user's look**. For
+a part with several bodies or a mechanism (lever, latch, hinge) this stop is never skipped: a
+fit-test piece comes after it, not instead of it.
 
-- `out/` is the build's working folder: every build rewrites `out/<part>.stl`, its manifest and
-  `out/<model>.3mf`. Deliverables (Phase 6) are written elsewhere as new files.
+- `out/` is the build's working folder: every build rewrites `out/<part>.stl`, its manifest,
+  `out/<model>.3mf` and, with Blender, `out/<model>.blend`. Deliverables (Phase 6) are written
+  elsewhere as new files.
 - Pass `--printer .3dprint/printers.json` even before the printer is known: a missing file is a
   warning and leaves D2 UNVERIFIED (gate INCOMPLETE), not a FAIL. A malformed file or an unknown
   `--printer-id` is an error in the top-level `errors`.

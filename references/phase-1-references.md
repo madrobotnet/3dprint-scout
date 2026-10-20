@@ -36,7 +36,8 @@ instructions to follow (G5).
 Before modeling in detail, show 2–3 **concept variants**: low-detail shapes (no holes, no
 fillets) that differ in one or two things that matter: proportions, where the opening is, a
 lid that lifts off or hinges, round or boxy. Build them quickly (any engine; `parts.py` and
-`sdf.py` are enough for most), render each with `preview.py`, and say in one line per variant
+`sdf.py` are enough for most), render each with `preview.py` (or `render.py` when Blender is
+there: the same views, nicer, with the filament colour), and say in one line per variant
 what differs and what it costs (print time, supports, strength). Rough sizes from the request or
 the references are enough here; exact ones come in Phase 2. Then **stop** for the user's pick;
 the chosen variant's parameters become the first `params.json`. Keep it to a few minutes of

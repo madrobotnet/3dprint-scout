@@ -1,0 +1,41 @@
+{
+  "_parts": {
+    "coaster": {
+      "expect": [
+        74.2,
+        74.2,
+        4.0
+      ]
+    },
+    "medallion": {
+      "expect": [
+        40.0,
+        40.0,
+        1.8
+      ],
+      "object": "coaster",
+      "role": "fused"
+    }
+  },
+  "_assumptions": [
+    "example: coaster size, scallops, grooves and the text are example values, not measured against anything",
+    "coaster 74.2 mm: the scalloped outline reaches r (1 + scallop) = 37.1 mm on both axes (8 lobes)",
+    "medallion 1.8 mm: 1.0 mm disc plus 0.8 mm embossed letters"
+  ],
+  "r": 35.0,
+  "scallop": 0.06,
+  "lobes": 8,
+  "h": 4.0,
+  "fillet": 1.2,
+  "bed_chamfer": 0.4,
+  "groove_w": 1.0,
+  "groove_d": 0.6,
+  "groove_r": [23.0, 26.0, 29.0],
+  "medallion_d": 40.0,
+  "medallion_h": 1.0,
+  "text": "SCOUT",
+  "text_h": 7.0,
+  "text_d": 0.8,
+  "text_margin": 1.5,
+  "outline_n": 160
+}
