@@ -1,7 +1,8 @@
 # Python engine (manifold3d)
 
-Read this right before Phase 3 when Phase 0 picked Python: as the fallback, or by choice for
-organic and freeform shapes. Tell the user once: this path produces meshes only (no editable CAD
+Read this right before Phase 3 when Phase 0 picked Python: for mechanical and prismatic parts
+(Rule A, with its part library; OpenSCAD is the other choice there), or for organic and freeform
+shapes when Blender is not available. Tell the user once: this path produces meshes only (no editable CAD
 file) and has no native fillets (smooth blends come from `sdf.py`, chamfers from `parts.py`).
 
 Contents:
@@ -74,7 +75,7 @@ few by keyword.
 | `snap_window(...)` | Cutter for the matching window in the mating wall (snug clearance) |
 | `snap_fit_check(length, thickness, deflection, material, q, repeated)` | Strain, limit, `ok`, maximum deflection |
 | `hinge(length, knuckle_d, pin_d, leaf_w, leaf_t, knuckles, clearance, segments, decorative, *, duty)` | Print-in-place hinge: `{"leaf_a", "leaf_b"}`, two bodies that never touch (validate with `--shells 2`). `duty` is keyword-only: `duty="latch"` (default) refuses less than design.md's field minimums (pin 3.2, pin wall 2.2 above the teardrop's point, leaf 2.5, knuckle 4 mm); `duty="lid"` (a lid, door or flap hinge, no lever between hand and pin) refuses only what does not print (pin 2.0, wall and leaf 1.2, knuckle 2 mm) and fewer than 3 knuckles (odd recommended): its size must pass `strength.py hinge` at SF ≥ 2 plus a coupon print on top (`references/parts.md`); `duty="decorative"` for a hinge that carries nothing (`decorative=True` is its old spelling). `clearance` is both the radial clearance and the axial gap: pass it to `strength.py hinge` as `--gap` and `--clearance` |
-| `text(string, height, depth, font, weight, align)` | Text solid (cap height in mm) to union (emboss) or subtract (engrave); needs matplotlib, or fontTools plus a font file |
+| `text(string, height, depth, font, weight, align)` | Text solid (cap height in mm) to union (emboss) or subtract (engrave); without `font`, DejaVu Sans when it draws the text, else the first installed font that does (Noto Sans CJK for Korean), named in a warning in the build report; needs matplotlib, or fontTools plus a font file |
 | `thread(d, pitch, length, internal, clearance)` | Approximate ISO thread: a rod, or with `internal=True` a cutter for a nut |
 | `clean(part)` | Welds the slivers hulls, Minkowski sums and some booleans leave (M3) |
 | `circle_segments(r)` | Segments so curved parts meet D1 |

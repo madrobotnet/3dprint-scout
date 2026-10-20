@@ -178,12 +178,17 @@ def _contact_overhang(union, mans, overhang_angle):
 
 def _loose_shells(man, partners):
     """([{shell, bbox_min_mm, bbox_max_mm, gap_mm}], shell count): the separate bodies of a
-    fused part that neither touch nor overlap any of the partner manifolds. One body: ([], 1)."""
+    fused part that neither touch nor overlap any of the partner manifolds. One body: ([], 1).
+    A sealed void inside a body decomposes as its own shell with negative volume; it is part of
+    that body, not a body of its own, so it is neither checked nor counted."""
     comps = man.decompose()
     if len(comps) <= 1:
         return [], 1
-    loose = []
+    loose, bodies = [], 0
     for i, c in enumerate(comps):
+        if c.volume() <= 0:
+            continue
+        bodies += 1
         nearest = GAP_SEARCH
         for q in partners:
             inter = c ^ q
@@ -197,7 +202,7 @@ def _loose_shells(man, partners):
             lo, hi = c.bounding_box()[:3], c.bounding_box()[3:]
             loose.append({"shell": i, "bbox_min_mm": [round(v, 2) for v in lo], "bbox_max_mm": [round(v, 2) for v in hi],
                           "gap_mm": round(nearest, 3)})
-    return loose, len(comps)
+    return loose, max(bodies, 1)
 
 
 # --------------------------------------------------------------------------- #

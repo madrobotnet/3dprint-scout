@@ -135,6 +135,14 @@ class FitTestPieces(unittest.TestCase):
             self.assertEqual(out["profile"]["size_mm"], [12.4, 12.4])
             with open(os.path.join("out", "fit", "fit.json"), encoding="utf-8") as f:
                 self.assertEqual(json.load(f)["profile"]["size_mm"], [12.4, 12.4])     # rewritten
+            # Review N5: fewer steps than last time; the earlier series' extra pieces go, so the
+            # folder holds one series (and says what it removed).
+            code, out = run_fit_test("--profile", "circle", "--size", "12", "--out", "out/fit", "--steps", "4", "--overwrite")
+            self.assertEqual(code, 0, out["errors"])
+            code, out = run_fit_test("--profile", "circle", "--size", "12", "--out", "out/fit", "--steps", "1", "--overwrite")
+            self.assertEqual(code, 0, out["errors"])
+            self.assertEqual(sorted(os.listdir(os.path.join("out", "fit"))), ["fit.json", "fit_1.stl"])
+            self.assertTrue(any(w.startswith("removed fit_2.stl, fit_3.stl, fit_4.stl") for w in out["warnings"]), out["warnings"])
             with tempfile.TemporaryDirectory() as elsewhere:
                 code, out = run_fit_test("--profile", "circle", "--size", "12", "--out", elsewhere, "--steps", "1")
                 self.assertEqual(code, 0, out["errors"])

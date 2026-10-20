@@ -153,7 +153,7 @@ sits next to the generator). Millimetres everywhere, Z-up, Z = 0 on the bed.
 | `bb.render_views(out, views, colors, engine="workbench", size, overwrite=False)` | The preview grid (iso, front, right, top, as `preview.py`), see "Renders" |
 | `bb.world_bbox(obj)`, `bb.nonmanifold_edges(obj)`, `bb.LOG` | Numbers to assert on inside `build`, and the notes the runner prints |
 | `bb.evaluated_mesh(obj)`, `bb.degenerate_triangles(me)`, `bb.apply_modifiers(obj)` | A new mesh with the modifiers applied (remove it after use); the triangles M3 would count in a mesh (area under 1e-9 mm² or two vertices within `WELD`); the modifiers applied to the object itself |
-| `bb.circle_segments(r)`, `bb.segments_for(width)`, `bb.WELD` | Segments for a circle (chord under 0.4 mm, at least 64) and for a fillet (one per line width along the arc); the validator's welding distance, 1e-4 mm |
+| `bb.circle_segments(r)`, `bb.segments_for(width)`, `bb.WELD` | Segments for a circle (chord under 0.4 mm, at least 64) and for a fillet (one per line width along the arc); the validator's welding grid, 1e-4 mm (every coordinate rounded to a multiple of it; the export does the same) |
 
 Run as a script (`blender_builder.py -- render a.stl b.stl -o out.png`) it renders STLs;
 `scripts/render.py` is the front end.
@@ -319,7 +319,8 @@ palette, an unknown name gets neutral grey and a warning in the JSON; never ask 
 For a filament name the table lacks, pass an approximate `#rrggbb` instead and say it is
 approximate.
 Very dark colours are lifted a little for the preview (`drawn` beside `colour` in the JSON)
-so black parts still show their edges. Same views, grid and JSON as `preview.py`, same `sane`
+so black parts still show their edges, and very light ones are drawn a little darker (white
+as about `#e6e6e6`) so a white part stands off the near-white background. Same views, grid and JSON as `preview.py`, same `sane`
 check plus two: a render whose pixels nearly all differ from the background (a black or missing
 world) is not sane, and neither is one with a blank view (exit 2). The check counts the rendered
 views only, without the caption and the grid lines (`fg_views` per view in the JSON).

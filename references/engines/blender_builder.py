@@ -58,6 +58,7 @@ import re
 import sys
 import tempfile
 import time
+import unicodedata
 
 try:
     import bpy
@@ -107,7 +108,8 @@ SHADOW_INTENSITY = 0.25                 # Workbench shadows on 4.x: a 5 mm pocke
 SMOOTH_ANGLE = 30.0                     # degrees: faces meeting flatter than this are shaded smooth in a render
 MARGIN = 0.08
 ENGINE_NAMES = ("workbench", "eevee", "cycles")
-COLOUR_TABLE_NOTE = ("colours are approximate screen values of common Bambu filaments, for the preview only; "
+COLOUR_TABLE_NOTE = ("colours are approximate screen values of common Bambu filaments (for previews and the "
+                     "colour swatches of a project file; the filament loaded is what prints); "
                      "an unknown name gets neutral grey")
 
 # Approximate screen colours of common Bambu Lab PLA Basic / Matte filaments, from the colour
@@ -862,7 +864,8 @@ def missing_glyphs(string, font=None, resolution=6):
     cannot draw: their outline is the font's .notdef (probed with NOTDEF_PROBE, a code point
     no font maps) or empty. The built-in font falls back to Blender's other fonts first, so a
     character one of them covers is fine; what reaches the last-resort font (a box with the
-    script's name, same frame for every block) is missing."""
+    script's name, same frame for every block) is missing. A format character (Unicode
+    category Cf: zero-width space, soft hyphen) that draws nothing is not missing."""
     require_blender()
     fnt = load_font(font) if isinstance(font, str) else font
     probe = _glyph_outline(NOTDEF_PROBE, fnt, resolution)
@@ -872,6 +875,8 @@ def missing_glyphs(string, font=None, resolution=6):
         if ch.isspace():
             continue
         pts = _glyph_outline(ch, fnt, resolution)
+        if not pts and unicodedata.category(ch) == "Cf":
+            continue                                    # a format character (zero-width space, soft hyphen) has no ink
         if not pts or pts == probe or _outline_box(pts) == probe_box:
             out.append((ch, f"U+{ord(ch):04X}"))
     return out
@@ -1227,17 +1232,24 @@ def world_bbox(obj):
 
 
 def _export_copy(obj, name):
-    """The mesh that goes into the STL: the part evaluated (modifiers applied) and welded at
-    WELD, as validate.py will weld it, so two vertices closer than that (the seam a boolean
-    leaves where a tool conforms to a face) do not become a zero-area triangle in the STL.
+    """The mesh that goes into the STL: the part evaluated (modifiers applied), in world
+    coordinates, its vertices snapped to the WELD grid and merged where they meet. That is how
+    validate.py welds (each coordinate rounded to a multiple of WELD), so the vertices it will
+    treat as one are one here too, and the seam a boolean leaves where a tool conforms to a
+    face does not become a zero-area triangle in the STL. The shift is at most WELD / 2 per axis.
     Returns (temporary object, vertices welded, non-manifold edges); raises when zero-area
     triangles remain after the weld (the STL would fail M3, then M1)."""
     me = evaluated_mesh(obj)
     me[TAG] = True
     bm = bmesh.new()
     bm.from_mesh(me)
+    bm.transform(obj.matrix_world)          # the grid is the STL's: world millimetres
+    if obj.matrix_world.determinant() < 0:  # a mirrored part: keep its faces pointing out
+        bmesh.ops.reverse_faces(bm, faces=bm.faces)
     before = len(bm.verts)
-    bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=WELD)
+    for v in bm.verts:
+        v.co = [round(c / WELD) * WELD for c in v.co]
+    bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=WELD * 1e-3)
     welded = before - len(bm.verts)
     nm = sum(1 for e in bm.edges if not e.is_manifold)
     bm.to_mesh(me)
@@ -1246,19 +1258,18 @@ def _export_copy(obj, name):
     bad = degenerate_triangles(me)
     if bad:
         bpy.data.meshes.remove(me)
-        raise ValueError(f"part '{name}': {bad} zero-area triangles remain after welding vertices closer than {WELD} mm "
+        raise ValueError(f"part '{name}': {bad} zero-area triangles remain after welding on the {WELD} mm grid "
                          "(the STL would fail M3, and M1 once they are dropped): collinear slivers where a cut grazes "
                          "an edge or crosses a fan of thin triangles; move the cut, or give that face ring topology")
-    tmp = bpy.data.objects.new(f"_export_{name}", me)
+    tmp = bpy.data.objects.new(f"_export_{name}", me)   # identity transform: the mesh is in world mm already
     tmp[TAG] = True
-    tmp.matrix_world = obj.matrix_world.copy()
     scene().collection.objects.link(tmp)
     return tmp, welded, nm
 
 
 def export_parts(out, names=None):
-    """One binary STL per registered part into `out` (modifiers applied, vertices closer than
-    WELD merged as validate.py merges them, 1 unit = 1 mm, scene unit off, axes unchanged).
+    """One binary STL per registered part into `out` (modifiers applied, vertices snapped to the
+    WELD grid and merged as validate.py merges them, 1 unit = 1 mm, scene unit off, axes unchanged).
     Returns the part list with boxes in mm, triangles and bytes; refuses a part whose welded
     mesh still holds zero-area triangles."""
     require_blender()
@@ -1292,7 +1303,7 @@ def export_parts(out, names=None):
                  "object": _PARTS[n]["group"], "role": _PARTS[n]["role"]}
         if welded:
             entry["welded_vertices"] = welded
-            LOG.append(f"export '{n}': {welded} vertices closer than {WELD} mm welded (as validate.py welds them)")
+            LOG.append(f"export '{n}': {welded} vertices welded on the {WELD} mm grid (as validate.py welds them)")
         if nm:
             entry["warning"] = f"{nm} non-manifold edges (validate.py will fail M1)"
         info.append(entry)
@@ -1721,7 +1732,7 @@ def render_views(out, views=None, colors=None, engine="workbench", size=(1600, 1
         for mat in materials:
             if mat.users == 0:
                 bpy.data.materials.remove(mat)
-        for restore in smooth_undo:
+        for restore in reversed(smooth_undo):    # last in, first out: objects that share a mesh unwind in turn
             restore()
         sc.camera = old_camera
         sc.display.matcap_ssao_distance = old_ssao

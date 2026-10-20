@@ -186,6 +186,19 @@ class PythonEngine(Base):
         self.assertEqual(sorted(os.listdir(self.d)), ["gen.py", "lib.py", "out"])
         self.assertIn("lib.py", [os.path.basename(s) for s in out["sources"]])
 
+    def test_generator_warnings_reach_the_report(self):
+        """A UserWarning raised while the generator runs (parts.text switching fonts) is a line
+        in the build's warnings, not stderr nobody reads."""
+        src = self.write("gen.py", "import warnings\nimport manifold3d as m3d\n"
+                                   "def build(p):\n    warnings.warn('font switched to X')\n"
+                                   "    warnings.warn('font switched to X')\n"
+                                   "    warnings.warn('old api', DeprecationWarning)\n"
+                                   "    return {'gen': m3d.Manifold.cube([10, 10, 10])}\n")
+        code, out = run("run", src, "--out", self.out, "--no-wall-check", "--no-3mf")
+        self.assertEqual(code, 0, out.get("errors"))
+        self.assertEqual([w for w in out["warnings"] if "switched" in w or "old api" in w], ["font switched to X"])
+        self.assertNotIn("warnings", out["engine_info"])
+
     def test_generator_exception(self):
         src = self.write("boom.py", "def build(p):\n    raise ValueError('wall too thin')\n")
         code, out = run("run", src, "--out", self.out)
@@ -267,6 +280,46 @@ class Record(Base):
         code, out = run("record", puff, "--source", scad, gen, "--params", prm, "--out", self.out, "--no-wall-check", "--no-3mf")
         self.assertEqual(out["parts"][0]["validate"]["files"][0]["checks"]["R3"]["state"], "PASS")
         self.assertNotIn("prior_manifest", out["parts"][0])
+
+    def test_record_again_after_a_param_change_re_stamps_its_own_manifests(self):
+        """Review B1: record writes manifests too. A second record after a parameter change, with
+        the unchanged parts re-exported byte for byte, must re-stamp those manifests (record is the
+        only word on an STL exported elsewhere), not treat them as a stale `run` build."""
+        body = os.path.join(self.d, "body.stl"); write_stl(body, box(40, 30, 5))
+        label = os.path.join(self.d, "label.stl"); write_stl(label, box(10, 10, 1.5, 5, 5, 5))
+        src = self.write("model_v3.py", "# 3dprint-scout: engine=blender\n")
+        spec = {"body": {"expect": [40, 30, 5]}, "label": {"object": "body", "role": "fused"}}
+        prm = self.params({"label_h": 1.5, "_parts": spec})
+        code, out = run("record", body, label, "--source", src, "--params", prm, "--out", self.out, "--no-wall-check", "--no-3mf")
+        self.assertNotEqual(out["gate"], "FAIL", out["errors"])
+        with open(body + ".manifest.json", encoding="utf-8") as f:
+            self.assertEqual(json.load(f)["by"], "record")
+        self.params({"label_h": 2.0, "_parts": spec})                       # the label grows; body.stl is re-exported unchanged
+        write_stl(label, box(10, 10, 2.0, 5, 5, 5))
+        write_stl(body, box(40, 30, 5))
+        code, out = run("record", body, label, "--source", src, "--params", prm, "--out", self.out, "--no-wall-check", "--no-3mf")
+        self.assertEqual(code, 0)
+        self.assertNotEqual(out["gate"], "FAIL", out["errors"])
+        self.assertEqual([p["validate"]["files"][0]["checks"]["R3"]["state"] for p in out["parts"]], ["PASS", "PASS"])
+        self.assertTrue(all("prior_manifest" not in p for p in out["parts"]))
+
+    def test_record_refuses_an_stl_built_from_another_generator(self):
+        """Review S3: a fresh `run` manifest of cup.py says nothing for record --source cup_v2.py;
+        none of the manifest's generators is among --source, so the STL is not blessed as cup_v2's."""
+        import validate
+        stl = os.path.join(self.d, "cup.stl"); write_stl(stl, box(20, 20, 20))
+        cup = self.write("cup.scad", "cube([20, 20, 20]);")
+        validate.write_manifest(stl, [cup], None, "openscad")              # what `run` writes
+        with open(stl + ".manifest.json", encoding="utf-8") as f:
+            self.assertEqual(json.load(f)["by"], "run")
+        v2 = self.write("cup_v2.scad", "cube([20, 20, 30]);")
+        code, out = run("record", stl, "--source", v2, cup, "--out", self.out, "--no-wall-check", "--no-3mf")
+        self.assertEqual(out["parts"][0]["validate"]["files"][0]["checks"]["R3"]["state"], "PASS")   # cup.scad given too: fresh
+        code, out = run("record", stl, "--source", v2, "--out", self.out, "--no-wall-check", "--no-3mf")
+        r3 = out["parts"][0]["validate"]["files"][0]["checks"]["R3"]
+        self.assertEqual((out["gate"], r3["state"]), ("FAIL", "FAIL"))
+        self.assertIn("built from cup.scad, not from the given --source (cup_v2.scad)", r3["note"])
+        self.assertFalse(out["parts"][0]["prior_manifest"]["fresh"])
 
     def test_broken_stl_keeps_the_json_contract(self):
         """G4: a 0-byte or truncated export gets no manifest, is left out of the 3MF and is

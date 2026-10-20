@@ -356,6 +356,14 @@ class Text(PartCase):
         self.assertSolid(plate - parts.text("OK", 6, 1).translate([3, 3, 2]), bbox=[30, 12, 3])    # engraved
         with self.assertRaises(ValueError):
             parts.text("   ", 6, 1)
+        # Review S2: Latin text keeps matplotlib's DejaVu Sans in `weight` (as before 0.5), with
+        # no warning; a font file chosen for it would ignore the weight.
+        import warnings
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            bold, normal = parts.text("Hello", 6, 1), parts.text("Hello", 6, 1, weight="normal")
+        self.assertEqual([str(w.message) for w in caught if issubclass(w.category, UserWarning)], [])
+        self.assertLess(normal.volume(), bold.volume() * 0.8)
 
     @unittest.skipUnless(HAS_M3D and find_spec("fontTools") is not None, "fontTools not installed")
     def test_text_fonttools(self):
@@ -398,7 +406,14 @@ class Text(PartCase):
             self.skipTest("no CJK font on this machine")
         self.assertRegex(os.path.basename(cjk), r"(?i)cjk|nanum|malgun|gothic")
         self.assertEqual(parts.font_missing(cjk, "고양이"), [])
-        t = parts.text("고양이", 8, 1)                                         # no font given: find_font(text=) picks one
+        import warnings
+        with warnings.catch_warnings(record=True) as caught:                   # no font given: find_font(text=) picks one
+            warnings.simplefilter("always")
+            t = parts.text("고양이", 8, 1)
+        if find_spec("matplotlib") is not None:                                # the switch from the default is said
+            notes = [str(w.message) for w in caught if issubclass(w.category, UserWarning)]
+            self.assertEqual(len(notes), 1, notes)
+            self.assertIn(os.path.basename(cjk), notes[0])
         m = metrics(t)
         self.assertEqual(m["open_edges"], 0)
         self.assertGreaterEqual(m["shells"], 3)                                 # jamo pieces, not one body per syllable

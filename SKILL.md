@@ -267,7 +267,7 @@ Scripts, run as `python3 "$SKILL_DIR/scripts/<name>.py"`:
 | `scripts/build.py` | `detect` (Phase 0), `run` (OpenSCAD / Python / Blender), `record` (parts built in Fusion or a live Blender); groups parts into objects; `--only` for a subset |
 | `scripts/assembly.py` | Parts grouped into objects: D2 / P1 / P2 of the whole, A1 / A2 per part (used by build.py) |
 | `scripts/measure.py` | Measure a supplied STL / 3MF: objects and parts, slices with circle and corner fits, ray depth maps of a wall |
-| `scripts/strength.py` | Hand calculations for pins, beams, links, pin walls and a knuckle hinge (`hinge`, with the P7 floors per duty) from Bambu Lab data-sheet values and a cited hand-force table |
+| `scripts/strength.py` | Hand calculations for pins, beams, links, pin walls, a knuckle hinge (`hinge`, with the P7 floors per duty) and a snap arm (`snap`: strain, insertion and release forces) from Bambu Lab data-sheet values and a cited hand-force table |
 | `scripts/calibration.py` | The user's own print results per printer and material in `.3dprint/calibration.json`: `add`, `show`, `lookup`; `--kind` keeps floors to the same kind of member |
 | `scripts/preview.py`, `scripts/render.py` | Iso / front / right / top PNG of one or more STLs: numpy only with the G4 image check, or through Blender (Workbench, filament colours) when it is there, same JSON and check |
 | `scripts/fit.py` | F3: overlap, play, gap and contact between two placed STLs, verdict JSON with both STLs' sha256; `--sweep-*` for a rotating part; `--check REPORT` for a stale report |

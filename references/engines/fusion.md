@@ -1,6 +1,8 @@
 # Fusion engine (MCP)
 
-Read this right before Phase 3 when Phase 0 found a working Fusion MCP connection.
+Read this right before Phase 3 when Phase 0 found a working Fusion MCP connection and the user
+wants editable CAD (Rule A: otherwise mechanical parts go to Python or OpenSCAD, which are faster
+and checked the same way).
 
 Contents:
 

@@ -412,10 +412,44 @@ emit(info=info, refused=refused, verts=len(cube.data.vertices), nonmanifold=bb.n
                          {k: "PASS" for k in ("D1", "M1", "M2", "M3", "M4", "M5")}, f["metrics"])
         self.assertEqual(rep["info"][0]["welded_vertices"], 1)
         self.assertEqual(rep["info"][0]["triangles"], 12)
-        self.assertTrue(any("1 vertices closer than" in n for n in rep["log"]), rep["log"])
+        self.assertTrue(any("1 vertices welded on the" in n for n in rep["log"]), rep["log"])
         self.assertIn("zero-area triangles remain after welding", rep["refused"])
         self.assertIn("'cube'", rep["refused"])
         self.assertEqual(rep["leftovers"], [])                                  # the export copies are gone
+
+    def test_export_welds_on_the_validators_grid(self):
+        """Review N1: validate.py welds by rounding each coordinate to a multiple of WELD, so two
+        vertices 1.5 WELD apart in one grid cell are one vertex to it. The export snaps to the
+        same grid (in world mm, so a moved part too), and the STL passes M3."""
+        rep = run_in_blender(f"""
+import bmesh, bmesh.utils
+from mathutils import Vector
+bb.new_scene_mm()
+cube = bb.box([10, 10, 10], "cube")
+bm = bmesh.new(); bm.from_mesh(cube.data); bm.edges.ensure_lookup_table()
+e = bm.edges[0]
+corner = e.verts[0]
+_, v = bmesh.utils.edge_split(e, corner, 0.5)
+c = corner.co.copy() + Vector((0.3, 0.3, 0.3))       # on the grid once the object is moved by -0.3
+corner.co = c - Vector((0.45, 0.45, 0.45)) * bb.WELD
+v.co = c + Vector((0.45, 0.45, 0.45)) * bb.WELD          # 1.56 WELD from the corner, in the same cell
+bm.to_mesh(cube.data); bm.free(); cube.data.update()
+cube.location = (-0.3, -0.3, -0.3)
+bb.part(cube, "cube")
+m = bb.box([10, 20, 5], "m")
+m.location = (30, 0, 0); m.scale = (-1, 1, 1)                 # a mirrored part keeps its faces pointing out
+bb.part(m, "m")
+info = bb.export_parts({self.tmp!r})
+emit(info=info)
+""")
+        mirrored = check(os.path.join(self.tmp, "m.stl"))
+        self.assertAlmostEqual(mirrored["metrics"]["volume_mm3"], 1000.0, delta=0.01)
+        self.assertEqual(mirrored["metrics"]["bbox_min_mm"][0], 20.0)
+        f = check(os.path.join(self.tmp, "cube.stl"))
+        self.assertEqual({k: f["checks"][k]["state"] for k in ("M1", "M2", "M3")}, {k: "PASS" for k in ("M1", "M2", "M3")},
+                         f["metrics"])
+        self.assertEqual(rep["info"][0]["welded_vertices"], 1)
+        self.assertEqual(rep["info"][0]["triangles"], 12)
 
     def test_text_single_letter_at_its_cap_height(self):
         rep = run_in_blender(f"""
@@ -469,7 +503,8 @@ emit(info=info, log=[n for n in bb.LOG if n.startswith("text")])
             self.skipTest("no DejaVuSans-Bold.ttf on this machine")
         rep = run_in_blender(f"""
 bb.new_scene_mm()
-out = {{"builtin_missing": bb.missing_glyphs("고양이 H"), "latin_missing": bb.missing_glyphs("고양이 H", {latin!r})}}
+out = {{"builtin_missing": bb.missing_glyphs("고양이 H"), "latin_missing": bb.missing_glyphs("고양이 H", {latin!r}),
+        "format_chars": bb.missing_glyphs("A\u200bB\u00adC", {latin!r})}}
 try:
     bb.text("고양이", 8.0, 1.0, font={latin!r}); out["error"] = None
 except ValueError as exc:
@@ -491,6 +526,7 @@ emit(**out)
 """)
         self.assertEqual(rep["builtin_missing"], [])                            # Blender's fallback fonts draw Hangul
         self.assertEqual(rep["latin_missing"], [["고", "U+ACE0"], ["양", "U+C591"], ["이", "U+C774"]])
+        self.assertEqual(rep["format_chars"], [])                               # review N3: no ink, not missing
         self.assertIn("'고' (U+ACE0)", rep["error"])
         self.assertIn("Noto Sans CJK", rep["error"])
         self.assertIn("DejaVu", rep["error"])                                   # the font is named

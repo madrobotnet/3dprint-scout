@@ -100,6 +100,19 @@ class ObjectChecks(unittest.TestCase):
         self.assertIn("all 3 bodies", a1["note"])
         self.assertNotIn("loose_shells", a1["value"])
 
+    def test_a_sealed_void_is_not_a_loose_body(self):
+        """Review S1: a hollow fused part decomposes into its outer shell and the inverted shell
+        of its void. The void is part of the body, not a floating body: A1 PASS, one body."""
+        void = [(a, c, b) for a, b, c in box(16, 16, 16, 12, 12, 7)]         # inward-facing: a cavity
+        stls = {"base": self.stl("base.stl", box(40, 40, 5)),
+                "dome": self.stl("dome.stl", box(20, 20, 20, 10, 10, 5) + void)}
+        specs = {"base": {"object": "o"}, "dome": {"object": "o", "role": "fused"}}
+        rep = assembly.check_object(assembly.group_parts(specs)[0], stls, specs)
+        a1 = rep["parts"]["dome"]["checks"]["A1"]
+        self.assertEqual(a1["state"], "PASS", a1.get("note"))
+        self.assertEqual(a1["value"]["shells"], 1)
+        self.assertNotIn("loose_shells", a1["value"])
+
     def test_overlapping_fused_parts_fail_on_both_sides(self):
         stls = {"lid": self.stl("lid.stl", box(60, 40, 3)), "deep": self.stl("deep.stl", box(5, 5, 2, 50, 30, 2))}
         specs = {"lid": {"object": "o"}, "deep": {"object": "o"}}
@@ -417,7 +430,8 @@ class BuildIntegration(unittest.TestCase):
         self.assertTrue(any("built alone with --only" in w for w in out["warnings"]))
         self.assertTrue(any("built 1 of 3 parts" in w for w in out["warnings"]))
         self.assertNotIn("threemf", out)                                                # it would be dropped to the bed
-        self.assertNotEqual(out["gate"], "FAIL")
+        self.assertEqual(out["objects"][0]["partial"]["missing"], ["body", "keeper"])     # review N6: like a subset
+        self.assertEqual((out["objects"][0]["gate"], out["gate"]), ("INCOMPLETE", "INCOMPLETE"))
         code, out = run_only("body,latch,keeper", "m6")                                 # every part: a whole object, as without --only
         self.assertEqual(out["objects"][0]["checks"]["P1"]["state"], "PASS")
         self.assertNotIn("partial", out["objects"][0])

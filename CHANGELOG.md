@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.5.0 — 2026-10-20
+## 0.5.0 — 2026-10-21
 
 Tested in the field and by scenario: the Blender paths ran on a real Windows install (Blender
 5.2.2 LTS, the binary and the official Blender Lab MCP server), and five scenario runs used the
@@ -31,27 +31,31 @@ Hangul keyring). What they found is fixed here, together with the first outside 
   part only, per view (`fg_views`), so a blank view or grid fails.
 - **Text**: `bb.text` and `parts.text` refuse a character the font cannot draw, naming it and
   its code point (a font without Hangul gave boxes or placeholder glyphs that passed every
-  check). `parts.find_font(text)` picks a font that covers the text; Noto Sans CJK is the
-  default for Korean and CJK. `shells` counts glyph pieces, not letters; height is the cap
+  check). `parts.text` keeps its default font (DejaVu Sans, in `weight`) when it draws the
+  text, else takes `parts.find_font(text)`'s choice with a warning in the build report (Noto
+  Sans CJK for Korean and CJK); format characters such as a zero-width space are not missing. `shells` counts glyph pieces, not letters; height is the cap
   height of a Latin "H" (the em size without one) and the LOG gives the real box. Rules for
   fonts (licences, never a proprietary system font in a deliverable, `.ttc` size) and for
   two-colour text (inlay ≥ 1.0 mm for light on dark).
-- **Fresh evidence**: `record` keeps an STL's own manifest and fails a stale one (R3) instead of
-  re-stamping it, and merges the sources already recorded; R3 accepts a `--source` superset.
+- **Fresh evidence**: `record` keeps the manifest `run` wrote for an STL and merges its sources;
+  a stale one, or one built from a generator not among `--source`, fails R3 instead of being
+  re-stamped (a manifest an earlier `record` wrote is re-stamped). R3 accepts a `--source`
+  superset.
   Fit reports name their STLs (#9): `parts.a` and `parts.b` carry the STL's `sha256` and the
   manifest's `input_hash` when it records this very STL; `fit.py --check REPORT` prints
   `F3_fresh` (PASS, FAIL `STALE`, UNVERIFIED for an old report), and Phase 5 counts F3 only from
   a report that passes it.
 - **Checks**: every hard FAIL of a part, an object or an assembly is a line in `errors`; A1
-  checks every body of a multi-body fused part (a floating letter fails); unmerged contacts of
-  fused parts are no longer object overhang; `--only` on part of an object leaves its object
-  checks unverified and out of the 3MF; P2 reports `limit_deg` and `steepest_deg` (no
+  checks every body of a multi-body fused part (a floating letter fails, a sealed void is no
+  body); unmerged contacts of fused parts are no longer object overhang; `--only` on part of
+  an object, one part or several, leaves its object INCOMPLETE and out of the 3MF; P2 reports `limit_deg` and `steepest_deg` (no
   `max_angle_deg`); P3's warning carries the measured wall. `bb.boolean` and `export_parts`
-  refuse zero-area triangles with the cause; M1 points at M3 when they are the same defect.
+  refuse zero-area triangles with the cause, and the export welds on the validator's own grid;
+  M1 points at M3 when they are the same defect.
 - **Snaps, fits, standards**: `strength.py snap` (strain against the limit, the deflection force
   as the load, insertion and release forces); snap arms are exempt from the latch floors; a
   C-clip row, full-width snap coupons, hole compensation on bores, OpenSCAD idioms for mating,
-  teardrop and countersunk holes, `parts.screw_hole(head_d=, head_h=)` for a measured head,
+  teardrop and countersunk holes (the head clearance built in, as in `parts.screw_hole`), `parts.screw_hole(head_d=, head_h=)` for a measured head,
   keyholes. Published standards and disagreeing sources, official sizes without a tolerance,
   a standard's counterpart as an F3 proxy, licences not shown, another maker's geometry
   library only with a permissive licence.
@@ -61,7 +65,7 @@ Hangul keyring). What they found is fixed here, together with the first outside 
 - **Smaller**: `--tools` explained once and no longer hard-coded in examples; a tuning row for
   parts that hold water; the X2D example's hole compensation corrected (its preset has it
   off); `bambu_template.py` and `bambu3mf.py` have `--help`, and `--colour` takes filament
-  names; `fit_test.py --overwrite`; no `__pycache__` in the project; Fusion files through a
+  names; `fit_test.py --overwrite` (an earlier series' extra pieces are removed); no `__pycache__` in the project; Fusion files through a
   connected folder; P6 may be decided from the generator and its log; a Contributors section
   in the READMEs.
 - **Tests**: 255 → 279, passing with Python 3.13 + Blender 5.2.2, Python 3.11 + Blender 4.5.14

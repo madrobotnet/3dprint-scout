@@ -860,6 +860,28 @@ def text_outlines(text: str, font: str | None = None, weight: str = "bold") -> l
     raise ImportError("; ".join(errors))
 
 
+def _default_font(string: str, weight: str) -> str | None:
+    """text()'s font when none is given: None (matplotlib's DejaVu Sans in `weight`, the
+    default before 0.5, so Latin text keeps its shape) when that font maps every character or
+    matplotlib is not installed; otherwise the find_font(text=) font that does, with a warning.
+    None again when no font draws it all: the outline step then names what is missing."""
+    try:
+        from matplotlib.font_manager import FontProperties, findfont
+    except ImportError:
+        return None                                           # fontTools: it calls find_font(text) itself
+    default = findfont(FontProperties(family="DejaVu Sans", weight=weight))
+    missing = font_missing(default, string)
+    if not missing:
+        return None
+    picked = find_font(string)
+    if picked:
+        import warnings
+        what = "".join(ch for ch, _ in missing[:8])
+        warnings.warn(f"text {string!r}: the default font {os.path.basename(default)} cannot draw {what!r}; "
+                      f"using {os.path.basename(picked)} (pass font= to choose)", stacklevel=3)
+    return picked
+
+
 def text(string: str, height: float = 6.0, depth: float = 1.0, font: str | None = None, weight: str = "bold",
          align: str = "left") -> Manifold:
     """Text as a solid from z = 0 to z = depth, baseline on y = 0, cap height = `height` mm
@@ -868,17 +890,18 @@ def text(string: str, height: float = 6.0, depth: float = 1.0, font: str | None 
     Union it onto a face for embossed text, or subtract it (translated so it starts `depth`
     below the face) for engraved text. Minimum sizes: tolerances.md (0.6 mm high or deep,
     0.8 mm stroke; 1.0 mm recommended). `align`: "left" (x starts at 0) or "center".
-    font: a font family name (matplotlib) or a .ttf/.otf path; default: the first font of
-    find_font(text=string) that draws every character (Latin fonts first, then Noto Sans CJK /
-    Nanum Gothic for Korean and CJK). A character the font cannot draw raises ValueError,
-    naming it and its code point, instead of printing a placeholder glyph.
+    font: a font family name (matplotlib) or a .ttf/.otf path; default: matplotlib's DejaVu Sans
+    in `weight` when it draws every character (as before 0.5), else the first font of
+    find_font(text=string) that does (Noto Sans CJK / Nanum Gothic for Korean and CJK), with a
+    UserWarning naming it. A character the font cannot draw raises ValueError, naming it and
+    its code point, instead of printing a placeholder glyph.
     Needs matplotlib, or fontTools plus a font file (text_backends())."""
     if not string.strip():
         raise ValueError("text is empty")
     if height <= 0 or depth <= 0:
         raise ValueError("height and depth must be positive")
     if font is None:
-        font = find_font(string)
+        font = _default_font(string, weight)
     outlines = text_outlines(string, font, weight)
     try:
         cap = text_outlines("H", font, weight)

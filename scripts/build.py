@@ -29,11 +29,12 @@ it runs in the blender binary (--background --factory-startup) or, without one, 
 Python that has the `bpy` module (--blender-python, or the Python running this script).
 Blender 4.5 LTS or newer.
 `record` takes STLs built elsewhere (Fusion, a live Blender): one STL per part, named
-after the part. An STL that already has a manifest describing this very file (from `run`,
-or an earlier record) keeps it: its sources join "sources" (a generator's own imports stay
-in the hash; R3 hashes each manifest's own files out of that list), and when that manifest
-is stale the part is not re-stamped: R3 FAILs and says to rebuild it (parts[].prior_manifest
-tells what was found). Only an STL without such a manifest gets a new one.
+after the part. An STL that already has a manifest from `run` describing this very file
+keeps it: its sources join "sources" (a generator's own imports stay in the hash; R3 hashes
+each manifest's own files out of that list), and when that manifest is stale, or none of its
+generators is among --source, the part is not re-stamped: R3 FAILs and says why
+(parts[].prior_manifest tells what was found). Any other STL, including one an earlier
+record stamped, gets a new manifest.
 
 Every STL is checked for sanity (G4) before anything is recorded: a 0-byte, truncated or
 NaN mesh gets no manifest, is left out of the 3MF and is listed in "errors" with
@@ -486,7 +487,8 @@ def build_python(source, params, parts, out_dir, timeout):
     rep = json.loads(lines[-1][len("@@3DPS "):])
     results = [{"name": p["name"], "stl": p["stl"], "seconds": p["seconds"], "engine_warnings": []}
                for p in rep["parts"]]
-    return results, sorted(set(rep["deps"]) | {os.path.abspath(source)}), {"manifold3d": rep["version"]}
+    return (results, sorted(set(rep["deps"]) | {os.path.abspath(source)}),
+            {"manifold3d": rep["version"], "warnings": rep.get("warnings", [])})
 
 
 def _pyrun(source, params_file, out_dir, parts_csv):
@@ -501,11 +503,17 @@ def _pyrun(source, params_file, out_dir, parts_csv):
         params = json.load(f)
     spec = importlib.util.spec_from_file_location("_generator", source)
     mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    if not hasattr(mod, "build"):
-        raise SystemExit("generator has no build(params) function")
-    t0 = time.time()
-    built = mod.build(params)
+    import warnings
+    # A UserWarning the generator or a library raises (parts.text() switching to a font that
+    # covers the text) reaches the build report's warnings instead of a stderr nobody reads.
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always", UserWarning)
+        spec.loader.exec_module(mod)
+        if not hasattr(mod, "build"):
+            raise SystemExit("generator has no build(params) function")
+        t0 = time.time()
+        built = mod.build(params)
+    notes = list(dict.fromkeys(str(w.message) for w in caught if issubclass(w.category, UserWarning)))
     wanted = [p for p in parts_csv.split(",") if p]
     if isinstance(built, m3d.Manifold):
         built = {wanted[0] if wanted else "part": built}
@@ -532,7 +540,8 @@ def _pyrun(source, params_file, out_dir, parts_csv):
     deps = sorted({os.path.abspath(m.__file__) for m in list(sys.modules.values())
                    if getattr(m, "__file__", None) and m.__file__.endswith(".py")
                    and norm(m.__file__).startswith(roots) and norm(m.__file__) not in own})
-    print("@@3DPS " + json.dumps({"parts": out, "deps": deps, "version": getattr(m3d, "__version__", "unknown")}))
+    print("@@3DPS " + json.dumps({"parts": out, "deps": deps, "version": getattr(m3d, "__version__", "unknown"),
+                                  "warnings": notes}))
 
 
 def engine_marker(source: str) -> str | None:
@@ -782,9 +791,10 @@ def finish(out, parts, sources, params, params_path, specs, args, engine):
     # re-stamped, which would bless an STL its own generator no longer produces.
     prior = {p["stl"]: p.pop("_prior") for p in parts if p.get("_prior")}
     stale = {stl: pr for stl, pr in prior.items() if not pr["fresh"]}
+    by = "record" if getattr(args, "cmd", None) == "record" else "run"
     for p in sane:
         if p["stl"] not in prior:
-            validate.write_manifest(p["stl"], sources, params, engine)
+            validate.write_manifest(p["stl"], sources, params, engine, by=by)
 
     # Parts grouped into objects (assembly.py). A bad grouping is a usage error, not a build error.
     try:
@@ -837,9 +847,10 @@ def finish(out, parts, sources, params, params_path, specs, args, engine):
                 if "checks" in f:
                     f["checks"]["R3"] = validate.chk(
                         "FAIL", "hard", {"manifest_engine": own["engine"], "manifest_sources": own["names"]},
+                        own.get("why") or
                         f"STALE: the manifest of the {own['engine']} build that made this STL does not match its "
                         f"sources ({', '.join(own['names']) or 'none recorded'}) and the current parameters; record did "
-                        "not re-stamp it. Rebuild (or re-export) this part, then record again", return_to="current")
+                        "not re-stamp it. Rebuild this part with build.py run, then record again", return_to="current")
             rep["gate"] = validate.gate_of(rep.get("files", []))
         p["validate"] = rep
         reports.append(rep)
@@ -896,6 +907,13 @@ def finish(out, parts, sources, params, params_path, specs, args, engine):
                         out["errors"] += _fail_lines(n, pr["checks"])
             else:
                 entry["gate"] = "FAIL"
+            object_gates.append(entry["gate"])
+        elif g["name"] in partial:
+            # One part of a larger object built alone (--only): its own checks stand, but the
+            # object it belongs to is not judged, as for a subset of several parts (review N6).
+            own = by_name[g["parts"][0]].get("validate", {}).get("gate")
+            entry.update(partial=partial[g["name"]], gate="FAIL" if own == "FAIL" or g["parts"][0] not in sane_names
+                         else "INCOMPLETE")
             object_gates.append(entry["gate"])
         out["objects"].append(entry)
 
@@ -971,6 +989,7 @@ def cmd_run(args) -> dict:
         out.update(ran=False, gate="FAIL", R4="FAIL")
         out["errors"].append(str(exc))
         return out
+    out["warnings"] += info.pop("warnings", [])
     out["engine_info"] = info
     args.source_main = source
     out = finish(out, parts, sources, params, args.params, specs, args, engine)
@@ -996,12 +1015,21 @@ def _resolve_source(name: str, given: list[str]) -> str | None:
     return None
 
 
+def _library_name(name: str) -> bool:
+    """A source name that is one of the skill's own library files (blender_builder.py, parts.py,
+    sdf.py, ...), shared by every generator: it says nothing about which generator built a part."""
+    return any(os.path.isfile(os.path.join(folder, name)) for folder in (ENGINES_DIR, HERE))
+
+
 def prior_manifest(stl: str, given: list[str], params: dict) -> tuple[dict | None, list[str]]:
-    """What an earlier build recorded for this STL, when its manifest describes this very file
-    (artifact_sha256 matches): {"engine", "names", "sources" (resolved paths), "fresh"} and the
-    notes to lift. `fresh` is that manifest's own verdict against its recorded sources and the
-    current parameters; a source that cannot be found makes it not fresh (nothing is guessed).
-    None when there is no such manifest."""
+    """What `run` recorded for this STL, when its manifest describes this very file
+    (artifact_sha256 matches) and `run` wrote it: {"engine", "names", "sources" (resolved paths),
+    "fresh", "why"} and the notes to lift. `fresh` is that manifest's own verdict against its
+    recorded sources and the current parameters; a source that cannot be found makes it not
+    fresh, and so does a manifest none of whose generators is among --source (a renamed or newer
+    generator that never built this STL). A manifest `record` wrote (or one from before 0.5,
+    without "by") is not kept: record re-stamps it, as an STL exported elsewhere has no other
+    word on it. None when there is no manifest to keep."""
     mf = validate.manifest_path(stl)
     if not os.path.isfile(mf):
         return None, []
@@ -1012,6 +1040,8 @@ def prior_manifest(stl: str, given: list[str], params: dict) -> tuple[dict | Non
             return None, []
     except (OSError, json.JSONDecodeError, ValueError):
         return None, [f"{os.path.basename(stl)}: its manifest could not be read; a new one is written"]
+    if man.get("by") != "run":
+        return None, []
     names = [str(n) for n in (man.get("sources") or [])]
     resolved, notes = [], []
     for n in names:
@@ -1022,7 +1052,15 @@ def prior_manifest(stl: str, given: list[str], params: dict) -> tuple[dict | Non
             notes.append(f"{os.path.basename(stl)}: its manifest names the source {n!r}, which is not among --source "
                          "and was not found next to them; pass it with --source, or rebuild the part")
     fresh = bool(names) and len(resolved) == len(names) and man.get("input_hash") == validate.hash_inputs(resolved, params)
-    return {"engine": man.get("engine") or "unknown", "names": names, "sources": resolved, "fresh": fresh}, notes
+    why = None
+    generators = [n for n in names if not _library_name(n)]
+    given_names = {os.path.basename(s) for s in given}
+    if generators and not given_names.intersection(generators):
+        fresh = False
+        why = (f"STALE: {os.path.basename(stl)} was built from {', '.join(generators)}, not from the given "
+               f"--source ({', '.join(sorted(given_names))}); rebuild it from the generator you mean, then record again")
+    return ({"engine": man.get("engine") or "unknown", "names": names, "sources": resolved, "fresh": fresh, "why": why},
+            notes)
 
 
 def threemf_stem(objects: list[str]) -> str:
@@ -1046,8 +1084,9 @@ def cmd_record(args) -> dict:
     for stl in args.stl:
         name = os.path.splitext(os.path.basename(stl))[0]
         part = {"name": name, "stl": stl, "engine_warnings": []}
-        # An STL that `run` (or an earlier record) already described: its manifest's own freshness
-        # decides whether it may be re-stamped, and its sources join the freshness hash (S3-1, S3-2).
+        # An STL that `run` already described: its manifest's own freshness decides whether it may
+        # be re-stamped, and its sources join the freshness hash (S3-1, S3-2). A manifest an earlier
+        # record wrote is no such word and is re-stamped (review B1).
         prior, notes = prior_manifest(stl, given, params)
         out["warnings"] += notes
         if prior:

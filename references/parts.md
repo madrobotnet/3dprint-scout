@@ -87,9 +87,12 @@ python3 "$SKILL_DIR/scripts/build.py" run model.py --params .3dprint/params.json
 
 `--only` builds the named `_parts` whole, in `_parts` order, and nothing else (into its own
 `--out`, so the full build's manifests stay fresh). An empty list or an unknown name is an
-error. The object checks run on what was built: a part whose object partners were left out
-is built alone, with a warning, and its A1 / A2 and the object's D2 are skipped; a main part
-whose only remaining partners are free parts gets A1 `N/A` (nothing to share faces with).
+error. An object built only in part is not judged as the whole: its `objects[]` entry gets
+`partial` (`built`, `missing`, `total`), its D2 / P1 / P2 and the parts' A1 / A2 are
+UNVERIFIED unless the built parts fail on their own (a D2 FAIL, two built parts that overlap),
+its gate is INCOMPLETE, and it gets no core 3MF item (the subset would be dropped onto the
+bed where the missing parts should carry it; place the test print in the slicer). A single
+part built out of a larger object is the same: its own checks stand, its object is INCOMPLETE.
 For a Bambu project, list the same parts in the `bambu3mf.py` job.
 
 Whole parts can still be big. For "the minimum of the mating part" (the knuckles without
@@ -118,12 +121,13 @@ their own floors (`calibration.md`, `--kind lid_hinge`). A skipped coupon goes i
 
 ## `build.py` output
 
-One JSON document, schema `3dprint-scout.build/1`, also for `record`:
+One JSON document, schema `3dprint-scout.build/1`, also for `record` (this one is a `run`
+with `--only`, so it shows `seconds` per part and a `partial` object):
 
 ```json
-{"schema": "3dprint-scout.build/1", "ran": true, "engine": "fusion", "source": "adapter.py",
+{"schema": "3dprint-scout.build/1", "ran": true, "engine": "python", "source": "adapter.py",
  "gate": "PASS | FAIL | INCOMPLETE", "R4": "PASS",
- "parts": [{"name": "lid", "stl": "out/lid.stl", "artifact_sane": true, "object": "lid", "role": "fused",
+ "parts": [{"name": "lid", "stl": "out/lid.stl", "seconds": 0.4, "artifact_sane": true, "object": "lid", "role": "fused",
             "rotation_deg": 0, "engine_warnings": [],
             "validate": {"schema": "3dprint-scout.validate/1", "gate": "PASS",
                          "files": [{"path": "out/lid.stl", "checks": {"D1": {"state": "PASS", "...": "..."}},
@@ -132,7 +136,10 @@ One JSON document, schema `3dprint-scout.build/1`, also for `record`:
  "objects": [{"name": "lid", "parts": ["lid", "label"], "main": "lid", "gate": "PASS",
               "checks": {"D2": {"...": "..."}, "P1": {"...": "..."}, "P2": {"...": "..."}},
               "metrics": {"bbox_mm": [70, 45, 4], "volume_mm3": 9930, "shells": 1, "overhang_pct": 0.0, "...": "..."},
-              "rotation_deg": 0, "method": "union of the parts (manifold3d) ..."}],
+              "rotation_deg": 0, "method": "union of the parts (manifold3d) ..."},
+             {"name": "box", "parts": ["latch", "keeper"], "main": "latch", "gate": "INCOMPLETE",
+              "partial": {"object": "box", "built": ["latch", "keeper"], "missing": ["body"], "total": 3},
+              "checks": {"D2": {"state": "UNVERIFIED", "note": "object built in part with --only ..."}, "...": "..."}}],
  "sources": ["adapter.py"], "threemf": "out/adapter.3mf", "seconds": 1.2,
  "warnings": ["..."], "errors": []}
 ```
@@ -141,12 +148,21 @@ One JSON document, schema `3dprint-scout.build/1`, also for `record`:
   its shape); the part's verdicts are at `parts[i].validate.files[0].checks`, its numbers
   at `...files[0].metrics`. `role` is `null` for a part alone in its object; `assembly`
   exists only for parts in a group.
-- `objects[]` lists every object; a single-part object has only `name`, `parts`, `main`.
+- `objects[]` lists every object; a single-part object has only `name`, `parts`, `main`
+  (plus `partial` and `gate` when it is one part of a larger object built with `--only`).
+- `seconds` on a part is the engine's time for it (`run`); the top-level `seconds` is the
+  whole command.
+- `record` only: a part whose STL already has a manifest from `run` that describes this very
+  file gets `prior_manifest` (`engine`, `sources`, `fresh`). A fresh one is kept as the record
+  (its sources join `sources`); a stale one, or one none of whose generators is among
+  `--source`, is not re-stamped and the part's R3 FAILs with the reason. A manifest an
+  earlier `record` wrote is simply re-stamped.
 - A broken STL has `artifact_sane: false` and `artifact_error`, no manifest and no
   `validate`; `R4` is then FAIL.
 - `warnings` and `errors` repeat everything worth reading from every part and object
-  (validator warnings, engine warnings, rotation notes, object FAILs with their notes).
-  Read those two lists first.
+  (validator warnings, engine warnings, a Python generator's `UserWarning`s such as a font
+  switch, rotation notes), and every hard FAIL of a part, an object or an assembly check is
+  one line in `errors`, `<part> <check> FAIL: <note>`. Read those two lists first.
 
 ## What Bambu Studio does with touching parts (02.08.02.61 source)
 

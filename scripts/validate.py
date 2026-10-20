@@ -92,11 +92,14 @@ def manifest_path(stl: str) -> str:
     return stl + ".manifest.json"
 
 
-def write_manifest(stl: str, sources: list[str], params: dict | None, engine: str) -> dict:
-    """Called by build.py right after an engine writes `stl`."""
+def write_manifest(stl: str, sources: list[str], params: dict | None, engine: str, by: str = "run") -> dict:
+    """Called by build.py right after an engine writes `stl` (`by` "run"), or when `record` takes
+    an STL exported elsewhere (`by` "record"): only a manifest `run` wrote is the generator's own
+    word on that STL, which a later `record` keeps instead of re-stamping."""
     data = {
         "schema": "3dprint-scout.manifest/1",
         "engine": engine,
+        "by": by,
         "input_hash": hash_inputs(sources, params),
         "artifact_sha256": file_sha256(stl),
         "sources": source_names(sources),
