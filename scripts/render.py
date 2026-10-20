@@ -78,16 +78,11 @@ def render_command(stls, out, views, size, engine, colors, label=None, exe=None,
 
 def choose_blender(blender_python=None):
     """(binary path or None, bpy python or None); raises RenderError when neither works."""
-    exe = None if blender_python else build.find_blender()
-    if exe:
-        info = build.blender_info(exe)
-        if not info.get("error") and not build.too_old(info["version"]):
-            return exe, None, info["version"]
-    probe = build.bpy_info(blender_python)
-    if probe and "error" not in probe and not build.too_old(probe["version_tuple"]):
-        return None, probe["python"], probe["version"]
-    raise RenderError("Blender not found (no `blender` binary 4.5+ on PATH or in the usual folders, no bpy module 4.5+ in "
-                      + ", ".join(build.bpy_pythons(blender_python)) + "); use preview.py, or install Blender / pip install bpy")
+    try:
+        chosen = build.choose_blender(blender_python)            # the same choice as build.py and detect
+    except RuntimeError as exc:
+        raise RenderError(f"{exc}; or use preview.py")
+    return chosen["exe"], chosen["python"], chosen["info"]["version"]
 
 
 def run(args) -> dict:
@@ -137,7 +132,7 @@ def run(args) -> dict:
     rep = json.loads(lines[-1][len("@@3DPS "):])
     sane, note = preview.png_sane(rep["path"], rep["fg"])      # a real PNG with pixels, something drawn
     if sane:
-        sane, note = bb.fg_sane(rep["fg"])                       # and a background behind it
+        sane, note = bb.fg_sane(rep["fg"], rep.get("fg_views"))  # a background behind it, every view drawn
     return {"files": [{"path": args.out, "views": views, "sane": sane, "note": note, "bytes": os.path.getsize(args.out)}],
             "parts": rep["parts"], "size_mm": rep["size_mm"], "colour_note": rep.get("colour_note", bb.COLOUR_TABLE_NOTE),
             "renderer": rep["renderer"] + (" (binary)" if exe else " (bpy module)"),

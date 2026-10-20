@@ -73,6 +73,7 @@ LINE_WIDTH = 0.45                       # mm, one perimeter of a 0.4 mm nozzle (
 WELD = 1e-4                             # mm, the validator's own welding distance
 MAX_SEGMENTS = 32
 BED_CHAMFER_RUN = 0.9                   # run / rise of the bed chamfer: steeper than 45 deg, so P2 never counts it
+FG_MIN = 0.0005                         # at or below: a blank image (or view), nothing of the part drawn
 FG_MAX = 0.95                           # a render whose pixels nearly all differ from the background has no background
 
 # Views, palette and background as in scripts/preview.py, so both images read the same.
@@ -253,14 +254,18 @@ def parse_colors(items, names):
     return out, warnings
 
 
-def fg_sane(fg):
-    """The G4 verdict on a render's foreground fraction: blank (nothing drawn) or no background
-    at all (a black or missing world) both fail."""
-    if fg <= 0.0005:
+def fg_sane(fg, views=None):
+    """The G4 verdict on a render's foreground fraction, measured on the rendered views without
+    the caption or the grid lines: blank (nothing drawn), no background at all (a black or
+    missing world) and, with `views` {view: fraction}, any blank view all fail."""
+    if fg <= FG_MIN:
         return False, "blank image: nothing of the part is visible"
     if fg > FG_MAX:
         return False, (f"{fg * 100:.1f}% of the pixels differ from the background: the render has no background "
                        "(black world?), not a usable preview")
+    blank = [v for v, f in (views or {}).items() if f <= FG_MIN]
+    if blank:
+        return False, f"blank view{'s' if len(blank) > 1 else ''} {', '.join(blank)}: nothing of the part is visible there"
     return True, f"{fg * 100:.1f}% of the pixels show the part"
 
 
@@ -1268,6 +1273,24 @@ def _label(cam, text_, scale, aspect, materials):
     return ob
 
 
+def _label_box(lab, scale, aspect, tw, th, pad=2):
+    """The caption's pixel rectangle (x0, y0, x1, y1) in a tile, bottom-up like Blender's pixel
+    buffer, so the blank check leaves it out. The caption sits in the camera's frame (parented,
+    no rotation), so its laid-out bounds map straight to pixels; if they are not there yet, the
+    whole bottom band up to the caption's top is left out instead."""
+    w = scale if aspect >= 1 else scale * aspect
+    h = scale / aspect if aspect >= 1 else scale
+    xs = [lab.location.x + c[0] for c in lab.bound_box]
+    ys = [lab.location.y + c[1] for c in lab.bound_box]
+    if max(xs) - min(xs) <= 0 or max(ys) - min(ys) <= 0:
+        xs, ys = [-w / 2, w / 2], [-h / 2, lab.location.y + 2 * lab.data.size]
+    x0 = max(0, int(math.floor((min(xs) + w / 2) / w * tw)) - pad)
+    x1 = min(tw, int(math.ceil((max(xs) + w / 2) / w * tw)) + pad)
+    y0 = max(0, int(math.floor((min(ys) + h / 2) / h * th)) - pad)
+    y1 = min(th, int(math.ceil((max(ys) + h / 2) / h * th)) + pad)
+    return x0, y0, x1, y1
+
+
 def _colour_objects(objects, colors, materials):
     """Object colour (Workbench) and a flat material (EEVEE / Cycles) per object, dark colours
     lifted for the preview; returns what to undo: [(mesh, previous material)]."""
@@ -1351,9 +1374,11 @@ def render_views(out, views=None, colors=None, engine="workbench", size=(1600, 1
     """Render the given objects (default: the registered parts) from `views` into one PNG grid
     at `out` (width, height), Workbench by default (headless, no GPU needed; eevee and cycles
     on request), part colours from `colors` {part: (r, g, b)} or the palette. The per-view
-    tiles go to a temporary folder next to `out`. Returns {"path", "views", "fg", "sane",
-    "note", "size_mm", "renderer", "seconds", "bytes"}; `fg` is the fraction of pixels that
-    differ from the background and `sane` the G4 verdict (`fg_sane`)."""
+    tiles go to a temporary folder next to `out`. Returns {"path", "views", "fg", "fg_views",
+    "sane", "note", "size_mm", "renderer", "seconds", "bytes"}; `fg` is the fraction of pixels
+    that differ from the background, counted on the rendered views without the caption and the
+    grid lines (`fg_views` per view), and `sane` the G4 verdict (`fg_sane`): every view must
+    show the part."""
     require_blender()
     import numpy as np                      # bundled with every Blender and the bpy wheel
     views = list(views or DEFAULT_VIEWS)
@@ -1394,7 +1419,7 @@ def render_views(out, views=None, colors=None, engine="workbench", size=(1600, 1
     old_camera = sc.camera
     os.makedirs(os.path.dirname(out), exist_ok=True)
     tmpdir = tempfile.mkdtemp(prefix=".render-", dir=os.path.dirname(out))
-    tiles, temp_objects = [], list(extras)
+    tiles, captions, temp_objects = [], [], list(extras)
     try:
         for i, v in enumerate(views):
             cam = _camera_for(v, lo, hi, scale, aspect)
@@ -1411,6 +1436,18 @@ def render_views(out, views=None, colors=None, engine="workbench", size=(1600, 1
             img.pixels.foreach_get(buf)
             bpy.data.images.remove(img)
             tiles.append(buf.reshape(h, w, 4))
+            captions.append(_label_box(lab, scale, aspect, tw, th))
+        # The blank check counts the part only: per view, before the grid lines, the caption left out.
+        bg = np.asarray(BACKGROUND, dtype=np.float32)
+        fg_views, hits, counted = {}, 0, 0
+        for v, tile, (x0, y0, x1, y1) in zip(views, tiles, captions):
+            drawn = (np.abs(tile[:th, :tw, :3] - bg) > 0.03).any(axis=2)
+            keep = np.ones(drawn.shape, dtype=bool)
+            keep[y0:y1, x0:x1] = False
+            n, k = int(keep.sum()), int((drawn & keep).sum())
+            fg_views[v] = round(k / n, 5) if n else 0.0
+            hits, counted = hits + k, counted + n
+        fg = hits / counted if counted else 0.0
         canvas = np.empty((rows * th, cols * tw, 4), dtype=np.float32)
         canvas[..., :3] = BACKGROUND
         canvas[..., 3] = 1.0
@@ -1422,7 +1459,6 @@ def render_views(out, views=None, colors=None, engine="workbench", size=(1600, 1
             canvas[:, c * tw - 1:c * tw + 1, :3] = 0.82
         for r in range(1, rows):
             canvas[r * th - 1:r * th + 1, :, :3] = 0.82
-        fg = float((np.abs(canvas[..., :3] - np.asarray(BACKGROUND, dtype=np.float32)) > 0.03).any(axis=2).mean())
         grid = bpy.data.images.new("_render_grid", cols * tw, rows * th, alpha=False)
         grid.pixels.foreach_set(canvas.ravel())
         grid.save_render(out, scene=sc)                  # PNG with the scene's compression setting
@@ -1452,10 +1488,10 @@ def render_views(out, views=None, colors=None, engine="workbench", size=(1600, 1
         sc.camera = old_camera
         sc.render.resolution_x, sc.render.resolution_y = old_res
         sc.render.filepath = "//"
-    sane, note = fg_sane(fg)
+    sane, note = fg_sane(fg, fg_views)
     renderer = f"Blender {bpy.app.version_string} {engine} (orthographic, {cols}x{rows} grid)"
-    return {"path": out, "views": views, "fg": round(fg, 5), "sane": sane, "note": note, "size_mm": size_mm,
-            "renderer": renderer, "seconds": round(time.time() - t0, 2), "bytes": os.path.getsize(out)}
+    return {"path": out, "views": views, "fg": round(fg, 5), "fg_views": fg_views, "sane": sane, "note": note,
+            "size_mm": size_mm, "renderer": renderer, "seconds": round(time.time() - t0, 2), "bytes": os.path.getsize(out)}
 
 
 # --------------------------------------------------------------------------- #

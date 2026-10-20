@@ -46,8 +46,10 @@ Without Blender nothing changes.
   machine's folders first and a hit leaves nothing behind), `render_views`. `build.py run
   --engine blender` (or the marker) runs the binary (`--background --factory-startup
   --python-exit-code 1 --python-expr <paths> --python gen.py -- --params … --out …`) or, without
-  one, the Python that has `bpy` (`--blender-python`, `BLENDER_PYTHON`, the running Python); the
-  `.blend` lands in `out/` and the build JSON gets `blend` and `engine_info.boolean_solver`. In a
+  one, the Python that has `bpy` (`--blender-python`, `BLENDER_PYTHON`, the running Python); a
+  binary older than 4.5 or one that does not answer is passed over for a usable `bpy` module, the
+  same choice `detect` and `render.py` make. The `.blend` is the working copy in `out/`, rewritten
+  on every build, and the build JSON gets `blend` and `engine_info.boolean_solver`. In a
   live Blender the same script runs through the host's tool (a loader that checks both files'
   md5, drops any stale helper and sets `sys.argv`) and `build.py record --engine blender` takes
   the STLs, hashing `blender_builder.py` with the generator. Validation is unchanged and
@@ -67,9 +69,10 @@ Without Blender nothing changes.
   colours from filament names: a small built-in table of approximate Bambu colours matched on
   whole names, `#rrggbb`, the palette otherwise; an unknown name gets neutral grey and a
   warning, checked before Blender starts, never a question; very dark colours are lifted for
-  the preview (`drawn` beside `colour`). Same JSON and `sane` check as `preview.py` plus one: a
+  the preview (`drawn` beside `colour`). Same JSON and `sane` check as `preview.py` plus two: a
   render whose pixels nearly all differ from the background (a black or missing world) is not
-  sane. `preview.py` stays the fallback and the G4 check. Concept previews and the delivery
+  sane, and neither is one with a blank view; the check counts the rendered views without the
+  caption and the grid lines (`fg_views`). `preview.py` stays the fallback and the G4 check. Concept previews and the delivery
   image may be these renders.
 - **Delivery** (Phase 6 file): a Blender build's `.blend` goes next to the STLs and 3MF, never
   overwriting, with one line: the script is the source of truth, hand edits are fine, the next
@@ -86,14 +89,15 @@ Without Blender nothing changes.
 - **Tests and CI**: detection with mocked subprocesses (search order, version parse, probe
   timeout and working folder, no Blender at all, the 4.5 gate), the exact binary and `bpy`
   command lines, the marker (shebang, BOM, the Python engine's refusal), a stand-in `blender`
-  binary (build, `--only`, timeout, failure, version gate), `render.py`'s refusals, colour
-  warnings and the no-background verdict; with `bpy`: the 10 mm cube, Manifold and the Exact
+  binary (build, a rebuild into the same `out/`, `--only`, timeout, failure, version gate, the
+  fallback from an old binary to a usable `bpy` module), `render.py`'s refusals, colour warnings,
+  the no-background verdict and the caption's pixel box; with `bpy`: the 10 mm cube, Manifold and the Exact
   branch, a bevelled and a chamfered body through `validate.py`, text with touching letters,
   parts → collections, parameters → properties, a path in a property, `save_blend` (overwrite
   refused, no UI in the file, no path of the machine, reload), the live session (the user's open
   file, their object and a same-named collection untouched; `--blend` guards), renders including
-  a black background, a real build through the `bpy` path and through an emulated binary, and
-  the example. Two CI jobs install `bpy` (4.5.14 on Python 3.11, 5.2.2 on 3.13); the other jobs
+  a black background and a blank grid (captions and grid lines only), a real build and rebuild
+  through the `bpy` path and through an emulated binary, and the example. Two CI jobs install `bpy` (4.5.14 on Python 3.11, 5.2.2 on 3.13); the other jobs
   keep skipping the Blender tests. `tests/test_fit.py` and `tests/test_parts.py` now skip
   cleanly without numpy / manifold3d instead of erroring. A real `blender` install and a Blender
   MCP server are still to be run.

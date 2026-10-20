@@ -146,6 +146,31 @@ class PureHelpers(unittest.TestCase):
         ok, note = bb.fg_sane(0.99)                                # a black or missing background
         self.assertFalse(ok)
         self.assertIn("no background", note)
+        ok, note = bb.fg_sane(0.2, {"iso": 0.4, "front": 0.0, "right": 0.2, "top": 0.0003})
+        self.assertFalse(ok)                                       # a blank view fails though the grid is not blank
+        self.assertIn("blank views front, top", note)
+        self.assertTrue(bb.fg_sane(0.2, {"iso": 0.4, "front": 0.01})[0])
+
+    def test_caption_box_in_pixels(self):
+        """The caption's rectangle, left out of the blank check: from its laid-out bounds in the
+        camera frame (bottom-up pixels, 2 px pad), or the whole caption band when not laid out."""
+        from types import SimpleNamespace as NS
+        bb = self.bb
+        corners = [(x, y, 0.0) for x in (0.0, 12.0) for y in (-0.2, 1.0) for _ in (0, 1)]
+
+        def near(box, expect):                                     # within a pixel: edges may land on a boundary
+            self.assertTrue(all(abs(a - b) <= 1 for a, b in zip(box, expect)), (box, expect))
+
+        # Landscape: frame 40 x 30 mm in 800 x 600 px (20 px/mm); the text spans 16..256 x 12..36 px.
+        lab = NS(location=NS(x=-20.0 + 0.8, y=-15.0 + 0.8), bound_box=corners, data=NS(size=1.4))
+        near(bb._label_box(lab, 40.0, 4 / 3, 800, 600), (14, 10, 258, 38))
+        flat = NS(location=lab.location, bound_box=[(0.0, 0.0, 0.0)] * 8, data=NS(size=1.4))
+        near(bb._label_box(flat, 40.0, 4 / 3, 800, 600), (0, 0, 800, 74))    # not laid out: the caption band
+        # Portrait: frame 30 x 40 mm in 300 x 400 px (10 px/mm); the text spans 8..128 x 6..18 px.
+        tall = NS(location=NS(x=-15.0 + 0.8, y=-20.0 + 0.8), bound_box=corners, data=NS(size=1.4))
+        near(bb._label_box(tall, 40.0, 0.75, 300, 400), (6, 4, 130, 20))
+        wide = NS(location=lab.location, bound_box=[(x * 10, y, z) for x, y, z in corners], data=NS(size=1.4))
+        self.assertEqual(bb._label_box(wide, 40.0, 4 / 3, 800, 600)[2], 800)     # clamped to the tile
 
     def test_view_basis_matches_preview(self):
         import preview
@@ -590,7 +615,11 @@ def dark(sc, engine):
     return extras
 bb._setup_engine = dark
 black = bb.render_views({os.path.join(self.tmp, "black.png")!r}, ["iso"], {{}}, "workbench", (320, 240))
-emit(r=r, again=again, black=black, leftovers=[o.name for o in bpy.data.objects if o.name.startswith("_render")],
+bb._setup_engine = orig
+for o in (a, b):
+    o.hide_render = True                                    # nothing drawn: only the caption and the grid lines
+blank = bb.render_views({os.path.join(self.tmp, "blank.png")!r}, ["iso", "front", "right", "top"], {{}}, "workbench", (1600, 1200))
+emit(r=r, again=again, black=black, blank=blank, leftovers=[o.name for o in bpy.data.objects if o.name.startswith("_render")],
      materials=[m.name for m in bpy.data.materials if m.name.startswith("_render")], camera=bb.scene().camera,
      eevee=bb.engine_id("eevee"), files=sorted(os.listdir({self.tmp!r})))
 """)
@@ -604,11 +633,16 @@ emit(r=r, again=again, black=black, leftovers=[o.name for o in bpy.data.objects 
         self.assertFalse(rep["black"]["sane"])
         self.assertIn("no background", rep["black"]["note"])
         self.assertGreater(rep["black"]["fg"], 0.95)
+        blank = rep["blank"]                                                   # captions and grid lines are not the part
+        self.assertEqual((blank["sane"], blank["fg"]), (False, 0.0), blank)
+        self.assertEqual(blank["fg_views"], {"iso": 0.0, "front": 0.0, "right": 0.0, "top": 0.0})
+        self.assertIn("blank image", blank["note"])
+        self.assertTrue(all(f > 0.0005 for f in r["fg_views"].values()), r["fg_views"])
         self.assertEqual(rep["leftovers"], [])                                 # cameras and labels cleaned up
         self.assertEqual(rep["materials"], [])
         self.assertIsNone(rep["camera"])
         self.assertIn(rep["eevee"], ("BLENDER_EEVEE", "BLENDER_EEVEE_NEXT"))
-        self.assertEqual(rep["files"], ["black.png", "r.png"])                 # the tile folder is gone
+        self.assertEqual(rep["files"], ["black.png", "blank.png", "r.png"])    # the tile folder is gone
         with open(png, "rb") as f:
             head = f.read(24)
         self.assertTrue(head.startswith(b"\x89PNG\r\n\x1a\n"))

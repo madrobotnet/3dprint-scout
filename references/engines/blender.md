@@ -49,14 +49,16 @@ All three run the **same generator script**; only the launcher differs.
 
    which executes `blender --background --factory-startup --python-exit-code 1 --python-expr
    "<sys.path for the engines folder and the generator's>" --python model_blender.py --
-   --params <engine params> --out out --blend out/model_blender.blend` with the usual
-   `--timeout`. The first line of the generator, `# 3dprint-scout: engine=blender` (a shebang
+   --params <engine params> --out out` with the usual `--timeout`; the generator saves its
+   working copy `out/model_blender.blend` and rewrites it on every build. The first line of the generator, `# 3dprint-scout: engine=blender` (a shebang
    may come before it), picks the engine (or pass `--engine blender`); nothing is guessed from
    imports, and the Python engine refuses such a file by name.
 2. **`bpy` module** (no binary, but `import bpy` works in some Python). The same command runs the
    generator with that Python instead, `references/engines` on `PYTHONPATH`; `build.py` tries the
    binary first, then `--blender-python PATH`, `BLENDER_PYTHON`, and the Python running
-   `build.py`. `--blender-python` forces this path. In a disposable sandbox `pip install bpy`
+   `build.py`. `--blender-python` forces this path; a binary older than 4.5 or one that does not
+   answer `--version` is passed over for a usable `bpy` module (a note in `engine_info` says so),
+   the same choice `detect` and `render.py` make. In a disposable sandbox `pip install bpy`
    (one line to the user: it is a few hundred MB) into a Python that has a 4.5+ wheel is fine;
    on the user's machine, ask first.
 3. **Live Blender** (an MCP connector to the user's own Blender; Phase 0 found a tool that runs
@@ -261,9 +263,11 @@ built-in table of **approximate** screen colours of common Bambu filaments (whol
 palette, an unknown name gets neutral grey and a warning in the JSON; never ask about colours.
 Very dark colours are lifted a little for the preview (`drawn` beside `colour` in the JSON)
 so black parts still show their edges. Same views, grid and JSON as `preview.py`, same `sane`
-check plus one: a render whose pixels nearly all differ from the background (a black or missing
-world) is not sane (exit 2). `preview.py` stays the fallback and the G4 check; the numbers from
-`validate.py` stay the evidence.
+check plus two: a render whose pixels nearly all differ from the background (a black or missing
+world) is not sane, and neither is one with a blank view (exit 2). The check counts the rendered
+views only, without the caption and the grid lines (`fg_views` per view in the JSON).
+`preview.py` stays the fallback and the G4 check; the numbers from `validate.py` stay the
+evidence.
 
 ## Pitfalls
 

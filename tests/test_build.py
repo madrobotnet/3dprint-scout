@@ -307,11 +307,20 @@ if "--version" in a:
     print("Blender 4.5.0 LTS\n\tbuild date: 2025-07-15"); sys.exit(0)
 if os.environ.get("FAKE_BLENDER_SLEEP"):
     time.sleep(float(os.environ["FAKE_BLENDER_SLEEP"]))
-assert a[:4] == ["--background", "--factory-startup", "--python-exit-code", "1"], a
+if a[0] == "--background":                  # the binary
+    assert a[:4] == ["--background", "--factory-startup", "--python-exit-code", "1"], a
+    src = a[a.index("--python") + 1]
+    mode = "binary"
+else:                                       # `python gen.py -- ...`, as a Python with bpy runs it
+    src, mode = a[0], "bpy"
 rest = a[a.index("--") + 1:]
 out = rest[rest.index("--out") + 1]
 only = rest[rest.index("--only") + 1].split(",") if "--only" in rest else ["body"]
+# The helper's rule: an explicit --blend is a new file; the default working copy is rewritten.
 blend = rest[rest.index("--blend") + 1] if "--blend" in rest else None
+if blend and os.path.exists(blend):
+    sys.exit("--blend " + blend + " already exists")
+blend = blend or os.path.join(out, os.path.splitext(os.path.basename(src))[0] + ".blend")
 os.makedirs(out, exist_ok=True)
 p = [(0,0,0),(10,0,0),(10,10,0),(0,10,0),(0,0,10),(10,0,10),(10,10,10),(0,10,10)]
 f = [(0,2,1),(0,3,2),(4,5,6),(4,6,7),(0,1,5),(0,5,4),(1,2,6),(1,6,5),(2,3,7),(2,7,6),(3,0,4),(3,4,7)]
@@ -326,12 +335,10 @@ for name in only:
                 fh.write(struct.pack("<3f", *p[i]))
             fh.write(b"\0\0")
     parts.append({"name": name, "stl": stl, "bbox_mm": [10, 10, 10], "triangles": 12, "bytes": os.path.getsize(stl), "seconds": 0.0})
-if blend:
-    open(blend, "wb").write(b"BLENDER-v402fake")
-src = a[a.index("--python") + 1]
+open(blend, "wb").write(b"BLENDER-v402fake")
 print("Blender quit")
 print("@@3DPS " + json.dumps({"parts": parts, "deps": [src], "blend": blend, "blender": "4.5.0 LTS", "solver": "MANIFOLD",
-                              "mode": "binary", "notes": ["fake"], "warnings": []}))
+                              "mode": mode, "notes": ["fake"], "warnings": []}))
 """
 
 # The same, but a real emulation of the binary: runs the --python-expr and the generator in the
@@ -491,6 +498,11 @@ class BlenderEngine(Base):
             self.assertEqual(json.load(f)["engine"], "blender")
         self.assertEqual([os.path.basename(s) for s in out["sources"]], ["gen_blender.py"])
         self.assertTrue(os.path.isfile(out["threemf"]))
+        # A rebuild into the same out/ rewrites the working copy: build.py names no --blend.
+        with mock.patch.dict(os.environ, {"BLENDER": exe}):
+            code, again = run("run", src, "--params", prm, "--out", self.out, "--no-wall-check", "--printer", printers)
+        self.assertEqual((code, again["gate"], again["blend"]), (0, "PASS", out["blend"]), again.get("errors"))
+        self.assertNotIn("--blend", build.blender_command(exe, src, "/t/p.json", self.out, []))
         # --only reaches the generator, and the engine is also selectable explicitly.
         with mock.patch.dict(os.environ, {"BLENDER": exe}):
             code, out = run("run", src, "--params", prm, "--out", os.path.join(self.d, "mech"), "--only", "peg",
@@ -513,9 +525,37 @@ class BlenderEngine(Base):
         self.assertEqual(code, 1)
         self.assertIn("Blender generator failed (binary, exit 1)", out["errors"][0])
         old = self.fake("print('Blender 4.2.3 LTS')", "old_blender")
-        with mock.patch.dict(os.environ, {"BLENDER": old}):
+        with mock.patch.dict(os.environ, {"BLENDER": old}), mock.patch.object(build, "bpy_info", return_value=None):
             code, out = run("run", src, "--out", self.out)
-        self.assertIn("older than 4.5", out["errors"][0])
+        self.assertEqual(code, 1)
+        self.assertIn("Blender not usable", out["errors"][0])
+        self.assertIn("older than 4.5", out["errors"][0])                      # every reason is named
+        self.assertIn("import bpy` failed", out["errors"][0])
+
+    @unittest.skipUnless(os.name != "nt", "uses shell wrappers as a fake blender and a fake Python")
+    def test_an_unusable_binary_falls_back_to_a_usable_bpy_module(self):
+        """What detect calls usable is what runs: an old binary on PATH or in BLENDER does not
+        stop a build when a Python with a 4.5+ bpy module is there."""
+        src = self.write("gen_blender.py", BLENDER_GEN)
+        old = self.fake("print('Blender 4.2.3 LTS')", "old_blender")
+        python = self.fake(FAKE_BLENDER, "python_with_bpy")
+        probe = {"version": "4.5.3", "version_tuple": (4, 5, 3), "python": python}
+        with mock.patch.dict(os.environ, {"BLENDER": old}), mock.patch.object(build, "bpy_info", return_value=dict(probe)):
+            status = build.blender_status()
+            chosen = build.choose_blender()
+            code, out = run("run", src, "--out", self.out, "--no-wall-check", "--no-3mf")
+        self.assertTrue(build.blender_usable(status) and status["manifold_boolean"])
+        self.assertIn("the binary is not usable: build.py and render.py use the bpy module", status["notes"])
+        self.assertEqual((chosen["mode"], chosen["python"]), ("bpy", python))
+        self.assertIn("older than 4.5", chosen["skipped"][0])
+        self.assertEqual(code, 0, out.get("errors"))
+        self.assertEqual((out["engine_info"]["mode"], out["engine_info"]["python"]), ("bpy", python))
+        self.assertTrue(out["engine_info"]["notes"][0].endswith("used the bpy module instead"))
+        self.assertTrue(os.path.isfile(out["blend"]))
+        import render                                                           # scripts/ is on sys.path
+        self.assertIs(render.build, build)
+        with mock.patch.dict(os.environ, {"BLENDER": old}), mock.patch.object(build, "bpy_info", return_value=dict(probe)):
+            self.assertEqual(render.choose_blender(), (None, python, "4.5.3"))          # renders choose the same
 
     def test_missing_blender_is_a_clear_error(self):
         src = self.write("gen_blender.py", BLENDER_GEN)
@@ -543,6 +583,10 @@ class BlenderEngine(Base):
         self.assertEqual(out["engine_info"]["python"], sys.executable)
         self.assertIn(out["engine_info"]["boolean_solver"], ("MANIFOLD", "EXACT"))
         self.assertTrue(os.path.isfile(out["blend"]))
+        with mock.patch.object(build, "find_blender", return_value=None):           # a rebuild into the same out/
+            code, again = run("run", src, "--params", prm, "--out", self.out, "--blender-python", sys.executable,
+                              "--no-wall-check", "--printer", printers)
+        self.assertEqual((code, again["gate"], again["blend"]), (0, "PASS", out["blend"]), again.get("errors"))
         self.assertEqual({os.path.basename(s) for s in out["sources"]}, {"gen_blender.py", "blender_builder.py"})
         parts = {p["name"]: p for p in out["parts"]}
         self.assertEqual(parts["peg"]["assembly"]["checks"]["A1"]["state"], "PASS")
@@ -564,6 +608,9 @@ class BlenderEngine(Base):
         self.assertEqual(code, 0, out.get("errors"))
         self.assertEqual((out["gate"], out["engine_info"]["mode"], out["engine_info"]["path"]), ("PASS", "binary", exe))
         self.assertTrue(os.path.isfile(out["blend"]))
+        with mock.patch.dict(os.environ, {"BLENDER": exe}):                          # a rebuild into the same out/
+            code, again = run("run", src, "--params", prm, "--out", self.out, "--no-wall-check", "--printer", printers)
+        self.assertEqual((code, again["gate"], again["blend"]), (0, "PASS", out["blend"]), again.get("errors"))
         self.assertTrue(all(p["validate"]["files"][0]["checks"]["D1"]["state"] == "PASS" for p in out["parts"]))
 
 

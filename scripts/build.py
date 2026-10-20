@@ -274,20 +274,19 @@ def blender_status(python: str | None = None) -> dict:
         module = None
     else:
         notes = []
-    chosen = None
-    if binary and not binary.get("error"):
-        chosen = version_tuple(binary["version"])
-    elif module:
-        chosen = tuple(module["version_tuple"])
+    binary_ok = bool(binary) and not binary.get("error") and not too_old(binary["version"])
+    module_ok = bool(module) and not too_old(module["version_tuple"])
     for label, ver in (("binary", binary and version_tuple(binary["version"])),
                        ("bpy", module and tuple(module["version_tuple"]))):
         note = too_old(ver) if ver else None
         if note:
             notes.append(f"{label}: {note}")
-    if binary and module:
+    if binary_ok and module:
         notes.append("both a binary and the bpy module: build.py uses the binary (--blender-python forces bpy)")
-    return {"binary": binary, "bpy": module, "manifold_boolean": bool(chosen) and chosen[:2] >= MIN_BLENDER,
-            "notes": notes}
+    elif binary and not binary_ok and module_ok:
+        notes.append("the binary is not usable: build.py and render.py use the bpy module")
+    # The same choice as choose_blender: the Manifold solver is there when what runs is 4.5+.
+    return {"binary": binary, "bpy": module, "manifold_boolean": binary_ok or module_ok, "notes": notes}
 
 
 def blender_usable(status: dict) -> bool:
@@ -533,7 +532,8 @@ def engine_marker(source: str) -> str | None:
 def blender_command(exe, source, params_file, out_dir, parts, blend=None):
     """The blender binary command line: background, factory start-up, a non-zero exit on a
     Python exception, the engines folder and the generator's folder on sys.path, then the
-    generator with its own arguments after `--`."""
+    generator with its own arguments after `--`. `blend` is only for a new, explicitly named
+    file; without it the generator rewrites its working copy `<out>/<generator>.blend`."""
     expr = ("import sys; sys.path[:0] = [%r, %r]" % (os.path.dirname(os.path.abspath(source)), ENGINES_DIR))
     cmd = [exe, "--background", "--factory-startup", "--python-exit-code", "1",
            "--python-expr", expr, "--python", os.path.abspath(source), "--",
@@ -555,34 +555,52 @@ def bpy_command(python, source, params_file, out_dir, parts, blend=None):
     return cmd
 
 
-def build_blender(source, params, parts, out_dir, timeout, blender_python=None):
-    """Run a Blender generator in the binary (first) or the bpy module, read its @@3DPS line."""
+def choose_blender(blender_python=None):
+    """How a Blender generator or render runs, the same choice `detect` reports as usable:
+    {"mode": "binary", "exe", "info"} for a 4.5+ binary, else {"mode": "bpy", "python", "info"}
+    for a 4.5+ bpy module (--blender-python skips the binary), plus "skipped": why an unusable
+    binary was passed over. Raises RuntimeError with every reason when neither works."""
+    reasons = []
     exe = None if blender_python else find_blender()
-    mode, python = "binary", None
     if exe:
         info = blender_info(exe)
-        if info.get("error") or too_old(info["version"]):
-            raise RuntimeError(f"Blender binary {exe}: {info.get('error') or too_old(info['version'])}")
+        why = info.get("error") or too_old(info["version"])
+        if not why:
+            return {"mode": "binary", "exe": exe, "python": None, "info": info, "skipped": []}
+        reasons.append(f"Blender binary {exe}: {why}")
+    probe = bpy_info(blender_python)
+    if probe and "error" not in probe:
+        why = too_old(probe["version_tuple"])
+        if not why:
+            return {"mode": "bpy", "exe": None, "python": probe["python"], "info": probe, "skipped": reasons}
+        reasons.append(f"bpy module in {probe['python']}: {why}")
     else:
-        probe = bpy_info(blender_python)
-        if not probe or "error" in probe:
-            raise RuntimeError("Blender not found: no `blender` binary on PATH or in the usual folders (set BLENDER=/path), "
-                               "and `import bpy` failed in " + ", ".join(bpy_pythons(blender_python))
-                               + ((": " + probe["error"]) if probe else "")
-                               + ". Install Blender 4.5 LTS or newer, or `pip install bpy` into that Python (--blender-python)")
-        if too_old(probe["version_tuple"]):
-            raise RuntimeError(f"bpy module: {too_old(probe['version_tuple'])}")
-        mode, python, info = "bpy", probe["python"], probe
+        reasons.append("`import bpy` failed in " + ", ".join(bpy_pythons(blender_python))
+                       + ((": " + probe["error"]) if probe else ""))
+    if exe:
+        head = "Blender not usable: "
+    elif blender_python:
+        head = "Blender not found: "
+    else:
+        head = "Blender not found: no `blender` binary on PATH or in the usual folders (set BLENDER=/path), and "
+    raise RuntimeError(head + "; ".join(reasons)
+                       + ". Install Blender 4.5 LTS or newer, or `pip install bpy` into that Python (--blender-python)")
+
+
+def build_blender(source, params, parts, out_dir, timeout, blender_python=None):
+    """Run a Blender generator in the binary (first) or the bpy module, read its @@3DPS line.
+    The .blend is the generator's own default, `<out>/<generator>.blend`: the working copy it
+    rewrites on every build (an explicit --blend would be a new file and refused on a rebuild)."""
+    chosen = choose_blender(blender_python)
+    mode, exe, python, info = chosen["mode"], chosen["exe"], chosen["python"], chosen["info"]
     with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False, encoding="utf-8") as f:
         json.dump(engine_params(params), f)
         ptmp = f.name
-    stem = os.path.splitext(os.path.basename(source))[0]
-    blend = os.path.join(os.path.abspath(out_dir), stem + ".blend")
     env = dict(os.environ, PYTHONIOENCODING="utf-8")
     if mode == "binary":
-        cmd = blender_command(exe, source, ptmp, out_dir, parts, blend)
+        cmd = blender_command(exe, source, ptmp, out_dir, parts)
     else:
-        cmd = bpy_command(python, source, ptmp, out_dir, parts, blend)
+        cmd = bpy_command(python, source, ptmp, out_dir, parts)
         env["PYTHONPATH"] = os.pathsep.join(p for p in (ENGINES_DIR, env.get("PYTHONPATH")) if p)
     t0 = time.time()
     try:
@@ -602,7 +620,8 @@ def build_blender(source, params, parts, out_dir, timeout, blender_python=None):
                 "engine_warnings": [p["warning"]] if p.get("warning") else []} for p in rep["parts"]]
     sources = sorted(set(rep.get("deps", [])) | {os.path.abspath(source)})
     engine_info = {"blender": rep.get("blender") or info.get("version"), "mode": mode,
-                   "boolean_solver": rep.get("solver"), "blend": rep.get("blend"), "notes": rep.get("notes", [])}
+                   "boolean_solver": rep.get("solver"), "blend": rep.get("blend"),
+                   "notes": [f"{why}; used the bpy module instead" for why in chosen["skipped"]] + rep.get("notes", [])}
     if mode == "binary":
         engine_info["path"] = exe
     else:
