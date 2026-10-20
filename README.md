@@ -147,14 +147,23 @@ the X2D and H2D, objects that need both nozzles are placed where both can reach.
 
 ## Status
 
-**v0.4.0.** Uses Blender (4.5 LTS or newer) when it is there: your own Blender through an MCP
+**v0.5.0.** The Blender paths ran on a real Windows install (Blender 5.2.2 LTS, the binary and
+the official Blender Lab MCP server), and five scenario runs used the skill end to end (an
+organic pot, a snap clip, a mixed nameplate, a Gridfinity bin, a Hangul keyring). Their
+findings are fixed: renders in the filaments' real colours, text that refuses a character its
+font cannot draw, `record` that no longer passes a stale STL, `strength.py snap`, rules for
+standards, fonts and two-colour text. Mechanical parts now go to Python or OpenSCAD and Fusion
+only when you want editable CAD, after a comparison that measured the same accuracy in Blender
+but no reliable rounds next to curved faces. Not yet run: the MCP server's background tool, and
+the binary on macOS and Linux.
+v0.4.0 uses Blender (4.5 LTS or newer) when it is there: your own Blender through an MCP
 connector, a `blender` binary or the `bpy` module. Organic and decorative shapes get real
 fillets, Manifold booleans, text in any font and an editable `.blend` next to the STLs;
 previews can be Blender renders in the filament's colour. In your own Blender it builds into a
 scene of its own and writes only into its output folder: your open file is never
 reset, saved or overwritten, and nothing of yours ends up in the `.blend` it delivers. Checked
-with the `bpy` module 4.5.14 and 5.2.2 and an emulated binary; not yet run against a real
-`blender` install or a Blender MCP server. Without Blender everything works as in v0.3.1.
+with the `bpy` module 4.5.14 and 5.2.2 and an emulated binary at release; the real binary and
+the MCP server ran in v0.5.0. Without Blender everything works as in v0.3.1.
 v0.3.1 splits the mechanism rules by duty after a test request with v0.3.0 (an SD-card
 case whose lid hinge was sized by the latch minimums and grew the box): hand-operated latches,
 levers and clamps keep the field minimums; lid hinges with alternating knuckles are sized by the
@@ -170,8 +179,8 @@ end to end on a Bambu Lab X2D with Bambu Studio 02.08.02.61, with OpenSCAD 2021.
 3.5.4; generated templates were also checked against the A1 mini, A1, P1S, X1C, H2D and H2C
 profiles. The v0.3 Bambu projects with several parts in one object, the support interface
 settings and the v0.2.1 six-filament fix were checked in the app on 2026-10-18. Not yet run in
-Fusion: the cleaned Builder; not yet run on a real Blender binary or MCP server: the v0.4
-Blender paths; not yet tested at all: OrcaSlicer. Planned: a printer-profile importer, bridge
+Fusion: the cleaned Builder; not yet run: the Blender MCP server's background tool and the
+binary on macOS and Linux; not yet tested at all: OrcaSlicer. Planned: a printer-profile importer, bridge
 and minimum-feature checks. FDM only; no resin.
 
 ## Development
