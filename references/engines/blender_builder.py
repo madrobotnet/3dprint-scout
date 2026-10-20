@@ -567,13 +567,21 @@ def nonmanifold_edges(obj):
 def degenerate_triangles(me, area=1e-9):
     """Triangles of a mesh (as the STL exporter will cut them) with an area under `area` mm2
     or two welded vertices: what validate.py's M3 counts."""
+    import numpy as np                      # bundled with every Blender and the bpy wheel
     me.calc_loop_triangles()
-    bad = 0
-    for t in me.loop_triangles:
-        a, b, c = (me.vertices[i].co for i in t.vertices)
-        if (b - a).cross(c - a).length / 2 < area or (a - b).length < WELD or (b - c).length < WELD or (a - c).length < WELD:
-            bad += 1
-    return bad
+    n = len(me.loop_triangles)
+    if not n:
+        return 0
+    co = np.empty(len(me.vertices) * 3, dtype=np.float64)
+    me.vertices.foreach_get("co", co)
+    co = co.reshape(-1, 3)
+    idx = np.empty(n * 3, dtype=np.int64)
+    me.loop_triangles.foreach_get("vertices", idx)
+    a, b, c = (co[idx.reshape(-1, 3)[:, k]] for k in range(3))
+    areas = np.linalg.norm(np.cross(b - a, c - a), axis=1) / 2
+    short = np.minimum(np.minimum(np.linalg.norm(a - b, axis=1), np.linalg.norm(b - c, axis=1)),
+                       np.linalg.norm(a - c, axis=1))
+    return int(np.count_nonzero((areas < area) | (short < WELD)))
 
 
 def evaluated_mesh(obj):
@@ -689,6 +697,13 @@ def boolean(target, tool, operation="DIFFERENCE", apply=True, solver=None):
         if n:
             raise ValueError(f"boolean {ops[operation].lower()} with solver {solver} left {n} non-manifold edges on "
                              f"'{target.name}': the tool probably touches the target on a face; overshoot it by 0.01-0.1 mm")
+        d = degenerate_triangles(target.data)
+        if d:
+            raise ValueError(f"boolean {ops[operation].lower()} with solver {solver} left {d} zero-area triangles on "
+                             f"'{target.name}' (the STL would fail M3, and M1 once they are dropped): the cut crosses a "
+                             "fan of thin triangles (a pole or a cap) or grazes an edge. Give the face ring topology "
+                             "where it is cut, build a round hole on the axis into the profile (a revolve), or move "
+                             "the cut off the pole")
     else:
         tool.hide_viewport = True
         tool.hide_render = True

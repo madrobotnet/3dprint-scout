@@ -308,7 +308,8 @@ evidence.
 |---|---|---|
 | D4 FAIL, everything 1000× too small or large | Scene units left at metres, or `use_scene_unit` on | `bb.new_scene_mm()`; export through `bb.export_parts` |
 | `bevel ... made N zero-area triangles` | The bevel meets a chamfer, a cut or a dense outline closer than its width | Bevel first, cut and chamfer after; a smaller width; fewer outline points |
-| M1 FAIL after a boolean | The tool ends exactly on a face | Overshoot by 0.01–0.1 mm; check `bb.nonmanifold_edges` on the inputs |
+| M1 FAIL after a boolean (non-manifold edges) | The tool ends exactly on a face | Overshoot by 0.01–0.1 mm; check `bb.nonmanifold_edges` on the inputs |
+| `boolean ... left N zero-area triangles` (M3, and M1 once they are dropped) | The cut crosses a fan of thin triangles: a hole through the pole of a revolved floor or a cap | Build a round hole on the axis into the profile (revolve it with the hole), give the face ring topology where it is cut, or move the cut off the pole; overshooting does not help |
 | M5 FAIL on a text part | One body per letter | Union the text onto the face or a plaque, or set `shells` in `_parts` |
 | `text ...: letters touch only along an edge` | Two glyphs kiss and even 5 % tighter spacing does not make them overlap | Put the text on a plate (union with it), or another font / spacing |
 | P3 WARN on text | Strokes thinner than 1.2 mm | Text follows the text rule (strokes ≥ 0.8 mm, `design.md`); say so, or a larger cap height |

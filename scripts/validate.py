@@ -643,9 +643,13 @@ def run_checks(path, tris, m, args, bed, bed_source):
 
     # M1-M5 mesh topology
     m1 = m["open_edges"] == 0 and m["nonmanifold_edges"] == 0
+    m1_note = "" if m1 else "mesh is not watertight"
+    if not m1 and m["degenerate_faces"]:
+        m1_note += (f" once its {m['degenerate_faces']} zero-area faces are left out (M3): fix those first, it is "
+                    "usually the same defect (slivers from a boolean through a fan of thin triangles or a tool that "
+                    "ends on a face)")
     c["M1"] = chk("PASS" if m1 else "FAIL", "hard",
-                  {"open_edges": m["open_edges"], "nonmanifold_edges": m["nonmanifold_edges"]},
-                  "" if m1 else "mesh is not watertight", "current")
+                  {"open_edges": m["open_edges"], "nonmanifold_edges": m["nonmanifold_edges"]}, m1_note, "current")
     c["M2"] = chk("PASS" if m["flipped_edges"] == 0 else "FAIL", "hard", {"flipped_edges": m["flipped_edges"]},
                   "" if m["flipped_edges"] == 0 else "inconsistent face orientation", "current")
     c["M3"] = chk("PASS" if m["degenerate_faces"] == 0 else "FAIL", "hard", {"degenerate_faces": m["degenerate_faces"]},
