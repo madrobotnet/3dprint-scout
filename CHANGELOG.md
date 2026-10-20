@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased
+
+- **Fit reports name their STLs** (`fit.py`, `references/checks.md`): `parts.a` and `parts.b`
+  carry the STL's `sha256`, and the build manifest's `input_hash` when that manifest records
+  this very STL (else `null`). Until now a fit report held only path, size and volume, so a
+  PASS for an earlier build of a part still looked valid after a rebuild, the one verdict
+  without a link to G1. Schema stays `3dprint-scout.fit/1`; the keys are new, none changed.
+- **`fit.py --check REPORT`**: rehashes the STLs at the report's paths and prints `F3_fresh`:
+  PASS when both are the ones measured, FAIL `STALE` when one changed (run the fit again),
+  UNVERIFIED for a report without hashes. Phase 5 counts F3 only from a report that passes it;
+  the Phase 4 example saves the report to `out/fit_box_lid.json`.
+
 ## 0.4.0 — 2026-10-20
 
 Blender, used to the full when it is there. If the agent can reach Blender anywhere (an MCP

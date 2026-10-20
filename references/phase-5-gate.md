@@ -16,7 +16,9 @@ all times; `references/checks.md` describes `validate.py`'s JSON).
    same files the build hashed (`build.py` prints them as `sources`, includes and all); R3 names
    both lists when they differ. Editing only `_` keys in `params.json` does not make an STL stale.
 2. Decide the checks `validate.py` lists in `not_covered`: F3 with `fit.py` (one run per joint,
-   both parts placed as assembled); F1, F2, R1, R2 and R4 yourself, each with evidence. P6 is not in that
+   both parts placed as assembled); F1, F2, R1, R2 and R4 yourself, each with evidence. F3
+   counts only from a report about the STLs being delivered: `fit.py --check out/fit_box_lid.json`
+   must say PASS (G1); STALE means a part was rebuilt since, so run that fit again. P6 is not in that
    list but is yours too, from the `preview.py` image.
 3. On a hard FAIL, go where its `return_to` says (the checklist table in SKILL.md), fix the
    cause, rebuild, re-validate. On a soft WARN, explain it and let the user choose (slicer

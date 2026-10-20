@@ -270,7 +270,7 @@ Scripts, run as `python3 "$SKILL_DIR/scripts/<name>.py"`:
 | `scripts/strength.py` | Hand calculations for pins, beams, links, pin walls and a knuckle hinge (`hinge`, with the P7 floors per duty) from Bambu Lab data-sheet values and a cited hand-force table |
 | `scripts/calibration.py` | The user's own print results per printer and material in `.3dprint/calibration.json`: `add`, `show`, `lookup`; `--kind` keeps floors to the same kind of member |
 | `scripts/preview.py`, `scripts/render.py` | Iso / front / right / top PNG of one or more STLs: numpy only with the G4 image check, or through Blender (Workbench, filament colours) when it is there, same JSON and check |
-| `scripts/fit.py` | F3: overlap, play, gap and contact between two placed STLs, verdict JSON; `--sweep-*` for a rotating part |
+| `scripts/fit.py` | F3: overlap, play, gap and contact between two placed STLs, verdict JSON with both STLs' sha256; `--sweep-*` for a rotating part; `--check REPORT` for a stale report |
 | `scripts/fit_test.py` | Fit-test pieces of a mating profile in clearance steps, marked 1/2/3 |
 | `scripts/parts.py` | Part library for Python generators: boxes, chamfers, holes, bosses, snap fits, hinge, text, threads |
 | `scripts/sdf.py` | Organic shapes as signed distance functions, meshed watertight with `to_manifold` |

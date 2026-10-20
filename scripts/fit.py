@@ -39,6 +39,16 @@ the parts bind (zero play) and no --min-clearance was given, or when they are fa
 apart than --search (probably a placement mistake); PASS otherwise; UNVERIFIED when
 manifold3d is missing or an STL is not a closed mesh (run validate.py first).
 Exit 0 when it ran (read "gate"), 1 on a usage or file error.
+
+Each part in the report carries the sha256 of its STL, and the input_hash of its build
+manifest when that manifest records this very STL (null otherwise). A saved report is
+evidence only for the STLs it measured (G1): --check REPORT.json compares the recorded
+sha256 with the STLs at the recorded paths, run from the folder the fit was run in. F3_fresh:
+PASS when both match; FAIL (STALE) when a part changed since, run the fit again; UNVERIFIED
+when the report has no sha256 (written before fit.py recorded them).
+
+  python3 fit.py out/box.stl out/lid.stl --b-rotate 180,0,0 --b-translate 0,40,33 > out/fit_box_lid.json
+  python3 fit.py --check out/fit_box_lid.json
 """
 from __future__ import annotations
 
@@ -51,7 +61,7 @@ import sys
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 from threemf import indexed  # noqa: E402
-from validate import ArtifactError, read_stl  # noqa: E402
+from validate import ArtifactError, file_sha256, manifest_path, read_stl  # noqa: E402
 
 SCHEMA = "3dprint-scout.fit/1"
 DEFAULT_SAMPLES = 20000
@@ -333,11 +343,68 @@ def sweep(a, b, axis, pivot, angles, eps, search):
     return rows, first
 
 
+def build_input_hash(path, sha):
+    """The manifest's input_hash, only when the manifest records this very STL."""
+    mf = manifest_path(path)
+    if not os.path.isfile(mf):
+        return None
+    try:
+        with open(mf, encoding="utf-8") as f:
+            man = json.load(f)
+    except (OSError, ValueError):
+        return None
+    return man.get("input_hash") if man.get("artifact_sha256") == sha else None
+
+
 def part_info(path, man):
     bb = man.bounding_box()
-    return {"path": path, "triangles": man.num_tri(), "volume_mm3": round(man.volume(), 3),
+    sha = file_sha256(path)
+    return {"path": path, "sha256": sha, "input_hash": build_input_hash(path, sha),
+            "triangles": man.num_tri(), "volume_mm3": round(man.volume(), 3),
             "bbox_mm": [round(bb[i + 3] - bb[i], 4) for i in range(3)],
             "bbox_min_mm": [round(bb[i], 4) for i in range(3)]}
+
+
+def check_report(report_path) -> dict:
+    """F3_fresh: does a saved fit report still describe the STLs at its recorded paths?"""
+    out = {"schema": SCHEMA, "ran": True, "gate": None, "report": report_path, "parts": {}, "checks": {},
+           "warnings": [], "errors": []}
+    with open(report_path, encoding="utf-8") as f:
+        try:
+            rep = json.load(f)
+        except ValueError as exc:
+            raise FitError(f"{report_path}: not JSON ({exc})")
+    if not isinstance(rep, dict) or rep.get("schema") != SCHEMA:
+        raise FitError(f"{report_path}: not a {SCHEMA} report")
+    parts = rep.get("parts") or {}
+    value = {"report_gate": rep.get("gate"), "parts": {}}
+    if not rep.get("ran") or not all(isinstance(parts.get(k), dict) for k in ("a", "b")):
+        state, note = "UNVERIFIED", "the report did not run (ran false or no parts): nothing to compare"
+    elif not all(parts[k].get("sha256") for k in ("a", "b")):
+        state, note = "UNVERIFIED", "the report has no sha256 for its parts (written before fit.py recorded them); run fit.py again"
+    else:
+        changed, missing = [], []
+        for k in ("a", "b"):
+            path, recorded = parts[k].get("path"), parts[k]["sha256"]
+            current = file_sha256(path) if path and os.path.isfile(path) else None
+            value["parts"][k] = {"path": path, "recorded_sha256": recorded, "current_sha256": current}
+            if current is None:
+                missing.append(path)
+            elif current != recorded:
+                changed.append(path)
+        if missing:
+            state, note = "FAIL", (f"file not found: {', '.join(map(str, missing))} (run --check from the folder "
+                                   "the fit was run in, or run fit.py again)")
+        elif changed:
+            state, note = "FAIL", f"STALE: {', '.join(changed)} changed after this fit report; run fit.py again"
+        else:
+            state, note = "PASS", f"both STLs are the ones this report measured (its gate: {rep.get('gate')})"
+    out["parts"] = value["parts"]
+    out["checks"]["F3_fresh"] = {"state": state, "kind": "hard", "value": value, "note": note}
+    if state == "FAIL":
+        out["checks"]["F3_fresh"]["return_to"] = "current"
+    out["gate"] = state
+    return out
 
 
 def check(args) -> dict:
@@ -479,8 +546,10 @@ def join_negative_values(argv, options=NEGATIVE_OK):
 def main(argv=None):
     try:
         ap = _JsonArgParser(description="3dprint-scout fit check (F3) between two STLs")
-        ap.add_argument("a")
-        ap.add_argument("b")
+        ap.add_argument("a", nargs="?")
+        ap.add_argument("b", nargs="?")
+        ap.add_argument("--check", metavar="REPORT", default=None,
+                        help="saved fit.py JSON: are its STLs still the ones it measured? (F3_fresh)")
         ap.add_argument("--a-rotate", default="", help="rx,ry,rz degrees for part A")
         ap.add_argument("--a-translate", default="", help="x,y,z mm for part A")
         ap.add_argument("--b-rotate", default="", help="rx,ry,rz degrees for part B")
@@ -499,6 +568,11 @@ def main(argv=None):
                                                             "(0:90:2 or -40:0:2); enables the sweep")
         ap.add_argument("--sweep-travel", type=float, default=None, help="degrees the part must turn freely (decides PASS/FAIL)")
         args = ap.parse_args(join_negative_values(sys.argv[1:] if argv is None else argv))
+        if args.check:
+            if args.a or args.b:
+                raise FitError("usage error: --check REPORT takes no STLs (it reads their paths from the report)")
+        elif not (args.a and args.b):
+            raise FitError("usage error: two STLs A and B are needed (or --check REPORT)")
         for name in ("a_rotate", "a_translate", "b_rotate", "b_translate", "sweep_pivot"):
             setattr(args, name, _vec(getattr(args, name), "--" + name.replace("_", "-")))
         args.play = parse_directions(args.play)
@@ -507,7 +581,7 @@ def main(argv=None):
         if args.samples < 100 or args.search <= 0 or args.contact_tol <= 0 or args.max_interference < 0 \
                 or args.play_precision <= 0:
             raise FitError("--samples >= 100, --search > 0, --contact-tol > 0, --max-interference >= 0, --play-precision > 0")
-        out = check(args)
+        out = check_report(args.check) if args.check else check(args)
     except (FitError, OSError, ValueError) as exc:
         out = {"schema": SCHEMA, "ran": False, "gate": "FAIL", "checks": {}, "warnings": [], "errors": [str(exc)]}
     print(json.dumps(out, indent=2))
