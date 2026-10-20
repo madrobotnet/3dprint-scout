@@ -61,7 +61,8 @@ A fit report names the STLs it measured, so it can be told apart from a newer bu
 only when that manifest records this very STL (its `artifact_sha256` matches), else `null`.
 Save each report (`fit.py A B ... > out/fit_box_lid.json`). `fit.py --check REPORT`, run from the
 folder the fit was run in, rehashes the STLs at the recorded paths and prints the same envelope
-with one check, `F3_fresh`: **PASS** when both are unchanged, **FAIL** when one changed (`STALE`,
+(plus `report`, the file it read; `parts` holds each path with its `recorded_sha256` and
+`current_sha256`) with one check, `F3_fresh`: **PASS** when both are unchanged, **FAIL** when one changed (`STALE`,
 `return_to: "current"`: run the fit again) or is missing, **UNVERIFIED** when the report has no
 `sha256` (written before fit.py recorded them). It says nothing about the fit itself: read the
 report's own gate, which `F3_fresh.value.report_gate` repeats.
