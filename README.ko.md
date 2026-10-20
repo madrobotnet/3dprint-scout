@@ -96,7 +96,9 @@ npx skills add madrobotnet/3dprint-scout
 - 모델링 엔진 하나: MCP로 연결한 **Fusion**, **OpenSCAD**(2021.01 또는 Manifold 백엔드가 있는 최신
   빌드), 또는 `pip install manifold3d`. **Blender**는 선택 사항이에요. 유기적·장식적인 모양과
   렌더링에 써요: MCP 커넥터로 연결한 내 Blender, `blender` 실행 파일, 또는 `pip install bpy`.
-  어느 쪽이든 4.5 LTS 이상이어야 해요(Manifold 불리언). 없어도 달라지는 건 없어요.
+  어느 쪽이든 4.5 LTS 이상이어야 해요(Manifold 불리언). 단,
+  [공식 Blender MCP 애드온](https://www.blender.org/lab/mcp-server/)은 Blender 5.1 이상이 필요해요.
+  Blender가 없어도 달라지는 건 없어요.
 - 미리보기 이미지, 치수 재기 도구, 끼움 검사의 접촉 면적 계산에는 `numpy`, 끼움 검사와 회전
   검사·객체 검사·끼워보기 조각·부품 라이브러리·SDF 도구에는 `manifold3d`, 벽 두께 검사에는
   `rtree`(numpy와 함께)가 필요해요. 부품에 글자를 넣으려면 `matplotlib`, 또는 `fonttools`와 글꼴
@@ -138,7 +140,7 @@ Bambu Lab 프린터에서는 Bambu Studio 프로젝트 파일을 만들어요(**
 **v0.4.0.** Blender(4.5 LTS 이상)가 있으면 써요: MCP 커넥터로 연결한 내 Blender, `blender` 실행
 파일, 또는 `bpy` 모듈. 유기적·장식적인 모양에 진짜 필렛, Manifold 불리언, 어떤 글꼴이든 글자, 그리고
 STL 옆에 편집 가능한 `.blend`가 생기고, 미리보기를 필라멘트 색으로 Blender가 렌더링할 수 있어요. 내
-Blender에 연결했을 때는 별도의 씬에서 작업하고 출력 폴더에 새 파일만 써요: 열려 있는 파일을
+Blender에 연결했을 때는 별도의 씬에서 작업하고 출력 폴더에만 써요: 열려 있는 파일을
 초기화하거나 저장하거나 덮어쓰는 일은 없고, 전달하는 `.blend`에 내 데이터가 섞여 들어가지도 않아요.
 `bpy` 모듈 4.5.14와 5.2.2, 그리고 실행 파일을 흉내 낸 테스트로 확인했고, 실제 `blender` 설치본이나
 Blender MCP 서버로는 아직 돌려 보지 않았어요. Blender가 없으면 v0.3.1과 똑같이 동작해요.

@@ -104,8 +104,9 @@ PCB"*, *"X2D 프린터 문 손잡이를 만들고 싶어"*.
 - One modeling engine: **Fusion** with an MCP connection, **OpenSCAD** (2021.01 or a newer build
   with the Manifold backend), or `pip install manifold3d`. **Blender** is optional, for organic
   and decorative shapes and for renders: your own Blender through an MCP connector, a `blender`
-  binary, or `pip install bpy`, each 4.5 LTS or newer (the Manifold boolean solver). Without it
-  nothing changes.
+  binary, or `pip install bpy`, each 4.5 LTS or newer (the Manifold boolean solver). The
+  [official Blender MCP add-on](https://www.blender.org/lab/mcp-server/) itself needs Blender 5.1
+  or newer. Without Blender nothing changes.
 - `numpy` for preview images, the measuring tool and the contact-area part of the fit check;
   `manifold3d` for the fit check and sweep, the object checks, the fit-test pieces, the part
   library and the SDF toolkit; `rtree` (with numpy) for the wall-thickness check. Text on parts
@@ -149,7 +150,7 @@ the X2D and H2D, objects that need both nozzles are placed where both can reach.
 connector, a `blender` binary or the `bpy` module. Organic and decorative shapes get real
 fillets, Manifold booleans, text in any font and an editable `.blend` next to the STLs;
 previews can be Blender renders in the filament's colour. In your own Blender it builds into a
-scene of its own and writes only new files into its output folder: your open file is never
+scene of its own and writes only into its output folder: your open file is never
 reset, saved or overwritten, and nothing of yours ends up in the `.blend` it delivers. Checked
 with the `bpy` module 4.5.14 and 5.2.2 and an emulated binary; not yet run against a real
 `blender` install or a Blender MCP server. Without Blender everything works as in v0.3.1.
