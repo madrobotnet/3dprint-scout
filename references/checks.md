@@ -37,3 +37,32 @@ internal error. A failed artifact has `artifact_sane: false` and `artifact_error
 `3dprint-scout.fit/1`, the same `checks.F3.state` / `kind` / `value` / `note` shape), the rest by you.
 `build.py` wraps one such document per part under `parts[].validate` and adds `objects[]`
 (`references/parts.md`).
+
+## `fit.py` output
+
+A fit report names the STLs it measured, so it can be told apart from a newer build (G1):
+
+```json
+{
+  "schema": "3dprint-scout.fit/1",
+  "ran": true,
+  "gate": "PASS | WARN | FAIL | UNVERIFIED",
+  "parts": {"a": {"path": "out/box.stl", "sha256": "9f2c…", "input_hash": "41ab… | null",
+                  "triangles": 2296, "volume_mm3": 19495.969, "bbox_mm": [70, 45, 30], "bbox_min_mm": [0, 0, 0]},
+            "b": {"...": "..."}},
+  "placement": {"...": "..."},
+  "checks": {"F3": {"state": "PASS", "kind": "hard", "value": {"...": "..."}, "note": "..."}},
+  "metrics": {"...": "..."},
+  "warnings": [], "errors": []
+}
+```
+
+`sha256` is the STL file's hash; `input_hash` is copied from the build manifest next to the STL
+only when that manifest records this very STL (its `artifact_sha256` matches), else `null`.
+Save each report (`fit.py A B ... > out/fit_box_lid.json`). `fit.py --check REPORT`, run from the
+folder the fit was run in, rehashes the STLs at the recorded paths and prints the same envelope
+(plus `report`, the file it read; `parts` holds each path with its `recorded_sha256` and
+`current_sha256`) with one check, `F3_fresh`: **PASS** when both are unchanged, **FAIL** when one changed (`STALE`,
+`return_to: "current"`: run the fit again) or is missing, **UNVERIFIED** when the report has no
+`sha256` (written before fit.py recorded them). It says nothing about the fit itself: read the
+report's own gate, which `F3_fresh.value.report_gate` repeats.

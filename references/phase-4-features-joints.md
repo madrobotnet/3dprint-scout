@@ -13,7 +13,7 @@ With several parts, build and validate **all** of them, and check every joint fr
 
 ```bash
 python3 "$SKILL_DIR/scripts/fit.py" out/box.stl out/lid.stl --b-rotate 180,0,0 \
-  --b-translate 0,40,33 --min-clearance 0.2
+  --b-translate 0,40,33 --min-clearance 0.2 > out/fit_box_lid.json
 ```
 
 `fit.py` places part B as assembled (rotation about its origin, then translation), then measures
@@ -25,7 +25,8 @@ moving part gets a sweep (`--sweep-axis z --sweep-pivot x,y,z --sweep-angles 0:9
 --sweep-travel 40`): the angle at which it hits its stop and the free travel before it; PASS when
 it is free through the travel the part needs (give it, or the sweep only WARNs). Build a small
 proxy of the mating housing from measured numbers when there is no closed mesh of it
-(`references/measure.md`).
+(`references/measure.md`). The report records the sha256 of both STLs; a rebuild of either part
+makes it stale (`--check`, Phase 5).
 
 ## Members that carry load (P7)
 
