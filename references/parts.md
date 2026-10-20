@@ -54,7 +54,7 @@ Where to put the seam (`design.md`, "Colour and function seams" has the numbers)
 | `role` | `fused` (default in a group): must share faces with at least one other part of the object, no overlap. `free`: print-in-place, must not touch any other part |
 | `clearance` | For `free` parts: the gap kept all round, mm per side (default 0.3) |
 | `filament` | 1-based slot for a Bambu project (default: the main part's; the main part defaults to 1) |
-| `shells` | Bodies expected in this one STL (default 1), as before |
+| `shells` | Bodies expected in this one STL (default 1), as before. A text part counts glyph pieces, never letters: Hangul jamo, the dot of i and j and Hanzi radicals are bodies of their own (three Hangul syllables gave 7). Read the count from the `bb.text` line in Blender's `LOG` ("N glyph pieces, M separate bodies": M), in Python from the text solid's `decompose()` |
 
 The **first part listed** for an object is its main part: its filament, plate and print
 settings go on the object. Fusion: name the bodies exactly like the parts and export one
@@ -96,6 +96,10 @@ Whole parts can still be big. For "the minimum of the mating part" (the knuckles
 the lid, a slot without the box) add a coupon part to `_parts`, or keep a separate params
 file with the coupon's sizes, and build that. A few grams, printed with the final filament
 and preset; the user tries it and reports back (offer to record the result, `calibration.md`).
+A snap is the exception to "a few grams": its click force scales with the width (`design.md`,
+"Snap fits"), so its coupons keep the full width, cut short in the other directions, and step
+the undercut, one coupon part per step. `fit_test.py` steps only the clearance of closed rings
+and plugs; it cannot step an undercut.
 
 A mechanism built into the walls (a box hinge, a latch formed on the lid) still gets a
 coupon: the same section cut short, not the whole box. For a hinge, `parts.hinge` with the

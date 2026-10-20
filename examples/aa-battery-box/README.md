@@ -11,7 +11,9 @@ engine: here OpenSCAD.
   commented with two sources that agree, as the dimension table requires.
 - **Clearances from `references/tolerances.md`.** Pockets get 0.3 mm per side (an object in a
   pocket); the lid slides on with 0.2 mm per side. Hole compensation is left to the slicer, so it
-  is applied in one place only (F1).
+  is applied in one place only (F1). The X2D's standard process has circle compensation off
+  (`printers.x2d.json` says `"holes": "model"`): turn it on in Bambu Studio for this print, or
+  add the model value from `tolerances.md` to `pocket_clear`.
 - **Guards in the source.** `assert`s stop the build if a wall or rib gets thinner than 1.2 mm.
 - **One source, two parts.** `build.py` sets `part` to `box` and `lid` and checks each against the
   size in `params.json`.
@@ -24,7 +26,7 @@ engine: here OpenSCAD.
 python3 ../../scripts/build.py run aa_box.scad --params params.json --out out --printer ../printers.x2d.json --tools 0
 python3 ../../scripts/fit.py out/box.stl out/lid.stl --b-rotate 180,0,0 --b-translate 0,37.8,54.2 --min-clearance 0.2
 python3 ../place.py out/lid.stl out/lid_side.stl --translate 0,47.8,0
-python3 ../../scripts/preview.py out/box.stl out/lid_side.stl -o out/preview.png
+python3 ../../scripts/preview.py out/box.stl out/lid_side.stl -o out/preview.png --overwrite
 ```
 
 The lid prints opening up. Turned over about X it spans y −37.8…0 and z −26.6…0, so moving it by

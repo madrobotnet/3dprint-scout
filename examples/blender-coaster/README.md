@@ -43,8 +43,8 @@ Blender 4.5 LTS or newer is there: a `blender` binary or the `bpy` module.
 
 ```bash
 python3 ../../scripts/build.py run coaster.py --params params.json --out out --printer ../printers.x2d.json --tools 0
-python3 ../../scripts/render.py out/coaster.stl out/medallion.stl -o out/preview.png --size 1200x900 --color "medallion=Jade White"
-python3 ../../scripts/render.py out/coaster.stl out/medallion.stl -o out/thumb.png --views iso --size 480x360 --color "medallion=Jade White"
+python3 ../../scripts/render.py out/coaster.stl out/medallion.stl -o out/preview.png --size 1200x900 --color "medallion=Jade White" --overwrite
+python3 ../../scripts/render.py out/coaster.stl out/medallion.stl -o out/thumb.png --views iso --size 480x360 --color "medallion=Jade White" --overwrite
 ```
 
 The first line of `coaster.py` (`# 3dprint-scout: engine=blender`) picks the engine; `build.py`

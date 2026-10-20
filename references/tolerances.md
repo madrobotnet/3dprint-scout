@@ -13,7 +13,8 @@ This file is the only place for fit clearances; `design.md` links here instead o
 | Sliding / removable | +0.20 | +0.40 | Lids, drawers, parts that must come apart by hand |
 | Snug, no rattle | +0.15 | +0.30 | Stacked parts, alignment lips |
 | Press fit | −0.05 to −0.10 | −0.10 to −0.20 | Pins and bosses meant to stay; test before committing |
-| Object in a pocket | +0.30 | +0.60 | A device dropped into a holder; add +1.0 per side if it must lift out easily |
+| Object in a pocket | +0.30 | +0.60 | A device dropped into a holder; add +1.0 per side if it must lift out easily by its sides. A thin item standing in a slot (a card, a sheet) keeps +0.30: easy removal comes from the height left exposed or a finger notch |
+| Snap-in cylinder (C-clip bore) | +0.15 | +0.30 | The snug row: the bore clearance sets only the rattle; the hold comes from the mouth undercut, sized by the strain rule (`design.md`, "Snap fits"). A start value: confirm with a test piece |
 | Print-in-place joint (hinge, pivot, captive pin) | +0.30 (0.40–0.50 on a less tuned printer) | +0.60 (0.80–1.00) | Parts printed assembled that must move afterwards; Prusa KB ≥ 0.3 mm, Fictiv 0.4 mm for pivots, Hubs 0.5 mm (design.md sources 1, 2, 6) |
 
 Material adjustments: PETG add +0.05 per side; TPU add +0.3 per side; ABS/ASA shrink about 0.5–0.7 %
@@ -22,13 +23,21 @@ Material adjustments: PETG add +0.05 per side; TPU add +0.3 per side; ABS/ASA sh
 ## Compensation lives in one place (F1)
 
 - Slicer compensates (Bambu Studio / OrcaSlicer "auto circle contour-hole compensation" on, or an
-  XY hole compensation value set): model holes at nominal size.
-- Slicer does not: add the hole compensation above in the model.
+  XY hole compensation value set): model holes at nominal size. Bambu's system process presets
+  have both off (`phase-2-printer-dimensions.md`, step 4).
+- Slicer does not: add the hole compensation above in the model, to every round hole the part
+  must fit, bores included, not only screw holes. Pass `fit.py --min-clearance` the clearance
+  the model is built with, compensation included.
+- `fit_test.py` pieces carry no model compensation; say so. A step that fits is the clearance
+  as printed without it: build the part's hole the same way (that step, nothing added), or add
+  the compensation to the pieces' `--clearance` before printing them.
 - Unknown (the user does not know their slicer or its settings): model holes at nominal size plus
   the fit clearance, and tell the user that tight holes mean the slicer's hole compensation should be
   turned on. A hole that comes out tight can be drilled; one that comes out loose cannot be fixed.
 - The same holds for elephant foot: either the slicer's elephant-foot compensation or a 0.3–0.5 mm
-  chamfer on bottom edges that must stay sharp, not both shrinking the first layer.
+  chamfer on bottom edges that must stay sharp, not both shrinking the first layer. A chamfer
+  that belongs to a standard's profile (the foot of a bin that sits in a baseplate) is geometry,
+  not an elephant-foot chamfer: keep it at its size whatever the slicer does.
 
 ## Limits
 

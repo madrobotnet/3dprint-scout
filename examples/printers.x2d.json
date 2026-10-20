@@ -77,7 +77,7 @@
         }
       ],
       "compensation": {
-        "holes": "slicer",
+        "holes": "model",
         "elephant_foot": "slicer"
       }
     }

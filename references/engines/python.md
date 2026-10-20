@@ -66,7 +66,7 @@ few by keyword.
 | `rounded_box(size, r, edges="vertical"\|"top"\|"all")` | Box with rounded vertical edges (default), plus top edges, or every edge |
 | `chamfered_box(size, c, edges="bottom"\|"top"\|"vertical"\|"all")` | Box with 45° chamfers; `"bottom"` is the elephant-foot chamfer |
 | `bottom_chamfer(part, c)` | Chamfers the bed edge of any prismatic part, inner edges included, without booleans |
-| `screw_hole(size, depth, kind, fit, comp, insert_d)` | `kind`: `clearance` (ISO 273 `fit` fine/medium/coarse), `tap` (d − P), `insert` (heat-set; `insert_d` from the datasheet), `countersunk` (ISO 10642, 90°), `counterbore` (ISO 4762 head) |
+| `screw_hole(size, depth, kind, fit, comp, insert_d, ..., head_d, head_h)` | `kind`: `clearance` (ISO 273 `fit` fine/medium/coarse), `tap` (d − P), `insert` (heat-set; `insert_d` from the datasheet), `countersunk` (ISO 10642, 90°), `counterbore` (ISO 4762 head); `head_d` (and `head_h` for a counterbore) is a measured head, a wood screw's say, that beats the ISO table |
 | `hole(d, depth, comp)` | Plain round cutter |
 | `teardrop_hole(d, length, axis="x"\|"y")` | Horizontal hole with a 45° roof, point up |
 | `standoff(h, size, kind="insert"\|"tap", wall, depth, foot, ...)` | Boss on the bed with the hole from its top; `foot` adds a 45° flare |

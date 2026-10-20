@@ -19,11 +19,12 @@
 4. **치수** — 모든 치수를 출처와 함께 표로 보여 줘요(캘리퍼 실측, 공식 사양, 서로 일치하는 2차 자료
    두 곳). 지어낸 숫자는 없어요. 모양을 정확히 모르는 물건에 끼울 부품이면, 작은 끼워보기 조각을
    먼저 만들어요(공차를 세 단계로 나누고 구멍 1·2·3개로 표시해요).
-5. **모델링** — 모양에 맞춰 엔진을 골라요. 기계 부품은 Fusion(MCP 연결), 없으면 OpenSCAD.
-   곡면이 많은 유기적인 모양이나 장식적인 모양은 [Blender](https://www.blender.org)가 있으면
-   Blender(MCP로 연결한 내 Blender, `blender` 실행 파일, 또는 `bpy` 모듈: 자유곡면에 진짜 필렛,
-   Manifold 불리언, 어떤 글꼴이든 글자, STL 옆에 편집 가능한 `.blend`). Blender가 없는 유기적인
-   모양, 그리고 다른 엔진이 하나도 없을 때는 Python([manifold3d](https://github.com/elalish/manifold)).
+5. **모델링** — 모양에 맞춰 엔진을 골라요. 기계 부품은
+   Python([manifold3d](https://github.com/elalish/manifold)) 또는 OpenSCAD이고, Fusion(MCP 연결)은
+   편집 가능한 CAD 설계를 원할 때만 써요. 곡면이 많은 유기적인 모양이나 장식적인 모양은
+   [Blender](https://www.blender.org)가 있으면 Blender(MCP로 연결한 내 Blender, `blender` 실행 파일,
+   또는 `bpy` 모듈: 자유곡면에 진짜 필렛, Manifold 불리언, 어떤 글꼴이든 글자, STL 옆에 편집 가능한
+   `.blend`), 없으면 Python으로 만들어요.
    Python 엔진에는 검증된 부품 라이브러리(모서리를 둥글리거나 깎은 상자, 나사·인서트 구멍, 물방울
    모양 구멍, 보스, 스냅 후크, 한 번에 출력하는 경첩, 글자, 나사산)와 매끈하게 이어지는 유기적인
    모양을 위한 SDF(부호 거리 함수) 도구가 함께 들어 있어요. 역할이 따로 있거나 색을 달리할 만한

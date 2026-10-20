@@ -26,7 +26,16 @@ moving part gets a sweep (`--sweep-axis z --sweep-pivot x,y,z --sweep-angles 0:9
 it is free through the travel the part needs (give it, or the sweep only WARNs). Build a small
 proxy of the mating housing from measured numbers when there is no closed mesh of it
 (`references/measure.md`). The report records the sha256 of both STLs; a rebuild of either part
-makes it stale (`--check`, Phase 5).
+makes it stale (`--check`, Phase 5). `--min-clearance` is the clearance the model is built with,
+model hole compensation included (`references/tolerances.md`, F1).
+
+A part built to a standard (a bin on a baseplate, a stacking lip) has a joint with the
+standard's counterpart: build a proxy of it from the standard's numbers and run F3 against it.
+To find a seat height, place B above its seat and run `--play 0,0,-1`: the play is how far B
+drops before it touches; place it that much lower and run the fit again with the sideways
+directions. A proxy built from the same numbers as the part only proves the two agree with each
+other, not that the numbers are right: say so, and offer a fit test when the source is
+unverified.
 
 ## Members that carry load (P7)
 
@@ -39,6 +48,13 @@ and gets a hand calculation. The duty decides the rule and the load case:
 | `latch` (default) | a hand pushes, pulls, pinches or snaps it, or a lever amplifies the force: latches, catches, levers, clamps, a latch's pivot pin, a hinge leaf used as a lever | the field minimums (pin ≥ 3.2, pin wall ≥ 2.2, member ≥ 2.5 thick and ≥ 4 wide, knuckle ≥ 4 long) | the hand-force key that matches the operation × the lever ratio |
 | `lid` | a lid, door or flap hinge with alternating knuckles (3 or more required, odd recommended), no lever between hand and pin | only what prints (pin 2.0, wall and leaf 1.2, knuckle 2 mm); the size comes from `strength.py hinge` at SF ≥ 2, the coupon print on top | the open lid pulled away from the box: `finger_pull` shared by the moving knuckles, no lever ratio; levering it past its stop is misuse: "don't force the lid past fully open" goes into `_assumptions` and is said at delivery |
 | `decorative` | carries nothing | the same floors | none |
+
+Snap arms and other flexures designed by the strain formula have no duty: they are exempt from
+the floors and follow the snap-fit check (`references/design.md`, "Snap fits"). Their load case
+is their own deflection or release force (P there, at full undercut), not a hand-force key:
+`strength.py snap --length --h --b --undercut --material` (add `--repeated` for a snap opened
+often) checks the strain against the limit and gives that force and the insertion and release
+forces; a straight arm can also go through `strength.py beam` with `--load` that force, SF 3.
 
 ```bash
 python3 "$SKILL_DIR/scripts/strength.py" pin --d 3.2 --engagement 4.25 --gap 0.3 --shear double \
@@ -64,7 +80,10 @@ full part (the same idea as the fit test; a Bambu job lists only those parts;
 WARN grow the pin or the knuckle Ø or add knuckles (odd), and its coupon print is required on
 top of that margin, never instead of it. A mechanism built into the walls (a box hinge) still
 gets its coupon: the same section cut short, built as its own `_parts` entry; "cutting it out
-would be most of the part" is not a reason to skip. The calculation is a sizing aid: it
+would be most of the part" is not a reason to skip. A snap's coupon keeps the full width (the
+click force scales with it, `references/design.md`) and steps the undercut, one coupon part per
+step; `fit_test.py` steps only the clearance of closed rings and plugs.
+The calculation is a sizing aid: it
 flagged the failed field latch's arms, not its pins, so for latch duty the minimums and the
 test print decide; for a lid hinge the calculation sizes and the coupon decides, and a paper
 SF ≥ 2 is never the last word.
@@ -72,8 +91,9 @@ SF ≥ 2 is never the last word.
 ## Fit test first
 
 When the part must fit an existing object whose shape is not known exactly (no caliper numbers,
-no official drawing): make test pieces of the mating profile, a few grams each, in three
-clearance steps marked with 1, 2, 3 holes:
+no official spec; an official size without a tolerance counts as not known exactly when the
+fit's clearance is smaller than its likely tolerance): make test pieces of the mating profile, a
+few grams each, in three clearance steps marked with 1, 2, 3 holes:
 
 ```bash
 python3 "$SKILL_DIR/scripts/fit_test.py" --profile rounded --size 45.1,14.0 --radius 2 --out out/fit
@@ -82,7 +102,8 @@ python3 "$SKILL_DIR/scripts/fit_test.py" --profile rounded --size 45.1,14.0 --ra
 (`--profile rect | rounded | circle | polygon`, `--mode ring` for an object that goes into the part,
 `--mode plug` for a part that goes into the object; `--clearance`, `--step`, `--steps`;
 `--bambu-template` also writes a `bambu3mf.py` job.) The JSON's `how_to_read` tells the user
-what to try; build the real part with the step that fits. If the user cannot test now, build to the
+what to try; build the real part with the step that fits. The pieces carry no model hole
+compensation: say so (`references/tolerances.md`, F1). If the user cannot test now, build to the
 middle step and record that in `_assumptions`; the same for a skipped mechanism-first print
 ("latch pin Ø3.2: not confirmed by a test print"; "lid hinge Ø2.4 in Ø7.4 knuckles: coupon not
 printed"). Print the test pieces and the final part with the same printer, filament and process

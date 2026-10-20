@@ -24,7 +24,7 @@ the Python engine and the part library, `scripts/parts.py`.
 python3 ../../scripts/build.py run snapbox.py --params params.json --out out --printer ../printers.x2d.json --tools 0
 python3 ../../scripts/fit.py out/box.stl out/lid.stl --b-rotate 180,0,0 --b-translate 0,45,33 --min-clearance 0.2
 python3 ../place.py out/lid.stl out/lid_side.stl --translate 0,55,0
-python3 ../../scripts/preview.py out/box.stl out/lid_side.stl -o out/preview.png
+python3 ../../scripts/preview.py out/box.stl out/lid_side.stl -o out/preview.png --overwrite
 ```
 
 The lid prints plate down with its plug and hooks up. Turned over and moved by (0, 45, 33), it sits

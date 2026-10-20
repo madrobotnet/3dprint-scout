@@ -24,6 +24,10 @@ if you don't know the program." Both answers change the result: the printer sets
 nozzles, and the program (the slicer) sets the output file (Phase 6) and who compensates holes.
 One printer brand can be paired with several slicers, so ask even when the printer seems to
 imply it. Many users do not know the word "slicer"; never make them feel they should.
+For a Bambu Lab printer the same message may ask for the Bambu Studio version, as optional
+("Help > About; fine if you do not know"): a generated template must not be newer than the app
+(`references/bambu-process.md`). Unknown, attended or not: use the version of the profiles you
+read, say so, and record it in `_assumptions`.
 
 **Defaults when an answer is missing or unclear** (record each one in `_assumptions`):
 
@@ -42,7 +46,12 @@ imply it. Many users do not know the word "slicer"; never make them feel they sh
 - Bambu Studio and the user has the app open → suggest once, in one line, saving an empty
   project as the template (it keeps their process tweaks and AMS set); the generated template
   is the fallback (`references/bambu-process.md`).
-- Usable area is the **intersection** of the areas of the nozzles this print uses.
+- Usable area is the **intersection** of the areas of the nozzles this print uses. `build.py` and
+  `validate.py` take them as `--tools` (indices into `tools`; without it, tool 0). An object
+  with several parts, so any object with several filaments, is checked against every nozzle's
+  intersection automatically. For a single-filament print on a printer with two nozzles (X2D,
+  H2D), pass the nozzle the user prints with, or `--tools 0,1` when that is not known (or when
+  separate objects use both); give both scripts the same `--tools`.
 - Never store access codes, serial numbers, or IP addresses.
 - FDM only. For resin, say so and stop.
 - With several saved printers, ask which one in a single line.
@@ -62,7 +71,17 @@ as a comment next to the parameter. Read `.3dprint/calibration.json` first when 
 beats every table. A file the user supplies (a manufacturer's kit 3MF, a reference model) is
 measured with `measure.py` (`references/measure.md`): interface numbers only, never its
 geometry (licences); an official file counts as "official file, measured", another maker's
-model as a secondary source.
+model as a secondary source. Dimension research has its own cap, about six page fetches (Phase
+1's counts only the reference table); past it, ask or mark the value unverified.
+
+**Published standards** (a bin system, a rail, a connector): a spec or drawing published by the
+standard's owner counts as the official spec. Numbers read from a spec, a drawing or published
+constants are sourced dimensions: record where each came from (R2). A standard defined by a
+reference model rather than a drawing (Gridfinity, for one): offer the user to supply that file
+for `measure.py` (numbers only). A value found in a single source is recorded and reported as
+unverified. When secondary sources disagree, use the value two independent sources share, note
+the other, and mark it unverified; if none agree and the part must mate, ask, or offer a fit
+test (Phase 4).
 
 **Members that carry load** (pins, knuckles, links, levers, hooks, brackets, handles): when a
 proven reference's file is at hand (supplied by the user, or their own earlier project that
@@ -74,7 +93,14 @@ would have shown up with half the member thickness and a sixth of the material.
 
 If the slicer is Bambu Studio or OrcaSlicer with circle compensation on, model holes at nominal
 size and record `compensation.holes = "slicer"`. Otherwise add the radial compensation from
-`references/tolerances.md` in the model.
+`references/tolerances.md` in the model, on every round hole the part must fit, bores too.
+
+Bambu's system process presets ship with it off: the X2D's `0.20mm Standard` inherits
+`enable_circle_compensation` 0 and `xy_hole_compensation` 0 from `fdm_process_common` (public
+profiles 02.08.02.61). So with a generated template, or a saved one that shows them off, record
+`"model"`; `"slicer"` only when the user's preset has one of them on. The same preset's
+elephant-foot compensation is 0.15 mm (`fdm_process_dual_0.20_nozzle_0.4`): `elephant_foot` is
+`"slicer"` there.
 
 ## 5. Show the parameter table and stop
 

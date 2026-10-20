@@ -23,7 +23,7 @@ so the skill uses the Python engine with signed distance functions (`scripts/sdf
 
 ```bash
 python3 ../../scripts/build.py run handle.py --params params.json --out out --printer ../printers.x2d.json --tools 0
-python3 ../../scripts/preview.py out/handle.stl -o out/preview.png
+python3 ../../scripts/preview.py out/handle.stl -o out/preview.png --overwrite
 ```
 
 Meshing takes about ten seconds. Expected: build gate `PASS`, with the P2 warning above.

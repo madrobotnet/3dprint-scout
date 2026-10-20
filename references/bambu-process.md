@@ -44,8 +44,9 @@ python3 "$SKILL_DIR/scripts/bambu_template.py" --profiles PROFILES \
 
 - `--printer`: the printer preset, "<printer name> <nozzle> nozzle".
 - `--app-version`: the user's Bambu Studio version (Help > About). **Never newer than the user's
-  app**: a newer file opens with a "newer version" dialog. Ask once, in plain words, if you cannot
-  read it; unattended, use the version of the profiles you read and record it in `_assumptions`.
+  app**: a newer file opens with a "newer version" dialog. Ask it with the Phase 2 printer
+  question, as optional ("Help > About; fine if you do not know"). Unknown, attended or not: use
+  the version of the profiles you read, say so, and record it in `_assumptions`.
 - Defaults: the printer's own default process (usually `0.20mm Standard @BBL <model>`), its
   default filament (usually Bambu PLA Basic) in white, and the model's default build plate. Pass
   `--filament` and `--colour` once per AMS slot to match what the user has loaded, and `--process`
@@ -181,16 +182,20 @@ Only change what the part needs, and give every change a reason in `reasons`.
 | Purpose load-bearing | `wall_loops: 4`, `sparse_infill_density: 25`–`40`, `sparse_infill_pattern: "gyroid"` |
 | Purpose decorative with large flat tops | `ironing_type: "top"` |
 | Smallest feature under twice the nozzle size | `layer_height: 0.12`–`0.16` (see constraint below) |
-| Thin walls detected (P3 WARN) | `wall_generator: "arachne"`, `detect_thin_wall: true` |
+| Thin walls detected (P3 WARN), or text strokes under 1.2 mm (`design.md`, text) | `wall_generator: "arachne"`, `detect_thin_wall: true` |
+| Part holds water or soil (a planter, a tray, a cup) | `wall_loops`: enough lines to fill the designed wall (wall ÷ 0.45 mm, `design.md`); `bottom_shell_layers`: 6 or more, or the whole floor (floor ÷ layer height), so no infill sits under the water (starting point: the system presets have 3; a planter reference in a 2026-10 test run asked for 6) |
 | Supports on a PETG part and a PLA slot is loaded (or the reverse) | `support_interface_filament: <that slot>`, `support_top_z_distance: 0`: the interface peels off cleanly because the two materials do not bond (starting point; the user set this by hand three times in the 2026-10-17 test) |
 
 Constraints:
 - Compensation lives in one place (tolerances.md). If the preset has
   `enable_circle_compensation: "1"`, model holes at nominal size; do not also add model compensation.
+  The system process presets have it off (`fdm_process_common`, 02.08.02.61), so a generated
+  template means model compensation (`phase-2-printer-dimensions.md`, step 4).
 - Do not give one object a different layer height on a plate that uses a prime tower
   (`enable_prime_tower: "1"`) and several filaments; as far as known the prime tower needs one layer
   height for all objects (not yet confirmed in the app).
-- If nothing in the table applies, write no overrides. The user's preset is the baseline.
+- Change only what this part needs: a row of the table, or another need you can name, each with
+  its reason (Phase 5). With no such need, write no overrides. The user's preset is the baseline.
 
 ## Checked so far
 

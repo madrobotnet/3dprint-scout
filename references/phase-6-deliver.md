@@ -4,7 +4,9 @@ Read this on entering Phase 6 (SKILL.md names the rules that hold at all times).
 
 Deliverables are new files outside `out/` (for example `deliver/<date>/`): copy the final STLs and
 3MF there, or point `bambu3mf.py` there. Never write into a file the slicer has open, and never
-overwrite an existing path: if it exists, ask and stop (the scripts refuse as well). Deliver:
+overwrite an existing path: if it exists, ask and stop (the scripts refuse as well). The verdicts
+come from `out/` before the copy, where the build's manifests are; copy `<part>.stl.manifest.json`
+along only when the copy is to be re-checked (without it R3 reads UNVERIFIED). Deliver:
 
 1. Files chosen by the slicer saved in Phase 2:
 
@@ -20,7 +22,9 @@ overwrite an existing path: if it exists, ask and stop (the scripts refuse as we
    not. A Bambu project keeps parts of one object together with their assembled positions.
    A part built in Blender also gets its `out/<model>.blend` copied next to the STLs (one named
    object per part, a collection per object, the parameters as custom properties on the
-   `PARAMETERS` empty; no path of the machine that built it), never overwriting. One line with it:
+   `PARAMETERS` empty; no path of the machine that built it), never overwriting. In a mixed
+   object it holds only the Blender parts; the CAD parts are the STLs. A `.blend` that packs a
+   proprietary font is not delivered (`design.md`, "Text, logos, cosmetic faces"). One line with it:
    the generator script is the source of truth; editing the `.blend` by hand is fine, the next
    rebuild comes from the script. The delivery image may be a `render.py` image when Blender is
    there (`preview.py` otherwise).

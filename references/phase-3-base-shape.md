@@ -3,6 +3,9 @@
 Read this on entering Phase 3 (SKILL.md names the rules that hold at all times), together with
 `references/engines/<engine>.md` (only the engine in use) and `references/design.md` (bed-edge
 chamfers, overhangs, walls in nozzle multiples, orientation for strength, where to split parts).
+A mixed object (a CAD body with a Blender part, or a Blender body with a fit feature) needs both
+engine files and the mixed procedure in `references/engines/blender.md`, "Mixed parts: one
+object, two engines".
 
 ## The generator script
 
@@ -15,7 +18,8 @@ photo are never traced into a mesh.
 Write one generator script:
 
 - Every dimension in a `PARAMETERS` block at the top, in mm, with descriptive names (`screw_hole_d`,
-  not `d1`) and a comment on its source.
+  not `d1`) and a comment on its source. A cutter's overshoot past a face (0.01–0.1 mm) is
+  construction, not a dimension: it may stay a literal under R1, though a named `eps` is clearer.
 - **Z-up: Z = 0 is the print bed.** Model in the orientation it will print in.
 - Each build regenerates everything from scratch in a safe order (fillets before cuts). Phases are
   review points, not build steps.
@@ -59,12 +63,16 @@ the STLs hold the assembled positions (`references/parts.md`, schema and checks)
 
 ## Build, preview, stop
 
-This phase: outer shell, walls, floor. No holes, no fillets yet. Build and validate:
+This phase: outer shell, walls, floor. No holes, no fillets yet. A generator rebuilt from
+scratch may already build them: review the shell first, or give it a parameter that leaves the
+features off for this look. Build and validate:
 
 ```bash
 python3 "$SKILL_DIR/scripts/build.py" run model.scad --params .3dprint/params.json --out out \
-  --printer .3dprint/printers.json --tools 0
+  --printer .3dprint/printers.json
 ```
+
+(`--tools`, the nozzles the print uses: `references/phase-2-printer-dimensions.md`, step 1.)
 
 `build.py run` builds every part in `_parts`, writes `<part>.stl.manifest.json`, writes a core 3MF
 (parts of an object under one parent), validates each part against its own `expect`, and checks
@@ -75,7 +83,10 @@ the union, A1 / A2 per part). For Fusion, export one STL per part from Fusion an
 `# 3dprint-scout: engine=blender`, `references/engines/blender.md`) runs through the same
 `build.py run` in the `blender` binary or the `bpy` module and leaves `out/<model>.blend` next to
 the STLs; in a live Blender the script runs through the host's tool and `build.py record
---engine blender` takes its STLs. Render the built STLs with `preview.py`
+--engine blender` takes its STLs. A mixed object builds each engine's parts with `--only` and
+`--no-3mf` into folders of their own, then one `build.py record` takes every STL with the union
+of both runs' `sources` (`references/engines/blender.md`, "Mixed parts").
+Render the built STLs with `preview.py`
 (`references/phase-0-detect.md`, step 3; `render.py` when Blender is there) and look at it
 yourself first, **one view at a time**, never the grid as one picture: would someone name the
 object from this view; silhouette, main volumes, thickness, edge radii. A view the references

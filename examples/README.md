@@ -24,8 +24,10 @@ Run the commands from the example's folder. You need Python 3.9 or newer and:
 
 Builds write to `out/` (STL per part, a build manifest, a core 3MF and the validation results);
 `out/` is not committed. `printers.x2d.json` describes a Bambu Lab X2D with its bed and the area each
-nozzle reaches, as in Bambu Studio's X2D 0.4 nozzle profile. It names no slicer template, so the
-builds write a slicer-neutral 3MF. In a real request the skill asks for your printer and slicer,
+nozzle reaches, as in Bambu Studio's X2D 0.4 nozzle profile, and the compensation of its standard
+process (circle compensation off, so `"holes": "model"`; elephant foot by the slicer). It names no
+slicer template, so the builds write a slicer-neutral 3MF.
+In a real request the skill asks for your printer and slicer,
 and for Bambu Studio it also writes a project with per-object settings.
 
 `place.py` moves a copy of an STL so `preview.py` can draw parts side by side or assembled; it uses

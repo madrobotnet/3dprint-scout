@@ -54,6 +54,12 @@ validates every part, groups parts from `_parts` into objects (`parts.md`) and w
 3MF. Its JSON is described in `build.py record --help` and `parts.md`. If an STL comes back
 10× too small or large, D4 reports a unit error: fix the export, never scale the mesh.
 
+When your shell is a VM or a cloud container linked to the user's computer, `B.export` writes
+on their machine, where `build.py` cannot see it. Export into a folder the user connected (or
+bring the files over with the host's file tools), print each STL's md5 on their side (in the
+script, `hashlib.md5(open(p, "rb").read()).hexdigest()`) and check it on yours before `record`,
+as for a live Blender (`blender.md`, "Three ways it runs").
+
 The Builder is derived from the one that ran end to end in the 2026-10-17 field test; this
 cleaned version (expressions on features, sketch dimensions, real arcs, the join/cut guards)
 has **not yet been run in Fusion**. If a call fails, read the error, fix the call against the

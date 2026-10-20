@@ -20,14 +20,15 @@ Studio, that is a project file with the print settings already set per object.
 4. **Dimensions** — a table of every dimension with its source (your caliper, an official spec,
    or two secondary sources that agree). Nothing is invented. For parts that must fit an object of
    uncertain shape, it makes small fit-test pieces first (three clearance steps, marked 1, 2, 3).
-5. **Modeling** — the engine is chosen by the shape: Fusion (through MCP), then OpenSCAD, for
-   mechanical parts; [Blender](https://www.blender.org) for organic and decorative shapes when it
-   is there (your own Blender through MCP, a `blender` binary, or the `bpy` module: real fillets
-   on freeform bodies, Manifold booleans, text in any font, an editable `.blend` next to the
-   STLs); Python ([manifold3d](https://github.com/elalish/manifold)) for organic shapes otherwise,
-   and as the fallback. The Python engine comes with a tested part library (rounded and chamfered
-   boxes, screw and insert holes, teardrop holes, bosses, snap hooks, a print-in-place hinge, text,
-   threads) and a signed-distance-function toolkit for smooth, blended, organic shapes. Anything
+5. **Modeling** — the engine is chosen by the shape: Python
+   ([manifold3d](https://github.com/elalish/manifold)) or OpenSCAD for mechanical parts, Fusion
+   (through MCP) only when you want an editable CAD design; [Blender](https://www.blender.org) for
+   organic and decorative shapes when it is there (your own Blender through MCP, a `blender`
+   binary, or the `bpy` module: real fillets on freeform bodies, Manifold booleans, text in any
+   font, an editable `.blend` next to the STLs), and Python for those otherwise. The Python
+   engine comes with a tested part library (rounded and chamfered boxes, screw and insert holes,
+   teardrop holes, bosses, snap hooks, a print-in-place hinge, text, threads) and a
+   signed-distance-function toolkit for smooth, blended, organic shapes. Anything
    with its own job or a likely colour of its own (a latch, a lever, a label) is modelled as a
    separate part of the same object, so you can give it another filament in the slicer without
    remodelling; print-in-place pieces keep their clearance.
