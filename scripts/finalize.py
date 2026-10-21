@@ -13,8 +13,8 @@ validated with (printer, printer id, tools, tolerances). finalize does not take 
 trust: it validates every part STL again with the same settings (R3 says whether the STL still
 matches the generator and parameters as they are now), checks that every part in `_parts` was
 built, and takes the object checks (A1 / A2, an object's D2) from the build only while every STL
-is still the one that build judged. A build that reported errors, or whose gate was not PASS,
-is not verified. Settings given here (--printer, --printer-id, --tools, ...) replace the build's.
+is still the one that build judged. A build that reported errors, or whose gate was FAIL, is
+not verified (an INCOMPLETE gate is named by the UNVERIFIED checks behind it). Settings given here (--printer, --printer-id, --tools, ...) replace the build's.
 
 What else counts is declared in params.json under `_verify` (every key optional, but a key that
 is missing is reported as "not declared", which keeps the geometry from being verified):
@@ -36,7 +36,8 @@ An empty list says the design has no joint. strength: strength.py reports (saved
 gate must PASS; their inputs are numbers from the dimension table, not read from the model, so
 the report says to keep them equal. test_prints: coupons and mechanism-first prints (status
 passed, failed, skipped, offered or pending). accepted: WARNs the user accepted, named
-"<part> <check>" or "object <name> <check>", with their reason; any other WARN is open.
+"<part> <check>" or "object <name> <check>", with their reason; any other WARN is open ("<part>
+D1" also accepts a D1 whose expect was copied from the model, when no intended size exists).
 unverified: dimensions taken without a measurement. references: for each object, which
 directions a reference shows (`real`), or was generated or inferred (`estimated`), or given up
 on (`assumed`); a direction without a real reference is one whose shape is not verified.
@@ -64,6 +65,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
 import shutil
 import sys
 from types import SimpleNamespace
@@ -120,14 +122,23 @@ def machine_prefixes():
     return sorted(out, key=len, reverse=True)
 
 
+def machine_patterns():
+    """(pattern, stand-in) for each form of this machine's folders, matched as whole path
+    prefixes: `/home/ann` is taken out of `/home/ann/out/x.stl`, not out of `/home/anne/x`."""
+    home = os.path.expanduser("~")
+    out = []
+    for p in machine_prefixes():
+        for form in sorted({p, p.replace("\\", "/"), p.replace("\\", "\\\\")}, key=len, reverse=True):
+            pat = re.compile(r"(?<![\w.~/\\-])" + re.escape(form.rstrip("/\\")) + r"(?=[/\\\s\"',;:)\]}]|$)")
+            out.append((pat, "~" if p == home else "."))
+    return out
+
+
 def scrub(text):
     """The report's text with this machine's folders taken out: the working folder becomes `.`,
     the home folder `~` (also in the doubled backslashes of JSON text)."""
-    home = os.path.expanduser("~")
-    for p in machine_prefixes():
-        rep = "~" if p == home else "."
-        for form in sorted({p, p.replace("\\", "/"), p.replace("\\", "\\\\")}, key=len, reverse=True):
-            text = text.replace(form, rep)
+    for pat, stand_in in machine_patterns():
+        text = pat.sub(stand_in, text)
     return text
 
 
@@ -170,7 +181,7 @@ def check_parts(build, specs, params_path, settings):
     import build as build_mod
     sources = build.get("sources") or []
     missing = [s for s in sources if not os.path.isfile(s)]
-    entries, reasons, warns, to_decide = [], [], [], []
+    entries, reasons, warns, to_decide, copied = [], [], [], [], []
     same_as_build = True
     if missing:
         reasons.append(f"sources the build hashed are missing: {', '.join(missing)} (run finalize from the folder the "
@@ -207,8 +218,9 @@ def check_parts(build, specs, params_path, settings):
         for cid, ck in checks.items():
             state, note = ck.get("state"), ck.get("note", "")
             if cid == "D1" and ck.get("copied_expect"):
-                reasons.append(f"{name} D1: its expect was copied from the model's own box, so D1 compares the part "
-                               "with itself; give the intended size")
+                copied.append((f"{name} D1", f"{name} D1: its expect was copied from the model's own box, so D1 "
+                               "compares the part with itself; give the intended size (or accept it in "
+                               f"_verify.accepted as \"{name} D1\")"))
             if state == "FAIL" and ck.get("kind") == "hard":
                 reasons.append(f"{name} {cid} FAIL: {note}".rstrip(": "))
             elif state == "UNVERIFIED" and ck.get("kind") == "hard":
@@ -222,7 +234,7 @@ def check_parts(build, specs, params_path, settings):
         entries.append(entry)
     if not entries:
         reasons.append("the build lists no parts")
-    return entries, reasons, warns, to_decide, same_as_build
+    return entries, reasons, warns, to_decide, copied, same_as_build
 
 
 def check_build(build):
@@ -231,7 +243,7 @@ def check_build(build):
         reasons.append("the build did not run")
     for e in build.get("errors") or []:
         reasons.append(f"the build reported: {e}")
-    if build.get("gate") != "PASS":
+    if build.get("gate") not in ("PASS", "INCOMPLETE"):           # INCOMPLETE: its UNVERIFIED checks say why
         reasons.append(f"the build's gate was {build.get('gate')}, not PASS")
     return reasons
 
@@ -460,7 +472,7 @@ def holds_machine_path(path):
             text = f.read()
     except OSError:
         return False
-    return any(form in text for p in machine_prefixes() for form in {p, p.replace("\\", "/")})
+    return any(pat.search(text) for pat, _ in machine_patterns())
 
 
 def write_bundle(folder, build, params_path, settings, report):
@@ -544,7 +556,7 @@ def finalize(args):
            "unverified_dimensions": list(verify.get("unverified") or []), "warnings": [], "errors": []}
     out["settings"]["printer"] = rel(settings.printer)
     reasons = check_build(build)
-    parts, r, warns, to_decide, same_as_build = check_parts(build, specs, args.params, settings)
+    parts, r, warns, to_decide, copied, same_as_build = check_parts(build, specs, args.params, settings)
     out["parts"] = parts
     reasons += r
     objs, r, w = check_objects(build, same_as_build)
@@ -566,6 +578,7 @@ def finalize(args):
     out["accepted"] = accepted
     taken = {" ".join(str(a.get("check", "")).split()).lower() for a in accepted}
     open_warns = [f"{who} WARN: {note}".rstrip(": ") for who, note in warns if " ".join(who.split()).lower() not in taken]
+    reasons += [text for who, text in copied if " ".join(who.split()).lower() not in taken]
     if args.deliver:
         delivered, r = check_delivered(args.deliver, parts, build)
         out["delivered"] = delivered

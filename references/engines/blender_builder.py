@@ -611,6 +611,20 @@ def degenerate_triangles(me, area=1e-9):
     return int(np.count_nonzero((areas < area) | (short < WELD)))
 
 
+def weld_close(me):
+    """Merge the vertices closer than WELD, as the export and validate.py will: a cut or a
+    bevel can leave two corners a hair apart, whose triangles would read as degenerate here
+    though the STL never has them. Returns how many vertices were merged."""
+    n = len(me.vertices)
+    bm = bmesh.new()
+    bm.from_mesh(me)
+    bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=WELD)
+    bm.to_mesh(me)
+    bm.free()
+    me.update()
+    return n - len(me.vertices)
+
+
 def fix_slivers(me, area=1e-9):
     """Remove the zero-area triangles a flat face's triangulation makes where three of its
     corners lie almost in line (a cut through faceted geometry leaves such corners): the faces
@@ -1047,14 +1061,43 @@ def from_mesh(verts, faces, name="mesh", collection=None):
     # Triangle pairs that lie in one plane become one face again (a cylinder's facets from
     # manifold3d or an STL are split along a diagonal): a cut through such a facet would add a
     # vertex on the diagonal, in line with the facet's edges, and leave zero-area triangles.
-    # The limit (at most 0.05 deg, which covers float32 noise) stays under half the smallest real
-    # angle between faces, so the facets of a curve are never merged, however large its radius.
+    # "In one plane" is a distance, not an angle: each face's far corners lie within WELD / 2 of
+    # the other's plane (float32 noise; an angle alone mixes the noise of a tiny triangle with
+    # the bend of a large-radius curve, whose corners stand off by far more).
     bm.normal_update()
-    bends = [a for a in (e.calc_face_angle(0.0) for e in bm.edges if len(e.link_faces) == 2) if a > math.radians(1e-3)]
-    limit = min(math.radians(0.05), min(bends) / 2) if bends else math.radians(0.05)
-    bmesh.ops.dissolve_limit(bm, angle_limit=limit, use_dissolve_boundaries=False,
-                             verts=[], edges=bm.edges[:], delimit=set())
+    flat = [e for e in bm.edges if len(e.link_faces) == 2 and e.calc_face_angle(0.0) < math.radians(0.05)
+            and _coplanar(e, WELD / 2)]
+    if flat:
+        bmesh.ops.dissolve_edges(bm, edges=flat, use_verts=False, use_face_split=False)
     return mesh_object(name, bm, collection)
+
+
+def _coplanar(edge, tol):
+    """True when each face of `edge` has every corner within `tol` mm of the other face's plane
+    (computed in double precision: the face normals are float32)."""
+    f1, f2 = edge.link_faces
+    def plane(f):
+        pts = [tuple(v.co) for v in f.verts]
+        nx = ny = nz = 0.0
+        for (x1, y1, z1), (x2, y2, z2) in zip(pts, pts[1:] + pts[:1]):   # Newell's normal
+            nx += (y1 - y2) * (z1 + z2)
+            ny += (z1 - z2) * (x1 + x2)
+            nz += (x1 - x2) * (y1 + y2)
+        L = math.sqrt(nx * nx + ny * ny + nz * nz)
+        if L == 0:
+            return None
+        o = pts[0]
+        return (nx / L, ny / L, nz / L), o
+    for a, b in ((f1, f2), (f2, f1)):
+        pl = plane(a)
+        if pl is None:
+            return False
+        (nx, ny, nz), (ox, oy, oz) = pl
+        for v in b.verts:
+            x, y, z = v.co
+            if abs((x - ox) * nx + (y - oy) * ny + (z - oz) * nz) > tol:
+                return False
+    return True
 
 
 def from_manifold(man, name="manifold", collection=None):
@@ -1189,6 +1232,8 @@ def boolean(target, tool, operation="DIFFERENCE", apply=True, solver=None):
         if n:
             raise ValueError(f"boolean {ops[operation].lower()} with solver {solver} left {n} non-manifold edges on "
                              f"'{target.name}': the tool probably touches the target on a face; overshoot it by 0.01-0.1 mm")
+        if degenerate_triangles(target.data):
+            weld_close(target.data)
         d = fix_slivers(target.data) if degenerate_triangles(target.data) else 0
         if d:
             raise ValueError(f"boolean {ops[operation].lower()} with solver {solver} left {d} zero-area triangles on "
@@ -1316,26 +1361,135 @@ def edges(obj, angle=30.0, axis=None, inside=None, bed=False):
 _edges = edges                                      # fillet's `edges` argument shadows the function
 
 
-def _segment_gap(e1, e2):
-    """The shortest distance between two edges (segments) in mm."""
-    from mathutils.geometry import intersect_line_line
-    a, b = e1.verts[0].co, e1.verts[1].co
-    c, d = e2.verts[0].co, e2.verts[1].co
+FLAT_COS = math.cos(math.radians(0.1))     # faces this close to parallel are one flat region (float32 normals)
 
-    def point_seg(p, q, r):
-        qr = r - q
-        L2 = qr.length_squared
-        t = 0.0 if L2 == 0 else max(0.0, min(1.0, (p - q).dot(qr) / L2))
-        return (p - (q + qr * t)).length
-    best = min(point_seg(a, c, d), point_seg(b, c, d), point_seg(c, a, b), point_seg(d, a, b))
-    hit = intersect_line_line(a, b, c, d)
-    if hit:
-        p1, p2 = hit
-        on1 = (p1 - a).dot(b - a) >= 0 and (p1 - b).dot(a - b) >= 0
-        on2 = (p2 - c).dot(d - c) >= 0 and (p2 - d).dot(c - d) >= 0
-        if on1 and on2:
-            best = min(best, (p1 - p2).length)
-    return best
+
+def _flat_regions(bm, offsets):
+    """The flat regions that hold a chosen edge: faces joined across flat edges (a boolean
+    splits a top with a hole into faces along such edges), each as boundary loops of
+    (edge, start vertex, end vertex), walked with the faces' winding (left of travel, seen
+    from the normal, is inside, for the outline and for a hole alike)."""
+    seen, regions = set(), []
+    for f0 in bm.faces:
+        if f0.index in seen or not any(offsets[e.index] > 0 for e in f0.edges):
+            continue
+        region, todo = {f0}, [f0]
+        seen.add(f0.index)
+        while todo:
+            f = todo.pop()
+            for e in f.edges:
+                if offsets[e.index] > 0 or len(e.link_faces) != 2:
+                    continue
+                g = e.link_faces[0] if e.link_faces[1] == f else e.link_faces[1]
+                if g.index not in seen and g.normal.dot(f0.normal) > FLAT_COS:
+                    seen.add(g.index)
+                    region.add(g)
+                    todo.append(g)
+        segs = {}
+        for f in region:
+            for l in f.loops:
+                e = l.edge
+                if sum(1 for g in e.link_faces if g in region) == 1:
+                    segs.setdefault(l.vert.index, []).append((e, l.vert, l.link_loop_next.vert))
+        loops, used = [], set()
+        for start in list(segs):
+            for first in segs[start]:
+                if first[0].index in used:
+                    continue
+                loop, cur = [], first
+                while cur and cur[0].index not in used:
+                    used.add(cur[0].index)
+                    loop.append(cur)
+                    cur = next((c for c in segs.get(cur[2].index, []) if c[0].index not in used), None)
+                loops.append(loop)
+        regions.append((f0, loops))
+    return regions
+
+
+def _inset_fault(normal, loops, offsets):
+    """None when the region's outline, each edge moved inward by its offset, is still a
+    proper outline; else what goes wrong (an edge turned round, two edges crossing, a hole's
+    rim meeting the outline)."""
+    n = normal.normalized()
+    ax = n.orthogonal().normalized()
+    ay = n.cross(ax)
+    o = loops[0][0][1].co
+    def flat(v):
+        d = v - o
+        return (d.dot(ax), d.dot(ay))
+    old_loops, new_loops, moved, names = [], [], [], []
+    for loop in loops:
+        k = len(loop)
+        pts = [flat(s[1].co) for s in loop]
+        off = [offsets[s[0].index] for s in loop]
+        dirs, inward = [], []
+        for i in range(k):
+            a, b = pts[i], pts[(i + 1) % k]
+            dx, dy = b[0] - a[0], b[1] - a[1]
+            L = math.hypot(dx, dy) or 1e-12
+            dirs.append((dx / L, dy / L))
+            inward.append((-dy / L, dx / L))
+        new = []
+        for i in range(k):
+            j = i - 1                                            # segment j ends where segment i starts
+            p = pts[i]
+            a = (p[0] + inward[j][0] * off[j], p[1] + inward[j][1] * off[j])
+            b = (p[0] + inward[i][0] * off[i], p[1] + inward[i][1] * off[i])
+            den = dirs[j][0] * dirs[i][1] - dirs[j][1] * dirs[i][0]
+            if abs(den) < 1e-3:                                  # in line (a split edge; float32 noise)
+                new.append(b if off[i] >= off[j] else a)         # the deeper offset
+                continue
+            t = ((b[0] - a[0]) * dirs[i][1] - (b[1] - a[1]) * dirs[i][0]) / den
+            new.append((a[0] + dirs[j][0] * t, a[1] + dirs[j][1] * t))
+        mv = [off[i] > 0 or off[i - 1] > 0 or off[(i + 1) % k] > 0 for i in range(k)]
+        for i in range(k):
+            a, b = new[i], new[(i + 1) % k]
+            if mv[i] and (b[0] - a[0]) * dirs[i][0] + (b[1] - a[1]) * dirs[i][1] < -1e-6:
+                return f"edge {loop[i][0].index} would turn round"
+        old_loops.append(pts)
+        new_loops.append(new)
+        moved.append(mv)
+        names.append([s[0].index for s in loop])
+
+    def cross(o_, a, b):
+        return (a[0] - o_[0]) * (b[1] - o_[1]) - (a[1] - o_[1]) * (b[0] - o_[0])
+
+    segs = []                                                    # (min x, max x, loop, i, a, b, moved)
+    for li, new in enumerate(new_loops):
+        k = len(new)
+        for i in range(k):
+            a, b = new[i], new[(i + 1) % k]
+            segs.append((min(a[0], b[0]), max(a[0], b[0]), li, i, a, b, moved[li][i]))
+    segs.sort(key=lambda s_: s_[0])                              # sweep along x: only overlapping spans meet
+    for x in range(len(segs)):
+        _, hi, l1, i1, a, b, m1 = segs[x]
+        for y in range(x + 1, len(segs)):
+            lo2, _, l2, i2, c, d, m2 = segs[y]
+            if lo2 > hi:
+                break
+            if not (m1 or m2):
+                continue
+            if l1 == l2:
+                k = len(new_loops[l1])
+                if (i2 - i1) % k in (1, k - 1):
+                    continue
+            if max(a[1], b[1]) < min(c[1], d[1]) or max(c[1], d[1]) < min(a[1], b[1]):
+                continue
+            if cross(a, b, c) * cross(a, b, d) < -1e-12 and cross(c, d, a) * cross(c, d, b) < -1e-12:
+                return f"edges {names[l1][i1]} and {names[l2][i2]} would cross"
+
+    def inside(p, poly):
+        hit = False
+        for i in range(len(poly)):
+            (x1, y1), (x2, y2) = poly[i], poly[(i + 1) % len(poly)]
+            if (y1 > p[1]) != (y2 > p[1]) and p[0] < x1 + (p[1] - y1) * (x2 - x1) / (y2 - y1):
+                hit = not hit
+        return hit
+    for la in range(len(loops)):                                 # a hole grown past the outline
+        for lb in range(len(loops)):
+            if la != lb and inside(old_loops[la][0], old_loops[lb]) != inside(new_loops[la][0], new_loops[lb]):
+                return f"the rim of edges {names[la][0]}.. would meet edges {names[lb][0]}.."
+    return None
 
 
 def _face_depth(face, edge):
@@ -1406,22 +1560,17 @@ def fillet(obj, radius, edges=None, segments=None, apply=True):
                              "from_manifold")
         offsets[i] = t
         turn = max(turn, phi)
-    # Two fillets on one face must not meet: their tangent lines come t1 and t2 in from their
-    # edges, so two edges of a face that share no corner need t1 + t2 of room between them.
-    for f in bm.faces:
-        on = [e for e in f.edges if offsets[e.index] > 0]
-        for k, e1 in enumerate(on):
-            for e2 in on[k + 1:]:
-                if set(e1.verts) & set(e2.verts):
-                    continue                          # a corner: the bevel joins them
-                gap = _segment_gap(e1, e2)
-                i1, i2 = e1.index, e2.index
-                if offsets[i1] + offsets[i2] > gap + 1e-6:
-                    bm.free()
-                    raise ValueError(f"fillet of {radius} mm on '{obj.name}': edges {i1} and {i2} of one face are "
-                                     f"{gap:.3f} mm apart, and their rounds need {offsets[i1]:.3f} + {offsets[i2]:.3f} mm "
-                                     "of it: they would overlap. A smaller radius, or round that face's edges in the "
-                                     "2D profile")
+    # Two fillets on one face must not meet: each eats a strip t wide into the face, from the
+    # tangent line inward. The face's outline offset inward by every chosen edge's t must stay a
+    # proper outline (no edge turned round, no crossing): a slab's two sides 3 mm apart cannot
+    # take two 2 mm rounds, a rim's facets or a hexagon's sides can, as long as the inset fits.
+    for f, loops in _flat_regions(bm, offsets):
+        bad = _inset_fault(f.normal, loops, offsets)
+        if bad:
+            at = tuple(round(c, 2) for c in f.calc_center_median())
+            bm.free()
+            raise ValueError(f"fillet of {radius} mm on '{obj.name}': the rounds on the flat face near {at} would "
+                             f"overlap ({bad}). A smaller radius, or round that face's edges in the 2D profile")
     bm.free()
     widest = max(offsets)
     if widest <= 0:
@@ -1442,7 +1591,8 @@ def fillet(obj, radius, edges=None, segments=None, apply=True):
         me = obj.data
         if me.attributes.get("bevel_weight_edge"):
             me.attributes.remove(me.attributes["bevel_weight_edge"])
-        bad, nm = degenerate_triangles(me), nonmanifold_edges(obj)
+        weld_close(me)                                           # the bevel can leave two corners a hair apart
+        bad, nm = fix_slivers(me), nonmanifold_edges(obj)
         if bad or nm:
             raise ValueError(f"fillet of {radius} mm on '{obj.name}' left {bad} zero-area triangles and {nm} non-manifold "
                              "edges: two fillets (or a fillet and a feature) overlap; reduce the radius, or fillet before "

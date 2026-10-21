@@ -97,8 +97,10 @@ a part with several bodies or a mechanism (lever, latch, hinge) this stop is nev
 fit-test piece comes after it, not instead of it.
 
 - `out/` is the build's working folder: every build rewrites `out/<part>.stl`, its manifest,
-  `out/<model>.3mf` and, with Blender, `out/<model>.blend`. Deliverables (Phase 6) are written
-  elsewhere as new files.
+  `out/<model>.3mf` with its `out/<model>.3mf.manifest.json` (the 3MF's sha256 and the sha256 of
+  each part STL it holds, which `finalize.py --deliver` reads) and, with Blender,
+  `out/<model>.blend`. `bambu3mf.py` writes the same sidecar next to the project it makes.
+  Deliverables (Phase 6) are written elsewhere as new files.
 - Pass `--printer .3dprint/printers.json` even before the printer is known: a missing file is a
   warning and leaves D2 UNVERIFIED (gate INCOMPLETE), not a FAIL. A malformed file or an unknown
   `--printer-id` is an error in the top-level `errors`.

@@ -600,11 +600,65 @@ except ValueError as exc:
 emit(overlap=overlap, sharp=sharp, slab_mods=len(slab.modifiers), ok_nm=bb.nonmanifold_edges(ok), ok_deg=bb.degenerate_triangles(ok.data))
 """)
         self.assertIn("would overlap", rep["overlap"])
-        self.assertIn("3.000 mm apart", rep["overlap"])
+        self.assertIn("would turn round", rep["overlap"])
         self.assertEqual(rep["slab_mods"], 0)
         self.assertEqual((rep["ok_nm"], rep["ok_deg"]), (0, 0))
         self.assertIn("sharper than 90 degrees", rep["sharp"])
         self.assertIn("round_profile", rep["sharp"])
+
+    def test_fillet_overlap_check_keeps_rims_and_catches_holes(self):
+        """Second review of 0.6: the overlap check insets each flat face's outline (holes
+        included, across the faces a boolean splits it into). Rims of a cylinder, a rounded
+        rectangle, a hexagon and a hole pass; a hole too close to the edge, two holes too close,
+        and a hexagon past its inradius are refused."""
+        rep = run_in_blender("""
+import math
+def top(o, z):
+    return bb.edges(o, inside=((-200, -200, z - 0.1), (200, 200, z + 0.1)))
+def attempt(fn):
+    bb.new_scene_mm()
+    try:
+        o = fn()
+        return [bb.nonmanifold_edges(o), bb.degenerate_triangles(o.data)]
+    except ValueError as exc:
+        return str(exc)
+def hole(at, r=4.0, size=(30, 30, 10)):
+    blk = bb.box(list(size), "blk")
+    for x, y in at:
+        h = bb.cylinder(r, size[2] + 2, name="h"); h.location = (x, y, -1)
+        bb.boolean(blk, h, "difference")
+    return blk
+def hex_(r):
+    pts = [(5 * math.cos(math.radians(60 * i)), 5 * math.sin(math.radians(60 * i))) for i in range(6)]
+    o = bb.prism(pts, 10, name="hex")
+    return bb.fillet(o, r, top(o, 10))
+def cyl():
+    o = bb.cylinder(10, 10, name="c")
+    return bb.fillet(o, 1.0, top(o, 10))
+def rrect():
+    o = bb.prism(bb.round_profile([(0, 0), (40, 0), (40, 20), (0, 20)], 4), 10, name="rr")
+    return bb.fillet(o, 1.0, top(o, 10))
+def hole_rim():
+    o = hole([(15, 15)])
+    return bb.fillet(o, 0.5, top(o, 10))
+def near_edge():
+    o = hole([(15, 5.5)])                                   # rim 1.5 mm from the side
+    return bb.fillet(o, 1.0, top(o, 10))
+def near_edge_ok():
+    o = hole([(15, 5.5)])
+    return bb.fillet(o, 0.6, top(o, 10))
+def two_holes():
+    o = hole([(10, 10), (19, 10)], size=(30, 20, 5))        # 1 mm between the rims
+    return bb.fillet(o, 0.6, top(o, 5))
+emit(**{n: attempt(f) for n, f in dict(hex3=lambda: hex_(3.0), hex44=lambda: hex_(4.4), cyl=cyl, rrect=rrect,
+                                       hole_rim=hole_rim, near_edge=near_edge, near_edge_ok=near_edge_ok,
+                                       two_holes=two_holes).items()})
+""")
+        for name in ("hex3", "cyl", "rrect", "hole_rim", "near_edge_ok"):
+            self.assertEqual(rep[name], [0, 0], name)
+        for name in ("hex44", "near_edge", "two_holes"):
+            self.assertIsInstance(rep[name], str, name)
+            self.assertIn("would overlap", rep[name], name)
 
     def test_apply_transform_keeps_shared_meshes_and_children(self):
         rep = run_in_blender("""
@@ -653,6 +707,28 @@ emit(nm=bb.nonmanifold_edges(back), open_refused=open_refused, deps=[os.path.bas
         self.assertIn("open or non-manifold", rep["open_refused"])
         self.assertIn("parts.py", rep["deps"])                                 # parts.py is hashed into the manifest
         self.assertIn(os.path.join(self.tmp, "blk.stl"), rep["deps_full"])      # so is an STL brought in
+
+    def test_from_mesh_merges_split_facets_not_a_gentle_curve(self):
+        """Second review of 0.6: split facets are found by distance (float32 noise) and merged, so
+        two parts.py countersinks away from the origin cut a plate cleanly; the facets of an arc
+        of r = 1000 mm (0.023 deg apart, under any angle limit for noise) stay apart."""
+        rep = run_in_blender("""
+import math, parts
+from manifold3d import CrossSection, Manifold
+bb.new_scene_mm()
+plate = bb.box([70, 25, 4], "plate")
+for i, x in enumerate((10, 60)):
+    tool = bb.from_manifold(parts.screw_hole("M4", depth=4.1, kind="countersunk").translate([x, 12.5, 4]), f"h{i}")
+    bb.boolean(plate, tool, "difference")
+R, n = 1000.0, 100
+arc = [(R * math.sin(a), R - R * math.cos(a)) for a in (i * 0.0004 for i in range(n + 1))]
+pts = arc + [(arc[-1][0], arc[-1][1] + 5), (0, 5)]
+strip = bb.from_manifold(Manifold.extrude(CrossSection([pts]), 3), "strip")
+sides = sum(1 for p in strip.data.polygons if abs(p.normal.z) < 0.5)
+emit(deg=bb.degenerate_triangles(plate.data), nm=bb.nonmanifold_edges(plate), sides=sides, outline=len(pts))
+""")
+        self.assertEqual((rep["deg"], rep["nm"]), (0, 0))
+        self.assertEqual(rep["sides"], rep["outline"])                         # one face per outline edge
 
     def test_planes_transforms_and_world_bed_chamfer(self):
         rep = run_in_blender(f"""

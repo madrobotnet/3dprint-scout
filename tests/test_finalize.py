@@ -287,6 +287,38 @@ class Finalize(Workspace):
             code, out = self.finalize()
             self.assertFalse(any(o.startswith(f"open warning (not accepted in _verify.accepted): {who} ") for o in out["open"]))
 
+    def test_a_copied_expect_can_be_accepted(self):
+        """Second review of 0.6: a D1 against a copied expect is open until the user accepts it."""
+        write_stl("out/box.stl", box(40.2004, 30, 20))
+        v = self.full_verify()
+        self.params(v, _parts={"box": {"expect": [40.2004, 30, 20]}, "lid": {"expect": [40, 30, 3]}})
+        self.record()
+        code, out = self.finalize()
+        self.assertEqual(out["geometry"], "not verified")
+        self.assertTrue(any(o.startswith("box D1: its expect was copied") for o in out["open"]), out["open"])
+        v["accepted"] = [{"check": "box D1", "reason": "no drawing: the printed box is the size"}]
+        self.params(v, _parts={"box": {"expect": [40.2004, 30, 20]}, "lid": {"expect": [40, 30, 3]}})
+        code, out = self.finalize()
+        self.assertEqual(out["geometry"], "verified", out["open"])
+
+    def test_an_incomplete_build_is_named_by_its_checks(self):
+        """INCOMPLETE is not a reason of its own (the UNVERIFIED checks behind it are); FAIL is."""
+        self.assertEqual(finalize.check_build({"ran": True, "gate": "INCOMPLETE"}), [])
+        self.assertEqual(finalize.check_build({"ran": True, "gate": "FAIL"}), ["the build's gate was FAIL, not PASS"])
+        self.assertEqual(finalize.check_build({"ran": True, "gate": None}), ["the build's gate was None, not PASS"])
+
+    def test_machine_paths_are_matched_as_whole_folders(self):
+        here = os.getcwd()
+        self.assertEqual(finalize.scrub(f'"{here}/out/a.stl" {here}'), '"./out/a.stl" .')
+        self.assertEqual(finalize.scrub(f"{here}2/x.stl"), f"{here}2/x.stl")          # another folder
+        self.assertEqual(finalize.scrub(f"/srv{here}/x"), f"/srv{here}/x")              # not a prefix here
+        with open("a.txt", "w") as f:
+            f.write(f"FONT = '{here}-fonts/a.ttf'\n")
+        self.assertFalse(finalize.holds_machine_path("a.txt"))
+        with open("b.txt", "w") as f:
+            f.write(f"FONT = '{here}/a.ttf'\n")
+        self.assertTrue(finalize.holds_machine_path("b.txt"))
+
     def test_bad_input_is_an_error(self):
         with open("out/build.json", "w") as f:
             json.dump({"schema": "something/1"}, f)

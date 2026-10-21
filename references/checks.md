@@ -99,9 +99,11 @@ The final report of Phase 6 (`references/phase-6-deliver.md`), schema `3dprint-s
 }
 ```
 
-`geometry` is `verified` only when the build ran without errors and with gate PASS, built every
+`geometry` is `verified` only when the build ran without errors and its gate was not FAIL (an
+INCOMPLETE gate is named by the UNVERIFIED checks behind it), built every
 part in `_parts`, every part validates now (with the build's settings) with R3 PASS and no hard
-FAIL or UNVERIFIED and a D1 against an expect that was not copied from the model, every STL is
+FAIL or UNVERIFIED and a D1 against an expect that was not copied from the model (or that the
+user accepted as `<part> D1` in `_verify.accepted`), every STL is
 the one the build JSON judged (so its object checks stand), every declared joint's
 report is fresh and its F3 / F3_sweep PASS against the delivered parts (or a declared proxy),
 every declared member's `strength.py` gate is PASS, no WARN is left unaccepted, the delivered
