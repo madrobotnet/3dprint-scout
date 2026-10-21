@@ -187,6 +187,25 @@ def settings_for(build, args):
     return SimpleNamespace(**{f: s.get(f) for f in SETTINGS}, wall_check=s["wall_check"])
 
 
+VALIDATE_DEFAULTS = {"tol": 0.1, "tools": "0", "overhang_angle": 45.0, "min_wall": 1.2}   # validate.py's own
+
+
+def _setting(f, v):
+    """A setting as validate.py will use it: its default when not given; tools as a set."""
+    if v is None:
+        v = VALIDATE_DEFAULTS.get(f)
+    if v is None:
+        return None
+    if f == "tools":
+        return frozenset(x.strip() for x in str(v).split(",") if x.strip())
+    if f in ("tol", "overhang_angle", "min_wall"):
+        try:
+            return round(float(v), 9)
+        except (TypeError, ValueError):
+            return str(v)
+    return str(v)
+
+
 def settings_drift(build, settings):
     """What differs between the settings the build judged its objects with and this report's
     (a field given here, or the printers.json changed since): the build's object checks do not
@@ -199,7 +218,7 @@ def settings_drift(build, settings):
             same = (not old and not new) or bool(old and new and os.path.normcase(os.path.abspath(old)) ==
                                                   os.path.normcase(os.path.abspath(new)))
         else:
-            same = old == new or (old is not None and new is not None and str(old) == str(new))
+            same = _setting(f, old) == _setting(f, new)       # --tools 0 and no --tools are the same
         if not same:
             out.append(f"{f} {old} -> {new}")
     if bool(b.get("wall_check", True)) != bool(settings.wall_check):

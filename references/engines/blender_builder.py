@@ -1798,7 +1798,8 @@ def fillet(obj, radius, edges=None, segments=None, apply=True):
     (offset = radius / tan(a / 2), a the angle between the faces: a 120 degree edge needs
     0.58 x radius), so every edge gets the same radius; a non-90-degree edge's arc is within
     1.5 % of the radius (Blender's profile), its tangent lines exact. Segments default to the
-    circle rule (`circle_segments(radius)` per full turn). The object's scale is baked first.
+    circle rule (`circle_segments(radius)` per full turn). The object's scale is baked first
+    (put back on a refusal; live modifiers are applied first and stay applied).
     Refused, before anything is changed, when a face next to an edge is narrower than the
     fillet reaches into it: the facets of a curved face (a fillet along a cylinder's side
     cannot be rounded on its facets). Round such an edge in the 2D profile instead
@@ -1813,10 +1814,31 @@ def fillet(obj, radius, edges=None, segments=None, apply=True):
     require_blender()
     if radius <= 0:
         raise ValueError("fillet radius must be positive")
+    before = None                                      # a refusal puts the mesh and transform back
     if tuple(obj.scale) != (1.0, 1.0, 1.0):
+        before = (obj.data, obj.data.copy(), _world(obj).copy())
+        obj.data = before[1]                           # bake a copy; the original stays for a refusal
+        before[1][TAG] = True
         apply_transform(obj)
     elif obj.modifiers:
         apply_modifiers(obj)
+    try:
+        return _fillet(obj, radius, edges, segments, apply)
+    except ValueError:
+        if before is not None:
+            baked = obj.data
+            obj.data = before[0]
+            obj.matrix_world = before[2]
+            if baked.users == 0:
+                bpy.data.meshes.remove(baked)
+            _view_layer().update()
+        raise
+    finally:
+        if before is not None and obj.data is not before[0] and before[0].users == 0:
+            bpy.data.meshes.remove(before[0])
+
+
+def _fillet(obj, radius, edges, segments, apply):
     chosen = set(edges if edges is not None else _edges(obj))
     if not chosen:
         raise ValueError(f"fillet on '{obj.name}': no edge chosen (edges() found no sharp edge off the bed)")

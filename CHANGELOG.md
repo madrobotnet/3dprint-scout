@@ -29,7 +29,8 @@ for new features.
     round, and never past another round's tangent line. After the bevel every result is checked
     for zero-area triangles, non-manifold edges and faces that cross each other or overlap in one
     plane (`bb.self_intersections`, which validate.py does not look for); any of them puts the
-    object back as it was and raises. A mesh shared with a linked duplicate is copied first. Known limit: a face cut by many
+    object back as it was (its scale and place too) and raises. A mesh shared with a linked
+    duplicate is copied first. Known limit: a face cut by many
     holes can still be refused there (a split edge passing near another hole); a hole's
     chamfer or round then belongs in the cut's own tool.
   - `bb.arc`, `bb.outline`, `bb.round_profile`: 2D profiles from lines and true arcs, corners
@@ -64,7 +65,8 @@ for new features.
   `REPRODUCE.md`, and refuses a source outside the project folder or a file that holds a path
   of this machine (a whole folder, in any form: JSON-escaped, MSYS, any case; the report itself
   is scrubbed of every form). The build's object checks count only with the build's settings
-  and printers.json (`settings_drift`). A D1 against an expect copied from the model stays open
+  and printers.json (`settings_drift`; a value left at validate.py's default counts as that
+  default). A D1 against an expect copied from the model stays open
   until the user accepts it as `<part> D1`.
 - **A `_parts` grouping that cannot be read** (a role with a typo) made no object check run and
   still gave the build a PASS; it is now a FAIL.

@@ -409,6 +409,8 @@ class Finalize(Workspace):
         code, fin = self.finalize()
         self.assertEqual(fin["settings_drift"], [])
         self.assertFalse(any("other settings" in o for o in fin["open"]), fin["open"])
+        code, fin = self.finalize("--tools", "0")                              # validate.py's own default
+        self.assertEqual(fin["settings_drift"], [])
         code, fin = self.finalize("--tools", "1")
         self.assertTrue(any(o.startswith("object 'o': its checks (A1 / A2, D2, P1 / P2 on the whole) were made with "
                                          "other settings") for o in fin["open"]), fin["open"])

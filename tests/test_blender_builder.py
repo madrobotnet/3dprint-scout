@@ -838,7 +838,16 @@ for lo in ((0, 0, 0), (5, 5, 10)):                       # two blocks stacked: t
     bmesh.ops.scale(bm, vec=(10, 10, 10), verts=vs)
     bmesh.ops.translate(bm, vec=(lo[0] + 5, lo[1] + 5, lo[2] + 5), verts=vs)
 stack = bb.mesh_object("stack", bm)
-emit(worst=worst, clean=clean, twins=twins, flat=bb.self_intersections(stack))
+flat = bb.self_intersections(stack)
+bb.new_scene_mm()
+sc = bb.box([4, 30, 10], "sc"); sc.scale = (2, 1, 1); sc.location = (3, 0, 0)
+name, n = sc.data.name, len(sc.data.vertices)
+try:
+    bb.fillet(sc, 4.5, bb.edges(sc, axis="z")); scaled = None             # 2 x 4.5 > 8 wide: refused
+except ValueError as exc:
+    scaled = str(exc)
+scaled_back = [tuple(sc.scale), tuple(sc.location), sc.data.name == name, len(sc.data.vertices) == n]
+emit(worst=worst, clean=clean, twins=twins, flat=flat, scaled=scaled, scaled_back=scaled_back)
 """)
         self.assertEqual(rep["clean"], [0, 0, 0])
         self.assertLess(rep["worst"], 0.02)                                    # above the ideal round: no ridge
@@ -846,6 +855,8 @@ emit(worst=worst, clean=clean, twins=twins, flat=bb.self_intersections(stack))
             n, after, weight = rep["twins"][case]
             self.assertEqual((after, weight), (n, False), case)
         self.assertGreater(rep["flat"], 0)
+        self.assertIsNotNone(rep["scaled"])                                     # a refusal of a scaled object
+        self.assertEqual(rep["scaled_back"], [[2, 1, 1], [3, 0, 0], True, True])  # ... leaves it as it was
 
     def test_boolean_welds_only_degenerate_corners(self):
         """Third review of 0.6: a boolean that leaves corners a hair apart merges only those
