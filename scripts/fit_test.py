@@ -20,8 +20,11 @@ Clearance steps: --clearance is the middle value per side (default: the "object 
 pocket" fit of tolerances.md, 0.30 mm), --step the spacing (0.15), --steps how many (3).
 
 Writes <out>/<name>_1.stl ... and <out>/<name>.json (one JSON document is also printed) and
-refuses to overwrite any existing file. With --bambu-template it also writes a job file for
-bambu3mf.py. Needs manifold3d.
+refuses to overwrite any existing file unless --overwrite is given and --out lies under the
+current directory (the working folder; a delivered copy elsewhere is never replaced); there,
+pieces and a job file of an earlier run with the same --name that this run does not write are
+removed (and listed in warnings), so the folder holds one series. With
+--bambu-template it also writes a job file for bambu3mf.py. Needs manifold3d.
 """
 from __future__ import annotations
 
@@ -137,6 +140,14 @@ def piece(cs, clearance: float, index: int, args, m3d, parts):
     return out, info
 
 
+def _under_cwd(path: str) -> bool:
+    """True when `path` lies inside the current working directory (the project's working
+    folder, where out/ is rewritten); realpath, case-folded on Windows."""
+    p = os.path.normcase(os.path.realpath(path))
+    cwd = os.path.normcase(os.path.realpath(os.getcwd()))
+    return p == cwd or p.startswith(cwd.rstrip(os.sep) + os.sep)
+
+
 def export(man, path: str) -> int:
     mesh = man.to_mesh()
     write_binary_stl(path, mesh.vert_properties[:, :3].tolist(), mesh.tri_verts.tolist())
@@ -162,9 +173,18 @@ def run(args) -> dict:
     summary_path = os.path.join(args.out, f"{args.name}.json")
     stl_paths = [os.path.join(args.out, f"{args.name}_{i + 1}.stl") for i in range(args.steps)]
     job_path = os.path.join(args.out, f"{args.name}_bambu_job.json") if args.bambu_template else None
-    for p in [summary_path] + stl_paths + ([job_path] if job_path else []):
-        if os.path.exists(p):
-            raise FitTestError(f"{p} already exists; refusing to overwrite (choose another --out or --name)")
+    existing = [p for p in [summary_path] + stl_paths + ([job_path] if job_path else []) if os.path.exists(p)]
+    # An earlier run of the same --name with more steps, or with a Bambu job, left pieces this run
+    # does not write; replacing the rest would mix two series in one folder (review N5).
+    stale = [p for p in [os.path.join(args.out, f"{args.name}_{i}.stl") for i in range(args.steps + 1, 10)]
+             + ([] if job_path else [os.path.join(args.out, f"{args.name}_bambu_job.json")]) if os.path.exists(p)]
+    if (existing or stale) and not getattr(args, "overwrite", False):
+        what = (existing or stale)[0]
+        raise FitTestError(f"{what} already exists; refusing to overwrite (choose another --out or --name, or "
+                           "--overwrite for a working folder under the current directory)")
+    if (existing or stale) and not _under_cwd(args.out):
+        raise FitTestError(f"--overwrite replaces files in a working folder under the current directory only; "
+                           f"{os.path.abspath(args.out)} is elsewhere (a delivered copy is never overwritten)")
 
     steps = []
     for i, c in enumerate(clearances):
@@ -177,6 +197,11 @@ def run(args) -> dict:
         entry.update(info)
         steps.append(entry)
 
+    removed = []
+    for p in stale:                                       # only once the new series is written
+        os.remove(p)
+        removed.append(os.path.basename(p))
+
     how = ("Print all pieces with the same printer, filament and process preset as the real part. "
            + ("Slide the object into each ring: " if args.mode == "ring" else "Push each plug into the opening: ")
            + "the one that goes in by hand without force and does not rattle is right. Count the holes in its "
@@ -187,6 +212,13 @@ def run(args) -> dict:
            "clearance_mm": {"middle_per_side": args.clearance, "step": args.step, "steps": args.steps,
                             "source": "tolerances.md, object in a pocket" if args.clearance == DEFAULT_CLEARANCE else "user"},
            "steps": steps, "summary": summary_path, "how_to_read": how, "warnings": [], "errors": []}
+    if removed:
+        out["warnings"].append(f"removed {', '.join(removed)}: left by an earlier run of --name {args.name} "
+                               "that this run does not replace")
+    old_3mf = os.path.join(args.out, f"{args.name}_bambu.3mf")
+    if existing and os.path.exists(old_3mf):
+        out["warnings"].append(f"{old_3mf} holds the earlier pieces; bambu3mf.py refuses to overwrite it, so delete "
+                               "it before making the new one")
     if job_path:
         job = {"template": args.bambu_template, "out": os.path.join(args.out, f"{args.name}_bambu.3mf"),
                "parts": [{"name": f"{args.name}_{s['index']}", "stl": s["stl"], "plate": 1} for s in steps]}
@@ -216,6 +248,8 @@ def main(argv=None):
         ap.add_argument("--out", default=os.path.join("out", "fit"))
         ap.add_argument("--name", default="fit")
         ap.add_argument("--bambu-template", help="also write a bambu3mf.py job using this template")
+        ap.add_argument("--overwrite", action="store_true",
+                        help="replace existing pieces when --out lies under the current directory (the working folder)")
         args = ap.parse_args(sys.argv[1:] if argv is None else argv)
         args.size = [float(x) for x in args.size.split(",") if x.strip()] if args.size else []
         out.update(run(args))

@@ -24,7 +24,8 @@ file is sent next to the generator) and builds in millimetres, Z-up, Z = 0 on th
 
 Letters that should keep their own colour go on a separate plate (a disc, a plaque) unioned
 with them, registered as a `fused` part; a text object left as its own part is one body per
-letter, so its `_parts` entry needs `shells` (parts.md) or it fails M5.
+glyph piece (the LOG line counts them), so its `_parts` entry needs `shells` (parts.md) or it
+fails M5.
 
 `main` builds into a scene of its own, calls `build`, writes the parameters as custom
 properties on a PARAMETERS empty, exports one binary STL per part (modifiers applied,
@@ -57,6 +58,7 @@ import re
 import sys
 import tempfile
 import time
+import unicodedata
 
 try:
     import bpy
@@ -75,6 +77,7 @@ MAX_SEGMENTS = 32
 BED_CHAMFER_RUN = 0.9                   # run / rise of the bed chamfer: steeper than 45 deg, so P2 never counts it
 FG_MIN = 0.0005                         # at or below: a blank image (or view), nothing of the part drawn
 FG_MAX = 0.95                           # a render whose pixels nearly all differ from the background has no background
+NOTDEF_PROBE = "\U0010FFFD"             # a code point no font maps: its outline is the font's .notdef box
 
 # Views, palette and background as in scripts/preview.py, so both images read the same.
 VIEWS = {
@@ -89,11 +92,24 @@ VIEWS = {
 DEFAULT_VIEWS = ["iso", "front", "right", "top"]
 PALETTE = ["#4682b4", "#dd783c", "#5aa05a", "#a064b4", "#c8aa32", "#50aab4"]
 NEUTRAL = (0.5, 0.5, 0.5)               # an unknown filament name: neutral grey, never a question
-BACKGROUND = (0.965, 0.965, 0.965)
-INK = (0.16, 0.16, 0.16)
+BACKGROUND = (0.965, 0.965, 0.965)    # sRGB, as preview.py's (246, 246, 246)
+INK = (0.16, 0.16, 0.16)               # sRGB
+DARK_LIFT = 0.15                        # black is drawn as dark grey (sRGB 0.15) so its edges show
+STUDIO_LIGHT = "paint.sl"               # Workbench studio light: faces towards the camera keep ~96 %
+                                        # of their colour (the default light leaves ~69 %: white read grey)
+LIGHT_KNEE = 0.85                       # preview_rgb: luminance above this is compressed towards LIGHT_MAX, so
+LIGHT_MAX = 0.90                        # white (drawn ~230) stands off the 246 background instead of fading into it
+SSAO_RATIO = 0.15                       # world-space cavity distance = this x the part's largest extent (mm)...
+SSAO_MIN, SSAO_MAX = 1.0, 30.0          # ...within these bounds: pockets and keyholes darken, a flat face does not
+SSAO_ATTENUATION = 0.05                 # Blender's 1.0 fades the effect out well inside that distance
+SSAO_VALLEY = 2.0                       # cavity valley factor (1.0 left a 5 mm pocket at 1/255 off its face)
+SSAO_RENDERS_FROM = (5, 0)              # a 4.x Workbench render ignores the world-space cavity: shadows instead
+SHADOW_INTENSITY = 0.25                 # Workbench shadows on 4.x: a 5 mm pocket floor reads ~16/255 darker
+SMOOTH_ANGLE = 30.0                     # degrees: faces meeting flatter than this are shaded smooth in a render
 MARGIN = 0.08
 ENGINE_NAMES = ("workbench", "eevee", "cycles")
-COLOUR_TABLE_NOTE = ("colours are approximate screen values of common Bambu filaments, for the preview only; "
+COLOUR_TABLE_NOTE = ("colours are approximate screen values of common Bambu filaments (for previews and the "
+                     "colour swatches of a project file; the filament loaded is what prints); "
                      "an unknown name gets neutral grey")
 
 # Approximate screen colours of common Bambu Lab PLA Basic / Matte filaments, from the colour
@@ -227,12 +243,28 @@ def palette_rgb(i):
 
 
 def preview_rgb(rgb):
-    """The colour as drawn: very dark filaments are lifted towards grey so the shading still
-    shows their edges (black parts read as featureless otherwise). Preview only."""
+    """The colour as drawn (sRGB): very dark filaments are lifted a little towards grey so the
+    shading still shows their edges (black parts read as featureless otherwise), and very
+    light ones are taken down a little so a white part stands off the near-white background
+    instead of showing only its outline in the FRONT and TOP views. Preview only."""
     lum = 0.2126 * rgb[0] + 0.7152 * rgb[1] + 0.0722 * rgb[2]
-    if lum >= 0.2:
-        return tuple(rgb)
-    return tuple(0.3 + 0.7 * c for c in rgb)
+    if lum < 0.2:
+        return tuple(DARK_LIFT + (1 - DARK_LIFT) * c for c in rgb)
+    if lum > LIGHT_KNEE:
+        target = LIGHT_KNEE + (lum - LIGHT_KNEE) * (LIGHT_MAX - LIGHT_KNEE) / (1.0 - LIGHT_KNEE)
+        return tuple(c * target / lum for c in rgb)
+    return tuple(rgb)
+
+
+def srgb_to_linear(c):
+    """One sRGB channel (0..1, as in #rrggbb) -> the scene-linear value Blender's colour
+    properties take. Object colours, material colours and the world colour are all linear;
+    an sRGB value put there unconverted renders washed out (orange #ff6a13 came out #ffad4e)."""
+    return c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4
+
+
+def linear_rgb(rgb):
+    return tuple(srgb_to_linear(c) for c in rgb)
 
 
 def parse_colors(items, names):
@@ -464,7 +496,7 @@ def new_scene_mm(name=SCENE_NAME):
         world = bpy.data.worlds.new(name)
         world[TAG] = True
         sc.world = world
-    world.color = BACKGROUND                            # Workbench renders need a world: black otherwise (4.5)
+    world.color = linear_rgb(BACKGROUND)                # Workbench renders need a world: black otherwise (4.5)
     _SCENE = sc
     return sc
 
@@ -553,13 +585,21 @@ def nonmanifold_edges(obj):
 def degenerate_triangles(me, area=1e-9):
     """Triangles of a mesh (as the STL exporter will cut them) with an area under `area` mm2
     or two welded vertices: what validate.py's M3 counts."""
+    import numpy as np                      # bundled with every Blender and the bpy wheel
     me.calc_loop_triangles()
-    bad = 0
-    for t in me.loop_triangles:
-        a, b, c = (me.vertices[i].co for i in t.vertices)
-        if (b - a).cross(c - a).length / 2 < area or (a - b).length < WELD or (b - c).length < WELD or (a - c).length < WELD:
-            bad += 1
-    return bad
+    n = len(me.loop_triangles)
+    if not n:
+        return 0
+    co = np.empty(len(me.vertices) * 3, dtype=np.float64)
+    me.vertices.foreach_get("co", co)
+    co = co.reshape(-1, 3)
+    idx = np.empty(n * 3, dtype=np.int64)
+    me.loop_triangles.foreach_get("vertices", idx)
+    a, b, c = (co[idx.reshape(-1, 3)[:, k]] for k in range(3))
+    areas = np.linalg.norm(np.cross(b - a, c - a), axis=1) / 2
+    short = np.minimum(np.minimum(np.linalg.norm(a - b, axis=1), np.linalg.norm(b - c, axis=1)),
+                       np.linalg.norm(a - c, axis=1))
+    return int(np.count_nonzero((areas < area) | (short < WELD)))
 
 
 def evaluated_mesh(obj):
@@ -675,6 +715,13 @@ def boolean(target, tool, operation="DIFFERENCE", apply=True, solver=None):
         if n:
             raise ValueError(f"boolean {ops[operation].lower()} with solver {solver} left {n} non-manifold edges on "
                              f"'{target.name}': the tool probably touches the target on a face; overshoot it by 0.01-0.1 mm")
+        d = degenerate_triangles(target.data)
+        if d:
+            raise ValueError(f"boolean {ops[operation].lower()} with solver {solver} left {d} zero-area triangles on "
+                             f"'{target.name}' (the STL would fail M3, and M1 once they are dropped): the cut crosses a "
+                             "fan of thin triangles (a pole or a cap) or grazes an edge. Give the face ring topology "
+                             "where it is cut, build a round hole on the axis into the profile (a revolve), or move "
+                             "the cut off the pole")
     else:
         tool.hide_viewport = True
         tool.hide_render = True
@@ -786,35 +833,90 @@ def bed_chamfer(obj, height=0.4, run=None):
     return obj
 
 
-def _cap_ratio(font, resolution):
-    """Height of a capital H at size 1 for this font (Blender's size is the em size)."""
-    cu = bpy.data.curves.new("_cap", "FONT")
-    cu.body = "H"
+def _glyph_outline(text_, font, resolution, digits=4):
+    """The flat outline of `text_` at size 1 (Blender's size is the em size): the sorted XY
+    vertices, rounded to `digits` (None: exact) so two outlines can be compared."""
+    cu = bpy.data.curves.new("_glyph", "FONT")
+    cu.body = text_
     cu.size = 1.0
     cu.resolution_u = resolution
     if font is not None:
         cu.font = font
-    ob = bpy.data.objects.new("_cap", cu)
+    ob = bpy.data.objects.new("_glyph", cu)
     scene().collection.objects.link(ob)
     me = evaluated_mesh(ob)
-    ys = [v.co.y for v in me.vertices]
-    ratio = (max(ys) - min(ys)) if ys else 0.0
+    if digits is None:
+        pts = sorted((v.co.x, v.co.y) for v in me.vertices)
+    else:
+        pts = sorted((round(v.co.x, digits), round(v.co.y, digits)) for v in me.vertices)
     bpy.data.meshes.remove(me)
     bpy.data.objects.remove(ob)
     bpy.data.curves.remove(cu)
-    if ratio <= 0:
-        raise ValueError("font gives no outline for 'H'")
-    return ratio
+    return pts
+
+
+def _outline_box(pts):
+    return (min(p[0] for p in pts), min(p[1] for p in pts), max(p[0] for p in pts), max(p[1] for p in pts)) if pts else None
+
+
+def missing_glyphs(string, font=None, resolution=6):
+    """[(character, 'U+XXXX')] of the distinct non-space characters of `string` that the font
+    cannot draw: their outline is the font's .notdef (probed with NOTDEF_PROBE, a code point
+    no font maps) or empty. The built-in font falls back to Blender's other fonts first, so a
+    character one of them covers is fine; what reaches the last-resort font (a box with the
+    script's name, same frame for every block) is missing. A format character (Unicode
+    category Cf: zero-width space, soft hyphen) that draws nothing is not missing."""
+    require_blender()
+    fnt = load_font(font) if isinstance(font, str) else font
+    probe = _glyph_outline(NOTDEF_PROBE, fnt, resolution)
+    probe_box = _outline_box(probe)
+    out = []
+    for ch in dict.fromkeys(string):                    # distinct, in order of first appearance
+        if ch.isspace():
+            continue
+        pts = _glyph_outline(ch, fnt, resolution)
+        if not pts and unicodedata.category(ch) == "Cf":
+            continue                                    # a format character (zero-width space, soft hyphen) has no ink
+        if not pts or pts == probe or _outline_box(pts) == probe_box:
+            out.append((ch, f"U+{ord(ch):04X}"))
+    return out
+
+
+def _missing_glyph_error(string, missing, font_name):
+    what = ", ".join(f"{ch!r} ({cp})" for ch, cp in missing)
+    return ValueError(f"text {string!r}: the font ({font_name}) cannot draw {what}; it would print a placeholder box. "
+                      "Use a font that covers this script (for Korean/CJK e.g. Noto Sans CJK), passed as font=path")
+
+
+def _cap_ratio(font, resolution):
+    """Height of a capital H at size 1 for this font (Blender's size is the em size); the em
+    box itself (1.0, with a LOG note) when the font has no H (a font of another script)."""
+    pts = _glyph_outline("H", font, resolution, digits=None)
+    if pts and not missing_glyphs("H", font, resolution):
+        box = _outline_box(pts)
+        ratio = box[3] - box[1]
+        if ratio > 0:
+            return ratio
+    LOG.append(f"font {'built-in' if font is None else font.name} has no 'H': `height` is taken as the em size, "
+               "read the glyphs' real box from the text note")
+    return 1.0
 
 
 def load_font(path):
-    """A font file loaded and packed into the .blend, its path reduced to its base name."""
+    """A font file loaded and packed into the .blend, its path reduced to its base name. A
+    font this module already loaded from a file of the same name and size is reused, so a
+    generator that calls text() several times packs one copy."""
     require_blender()
     if not os.path.isfile(path):
         raise FileNotFoundError(path)
+    neutral, size = neutral_filepath(path), os.path.getsize(path)
+    for font in bpy.data.fonts:
+        packed = getattr(font, "packed_file", None)
+        if font.get(TAG) and font.filepath == neutral and packed is not None and packed.size == size:
+            return font
     font = bpy.data.fonts.load(os.path.abspath(path))
     font.pack()
-    font.filepath = neutral_filepath(path)
+    font.filepath = neutral
     font[TAG] = True
     return font
 
@@ -940,53 +1042,96 @@ def _text_mesh(string, size, depth, fnt, resolution, align, name, spacing, colle
             raise ValueError(f"text {string!r}: glyph piece {i} has {n} non-manifold edges after welding; a glyph "
                              "outline of this font self-intersects, try another font or a lower resolution")
     base = objs[0]
-    for o in objs[1:]:
-        boolean(base, o, "union")
+    try:
+        for o in objs[1:]:
+            boolean(base, o, "union")
+    except ValueError as exc:
+        # Letters that kiss along an edge can leave the union with slivers or open edges: the
+        # caller tightens the spacing and tries again, so nothing of this attempt may stay.
+        for o in objs:
+            try:
+                _remove_object(o)
+            except ReferenceError:              # a tool the union already consumed
+                pass
+        raise _UnionError(str(exc)) from exc
     base.name = name
     base.data.name = name
     return base, pieces, touching
 
 
+class _UnionError(ValueError):
+    """The union of touching glyph pieces failed (slivers or open edges)."""
+
+
 def text(string, height, depth, font=None, name="text", align="CENTER", resolution=6, collection=None):
-    """Text as one mesh object: cap height `height` mm, `depth` mm tall standing on z = 0,
-    centred on the origin (align CENTER | LEFT | RIGHT). Blender's built-in font, or a font
-    file (packed into the .blend). Every glyph is welded on its own (welding the whole string
-    would merge touching letters such as "AA" into an open mesh); glyphs whose outlines touch
-    are unioned with the Manifold solver, and letters that only kiss along an edge (the feet of
-    "AA", the tops of "VV") get the character spacing tightened by 1 % steps, 5 % at most, until
-    they overlap and the union is one closed body; the rest stay separate bodies. One body per
-    separate letter: emboss them onto a face with `boolean(face_part, text_obj, "union")`, or
-    give the part's `_parts` entry `shells` (parts.md)."""
+    """Text as one mesh object: cap height `height` mm (the em size when the font has no 'H',
+    noted in LOG), `depth` mm tall standing on z = 0, centred on the origin (align CENTER |
+    LEFT | RIGHT). Blender's built-in font, or a font file (packed into the .blend once per
+    file). A character the font cannot draw (`missing_glyphs`) raises instead of printing a
+    placeholder box. Every glyph is welded on its own (welding the whole string would merge
+    touching letters such as "AA" into an open mesh); glyphs whose outlines touch are unioned
+    with the Manifold solver, and letters that only kiss along an edge (the feet of "AA", the
+    tops of "VV") get the character spacing tightened by 1 % steps, 5 % at most, until they
+    overlap and the union is one closed body; the rest stay separate bodies. The LOG note gives
+    the glyphs' real box (for `expect`) and the body count (for `shells`). One body per
+    separate glyph piece (a Hangul syllable can be several, the dot of an i is one): emboss them
+    onto a face with `boolean(face_part, text_obj, "union")`, or give the part's `_parts` entry
+    `shells` from that count (parts.md)."""
     require_blender()
     if not string:
         raise ValueError("empty text")
+    if not string.strip():
+        raise ValueError("text holds only spaces")
     if height <= 0 or depth <= 0:
         raise ValueError("text needs a positive height and depth")
     fnt = load_font(font) if isinstance(font, str) else font
+    font_name = "built-in" if fnt is None else fnt.name
+    missing = missing_glyphs(string, fnt, resolution)
+    if missing:
+        raise _missing_glyph_error(string, missing, font_name)
     ratio = _cap_ratio(fnt, resolution)
     size = height / ratio
     spacing = 1.0
     for attempt in range(6):
-        obj, pieces, touching = _text_mesh(string, size, depth, fnt, resolution, align, name, spacing, collection)
-        bad = _welded_nonmanifold(obj) if touching else 0
+        try:
+            obj, pieces, touching = _text_mesh(string, size, depth, fnt, resolution, align, name, spacing, collection)
+        except _UnionError:                     # kissing letters: slivers or open edges, nothing left behind
+            obj, bad = None, 1
+        else:
+            bad = _welded_nonmanifold(obj) if touching else 0
         if not bad:
             break
-        _remove_object(obj)
+        if obj is not None:
+            _remove_object(obj)
         spacing = round(spacing - 0.01, 2)
     else:
         raise ValueError(f"text {string!r}: letters touch only along an edge or a point, and even at {spacing + 0.01:.2f} "
                          "character spacing their union is not one closed body; put the text on a plate "
                          "(union with it) or choose a font or spacing where the letters either overlap or stand apart")
-    note = (f"text {string!r}: cap height {height} mm (font size {size:.3f}), depth {depth} mm, "
-            f"{len(pieces)} glyph pieces, font {'built-in' if fnt is None else fnt.name}")
+    lo, hi, _tris = world_bbox(obj)
+    bodies = body_count(obj)
+    note = (f"text {string!r}: {'cap height' if ratio != 1.0 else 'em size'} {height} mm (font size {size:.3f}), "
+            f"depth {depth} mm, box {hi[0] - lo[0]:.2f} x {hi[1] - lo[1]:.2f} x {hi[2] - lo[2]:.2f} mm "
+            f"(x {lo[0]:.2f}..{hi[0]:.2f}, y {lo[1]:.2f}..{hi[1]:.2f}), {len(pieces)} glyph pieces, "
+            f"{bodies} separate {'body' if bodies == 1 else 'bodies'}, font {font_name}")
     if touching:
-        note += f", {len(touching)} touching pair(s) unioned"
+        note += f", {len(touching)} pair(s) with overlapping boxes unioned"
         if spacing < 1.0:
             note += f" after tightening the character spacing to {spacing:.2f} (letters that only kissed along an edge)"
-    else:
-        note += ", separate bodies"
     LOG.append(note)
     return obj
+
+
+def body_count(obj):
+    """Separate bodies of the object's mesh (connected by shared edges, as validate.py's M5
+    counts shells)."""
+    bm = bmesh.new()
+    bm.from_mesh(obj.data)
+    bm.verts.ensure_lookup_table()
+    bm.verts.index_update()
+    n = len(_components(bm))
+    bm.free()
+    return n
 
 # --------------------------------------------------------------------------- #
 # Parts, parameters, export, save
@@ -1086,9 +1231,47 @@ def world_bbox(obj):
     return lo, hi, tris
 
 
+def _export_copy(obj, name):
+    """The mesh that goes into the STL: the part evaluated (modifiers applied), in world
+    coordinates, its vertices snapped to the WELD grid and merged where they meet. That is how
+    validate.py welds (each coordinate rounded to a multiple of WELD), so the vertices it will
+    treat as one are one here too, and the seam a boolean leaves where a tool conforms to a
+    face does not become a zero-area triangle in the STL. The shift is at most WELD / 2 per axis.
+    Returns (temporary object, vertices welded, non-manifold edges); raises when zero-area
+    triangles remain after the weld (the STL would fail M3, then M1)."""
+    me = evaluated_mesh(obj)
+    me[TAG] = True
+    bm = bmesh.new()
+    bm.from_mesh(me)
+    bm.transform(obj.matrix_world)          # the grid is the STL's: world millimetres
+    if obj.matrix_world.determinant() < 0:  # a mirrored part: keep its faces pointing out
+        bmesh.ops.reverse_faces(bm, faces=bm.faces)
+    before = len(bm.verts)
+    for v in bm.verts:
+        v.co = [round(c / WELD) * WELD for c in v.co]
+    bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=WELD * 1e-3)
+    welded = before - len(bm.verts)
+    nm = sum(1 for e in bm.edges if not e.is_manifold)
+    bm.to_mesh(me)
+    bm.free()
+    me.update()
+    bad = degenerate_triangles(me)
+    if bad:
+        bpy.data.meshes.remove(me)
+        raise ValueError(f"part '{name}': {bad} zero-area triangles remain after welding on the {WELD} mm grid "
+                         "(the STL would fail M3, and M1 once they are dropped): collinear slivers where a cut grazes "
+                         "an edge or crosses a fan of thin triangles; move the cut, or give that face ring topology")
+    tmp = bpy.data.objects.new(f"_export_{name}", me)   # identity transform: the mesh is in world mm already
+    tmp[TAG] = True
+    scene().collection.objects.link(tmp)
+    return tmp, welded, nm
+
+
 def export_parts(out, names=None):
-    """One binary STL per registered part into `out` (modifiers applied, 1 unit = 1 mm, scene
-    unit off, axes unchanged). Returns the part list with boxes in mm, triangles and bytes."""
+    """One binary STL per registered part into `out` (modifiers applied, vertices snapped to the
+    WELD grid and merged as validate.py merges them, 1 unit = 1 mm, scene unit off, axes unchanged).
+    Returns the part list with boxes in mm, triangles and bytes; refuses a part whose welded
+    mesh still holds zero-area triangles."""
     require_blender()
     if not _PARTS:
         raise ValueError("no parts registered: call part(obj, name) for every body to export")
@@ -1101,19 +1284,26 @@ def export_parts(out, names=None):
     for n in wanted:
         obj = _PARTS[n]["object"]
         path = os.path.join(out, n + ".stl")
-        _deselect_all()
-        obj.select_set(True, view_layer=_view_layer())
-        _view_layer().objects.active = obj
         t0 = time.time()
-        with _ctx():
-            bpy.ops.wm.stl_export(filepath=path, export_selected_objects=True, apply_modifiers=True, global_scale=1.0,
-                                  use_scene_unit=False, ascii_format=False, forward_axis="Y", up_axis="Z", check_existing=False)
-        lo, hi, tris = world_bbox(obj)
+        tmp, welded, nm = _export_copy(obj, n)
+        try:
+            _deselect_all()
+            tmp.select_set(True, view_layer=_view_layer())
+            _view_layer().objects.active = tmp
+            with _ctx():
+                bpy.ops.wm.stl_export(filepath=path, export_selected_objects=True, apply_modifiers=False, global_scale=1.0,
+                                      use_scene_unit=False, ascii_format=False, forward_axis="Y", up_axis="Z",
+                                      check_existing=False)
+            lo, hi, tris = world_bbox(tmp)
+        finally:
+            _remove_object(tmp)
         entry = {"name": n, "stl": path, "bbox_min_mm": [round(v, 4) for v in lo],
                  "bbox_mm": [round(h - l, 4) for l, h in zip(lo, hi)], "triangles": tris,
                  "bytes": os.path.getsize(path), "seconds": round(time.time() - t0, 3),
                  "object": _PARTS[n]["group"], "role": _PARTS[n]["role"]}
-        nm = nonmanifold_edges(obj)
+        if welded:
+            entry["welded_vertices"] = welded
+            LOG.append(f"export '{n}': {welded} vertices welded on the {WELD} mm grid (as validate.py welds them)")
         if nm:
             entry["warning"] = f"{nm} non-manifold edges (validate.py will fail M1)"
         info.append(entry)
@@ -1264,9 +1454,9 @@ def _label(cam, text_, scale, aspect, materials):
     w = scale if aspect >= 1 else scale * aspect
     h = scale / aspect if aspect >= 1 else scale
     ob.location = (-w / 2 + scale * 0.02, -h / 2 + scale * 0.02, -1.0)
-    ob.color = (*INK, 1.0)
+    ob.color = (*linear_rgb(INK), 1.0)
     mat = bpy.data.materials.new("_render_label")
-    mat.diffuse_color = (*INK, 1.0)
+    mat.diffuse_color = (*linear_rgb(INK), 1.0)
     mat.use_nodes = False
     cu.materials.append(mat)
     materials.append(mat)
@@ -1296,7 +1486,7 @@ def _colour_objects(objects, colors, materials):
     lifted for the preview; returns what to undo: [(mesh, previous material)]."""
     undo = []
     for obj in objects:
-        rgb = preview_rgb(colors.get(obj.get("part") or obj.name) or colors.get(obj.name) or palette_rgb(0))
+        rgb = linear_rgb(preview_rgb(colors.get(obj.get("part") or obj.name) or colors.get(obj.name) or palette_rgb(0)))
         obj.color = (*rgb, 1.0)
         mat = bpy.data.materials.new("_render_" + obj.name)
         mat.diffuse_color = (*rgb, 1.0)
@@ -1315,6 +1505,45 @@ def _colour_objects(objects, colors, materials):
     return undo
 
 
+def _smooth_by_angle(obj, angle=SMOOTH_ANGLE):
+    """Shade the object's mesh smooth across edges whose faces meet flatter than `angle`
+    (a cylinder's facets blend, a box's corners stay crisp), for the render only: returns a
+    function that puts the mesh's own smoothness and sharp edges back."""
+    import numpy as np
+    me = obj.data
+    if me is None or not hasattr(me, "polygons") or not len(me.polygons) or not len(me.edges):
+        return lambda: None
+    old_faces = np.empty(len(me.polygons), dtype=bool)
+    me.polygons.foreach_get("use_smooth", old_faces)
+    attr = me.attributes.get("sharp_edge")
+    old_edges = None
+    if attr is not None and attr.domain == "EDGE" and attr.data_type == "BOOLEAN":
+        old_edges = np.empty(len(me.edges), dtype=bool)
+        attr.data.foreach_get("value", old_edges)
+    bm = bmesh.new()
+    bm.from_mesh(me)
+    lim = math.radians(angle)
+    sharp = [e.calc_face_angle(0.0) >= lim for e in bm.edges]      # bmesh keeps the mesh's edge order
+    bm.free()
+    if len(sharp) != len(me.edges):
+        return lambda: None
+    me.polygons.foreach_set("use_smooth", np.ones(len(me.polygons), dtype=bool))
+    if attr is None:
+        attr = me.attributes.new("sharp_edge", "BOOLEAN", "EDGE")
+    attr.data.foreach_set("value", sharp)
+    me.update()
+
+    def restore():
+        me.polygons.foreach_set("use_smooth", old_faces)
+        current = me.attributes.get("sharp_edge")
+        if old_edges is not None and current is not None:
+            current.data.foreach_set("value", old_edges)
+        elif current is not None:
+            me.attributes.remove(current)
+        me.update()
+    return restore
+
+
 def _setup_engine(sc, engine):
     """Render settings on the build scene; returns the extra objects (lights) to remove."""
     sc.render.engine = engine_id(engine)
@@ -1329,10 +1558,14 @@ def _setup_engine(sc, engine):
         world = bpy.data.worlds.new("_render_world")
         world[TAG] = True
         sc.world = world
-    world.color = BACKGROUND                            # Workbench: a scene without a world renders black on 4.5
+    world.color = linear_rgb(BACKGROUND)                # Workbench: a scene without a world renders black on 4.5
     if engine == "workbench":
         sh = sc.display.shading
         sh.light = "STUDIO"
+        try:
+            sh.studio_light = STUDIO_LIGHT              # bundled with Blender; the default one if it is missing
+        except TypeError:
+            pass
         sh.color_type = "OBJECT"
         sh.show_object_outline = True
         sh.show_cavity = True                   # ridges and valleys get a line: embossed text, grooves, fillets
@@ -1340,15 +1573,25 @@ def _setup_engine(sc, engine):
         sh.curvature_ridge_factor = 1.5
         sh.curvature_valley_factor = 1.5
         sh.cavity_ridge_factor = 1.0
-        sh.cavity_valley_factor = 1.0
-        sh.show_shadows = False
+        sh.cavity_valley_factor = SSAO_VALLEY
+        # The world-space cavity darkens a pocket's floor by what surrounds it within
+        # matcap_ssao_distance: Blender's default is 0.2 units, 0.2 mm here, so a blind pocket
+        # seen head-on (a keyhole in the BOTTOM view) stayed invisible. render_views scales the
+        # distance to the part; the attenuation keeps the effect over that distance.
+        sc.display.matcap_ssao_attenuation = SSAO_ATTENUATION
+        # Blender 4.x leaves the world-space cavity out of a Workbench render (any distance):
+        # shadows stand in there, at the price of lit faces reading about 6 % darker.
+        shadows = tuple(bpy.app.version[:2]) < SSAO_RENDERS_FROM
+        sh.show_shadows = shadows
+        if shadows:
+            sh.shadow_intensity = SHADOW_INTENSITY
         sh.background_type = "WORLD"
         return []
     extras = []
     world.use_nodes = True
     bg = world.node_tree.nodes.get("Background")
     if bg is not None:
-        bg.inputs[0].default_value = (*BACKGROUND, 1.0)
+        bg.inputs[0].default_value = (*linear_rgb(BACKGROUND), 1.0)
         bg.inputs[1].default_value = 1.0
     sun_data = bpy.data.lights.new("_render_sun", "SUN")
     sun_data[TAG] = True
@@ -1413,6 +1656,9 @@ def render_views(out, views=None, colors=None, engine="workbench", size=(1600, 1
     caption = label if label is not None else "%g x %g x %g mm" % tuple(size_mm)
     materials = []
     undo = _colour_objects(objects, {k: tuple(v) for k, v in colors.items()}, materials)
+    smooth_undo = [_smooth_by_angle(o) for o in objects]
+    old_ssao = sc.display.matcap_ssao_distance
+    sc.display.matcap_ssao_distance = min(SSAO_MAX, max(SSAO_MIN, SSAO_RATIO * max(size_mm)))   # see _setup_engine
     extras = _setup_engine(sc, engine)
     old_res = (sc.render.resolution_x, sc.render.resolution_y)
     sc.render.resolution_x, sc.render.resolution_y = tw, th
@@ -1437,6 +1683,7 @@ def render_views(out, views=None, colors=None, engine="workbench", size=(1600, 1
             bpy.data.images.remove(img)
             tiles.append(buf.reshape(h, w, 4))
             captions.append(_label_box(lab, scale, aspect, tw, th))
+            lab.hide_render = True                  # or the next view draws it mirrored (TOP in the BOTTOM tile)
         # The blank check counts the part only: per view, before the grid lines, the caption left out.
         bg = np.asarray(BACKGROUND, dtype=np.float32)
         fg_views, hits, counted = {}, 0, 0
@@ -1485,7 +1732,10 @@ def render_views(out, views=None, colors=None, engine="workbench", size=(1600, 1
         for mat in materials:
             if mat.users == 0:
                 bpy.data.materials.remove(mat)
+        for restore in reversed(smooth_undo):    # last in, first out: objects that share a mesh unwind in turn
+            restore()
         sc.camera = old_camera
+        sc.display.matcap_ssao_distance = old_ssao
         sc.render.resolution_x, sc.render.resolution_y = old_res
         sc.render.filepath = "//"
     sane, note = fg_sane(fg, fg_views)
@@ -1529,6 +1779,14 @@ def _deps():
     return sorted(deps)
 
 
+def run_mode():
+    """Where this runs: "bpy" (the module in some Python), "binary" (blender --background) or
+    "live" (a user's open Blender, reached through an MCP tool)."""
+    if not bpy.app.binary_path:
+        return "bpy"
+    return "binary" if bpy.app.background else "live"
+
+
 def blend_target(blend, out_dir, stem):
     """Where main() saves the .blend and whether it may replace it: the default
     `<out>/<stem>.blend` is the working copy and is rewritten; an explicit --blend must be a
@@ -1560,7 +1818,7 @@ def main(build, defaults=None, argv=None):
     params = load_params(args.params, defaults)
     t0 = time.time()
     new_scene_mm(args.scene)
-    LOG.append(f"Blender {bpy.app.version_string}, {'bpy module' if not bpy.app.binary_path else 'binary'}, "
+    LOG.append(f"Blender {bpy.app.version_string}, {run_mode()}, "
                f"boolean solver {boolean_solver()}")
     blend = None
     if not args.no_blend:
@@ -1580,7 +1838,7 @@ def main(build, defaults=None, argv=None):
     if blend:
         blend = save_blend(blend, overwrite=rewrite, out_dir=out_dir)
     print(summary(info, deps=_deps(), blend=blend, blender=bpy.app.version_string, solver=boolean_solver(),
-                  mode="bpy" if not bpy.app.binary_path else "binary", notes=list(LOG),
+                  mode=run_mode(), notes=list(LOG),
                   warnings=[f"{p['name']}: {p['warning']}" for p in info if p.get("warning")],
                   seconds=round(time.time() - t0, 2)))
     return info

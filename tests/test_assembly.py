@@ -77,6 +77,42 @@ class ObjectChecks(unittest.TestCase):
         self.assertEqual(assembly.object_gate(rep), "FAIL")
         self.assertTrue(any("near A2" in w for w in rep["warnings"]))
 
+    def test_every_body_of_a_fused_part_must_touch(self):
+        """S3-3: a text part is one STL of several bodies; a letter that floats above the plate
+        fails A1 even though the other letters sit on it."""
+        stls = {"plate": self.stl("plate.stl", box(60, 40, 3)),
+                "text": self.stl("text.stl", box(8, 8, 1, 5, 5, 3) + box(8, 8, 1, 20, 5, 5) + box(8, 8, 1, 35, 5, 3))}
+        specs = {"plate": {"object": "o"}, "text": {"object": "o", "role": "fused", "shells": 3}}
+        rep = assembly.check_object(assembly.group_parts(specs)[0], stls, specs)
+        a1 = rep["parts"]["text"]["checks"]["A1"]
+        self.assertEqual(a1["state"], "FAIL")
+        self.assertEqual(a1["value"]["shells"], 3)
+        self.assertEqual([s["shell"] for s in a1["value"]["loose_shells"]], [1])
+        self.assertEqual(a1["value"]["loose_shells"][0]["gap_mm"], 2.0)
+        self.assertIn("1 of its 3 bodies touch nothing", a1["note"])
+        self.assertIn("z 5.0..6.0", a1["note"])
+        self.assertEqual(rep["parts"]["plate"]["checks"]["A1"]["state"], "PASS")   # the plate itself is touched
+        self.assertEqual(assembly.object_gate(rep), "FAIL")
+        stls["text"] = self.stl("text2.stl", box(8, 8, 1, 5, 5, 3) + box(8, 8, 1, 20, 5, 3) + box(8, 8, 1, 35, 5, 3))
+        rep = assembly.check_object(assembly.group_parts(specs)[0], stls, specs)   # the middle one on the plate too
+        a1 = rep["parts"]["text"]["checks"]["A1"]
+        self.assertEqual(a1["state"], "PASS")
+        self.assertIn("all 3 bodies", a1["note"])
+        self.assertNotIn("loose_shells", a1["value"])
+
+    def test_a_sealed_void_is_not_a_loose_body(self):
+        """Review S1: a hollow fused part decomposes into its outer shell and the inverted shell
+        of its void. The void is part of the body, not a floating body: A1 PASS, one body."""
+        void = [(a, c, b) for a, b, c in box(16, 16, 16, 12, 12, 7)]         # inward-facing: a cavity
+        stls = {"base": self.stl("base.stl", box(40, 40, 5)),
+                "dome": self.stl("dome.stl", box(20, 20, 20, 10, 10, 5) + void)}
+        specs = {"base": {"object": "o"}, "dome": {"object": "o", "role": "fused"}}
+        rep = assembly.check_object(assembly.group_parts(specs)[0], stls, specs)
+        a1 = rep["parts"]["dome"]["checks"]["A1"]
+        self.assertEqual(a1["state"], "PASS", a1.get("note"))
+        self.assertEqual(a1["value"]["shells"], 1)
+        self.assertNotIn("loose_shells", a1["value"])
+
     def test_overlapping_fused_parts_fail_on_both_sides(self):
         stls = {"lid": self.stl("lid.stl", box(60, 40, 3)), "deep": self.stl("deep.stl", box(5, 5, 2, 50, 30, 2))}
         specs = {"lid": {"object": "o"}, "deep": {"object": "o"}}
@@ -153,6 +189,41 @@ class ObjectChecks(unittest.TestCase):
         self.assertEqual(rep["checks"]["P2"]["value"]["overhang_area_mm2"], 0.0)
         self.assertEqual(rep["metrics"]["shells"], 1)
         self.assertAlmostEqual(rep["metrics"]["volume_mm3"], 60 * 40 * 3 + 30 * 10 * 1, delta=0.5)
+        self.assertNotIn("contact_area_mm2", rep["metrics"])                 # coplanar faces merge: nothing to correct
+
+    @unittest.skipUnless(HAS_M3D, "manifold3d not installed")
+    def test_unmerged_contact_on_a_curved_face_is_not_overhang(self):
+        """S3-4: a letter cut to a domed face by another engine keeps its own tessellation, so
+        the union keeps both the letter's underside and the dome under it; those downward
+        faces are contact, not overhang, and P2 must not count them."""
+        import manifold3d as m3d
+        from build import write_binary_stl
+
+        def dome(segments):                                                  # a cylinder r 50 lying along Y
+            return m3d.Manifold.cylinder(80, 50, 50, segments).rotate([90, 0, 0]).translate([0, 40, -40])
+        back = dome(256) ^ m3d.Manifold.cube([30, 30, 20]).translate([-15, -15, 0])
+        letter = m3d.Manifold.cube([20, 20, 14]).translate([-10, -10, 0]) - dome(180)   # its underside: 180 segments
+        stls = {}
+        for name, man in (("back", back), ("letter", letter)):
+            mesh = man.to_mesh()
+            stls[name] = os.path.join(self.d, name + ".stl")
+            write_binary_stl(stls[name], mesh.vert_properties[:, :3].tolist(), mesh.tri_verts.tolist())
+        specs = {"back": {"object": "o"}, "letter": {"object": "o", "role": "fused"}}
+        rep = assembly.check_object(assembly.group_parts(specs)[0], stls, specs)
+        p2 = rep["checks"]["P2"]
+        self.assertEqual(p2["state"], "PASS", p2)
+        self.assertIn("fused contacts the union did not merge", p2["note"])
+        self.assertAlmostEqual(rep["metrics"]["contact_area_mm2"], p2["value"]["contact_area_mm2"])
+        self.assertEqual(rep["parts"]["letter"]["checks"]["A1"]["state"], "PASS", rep["parts"]["letter"])
+        # The union keeps part of the two surfaces (Manifold merges the rest within its own
+        # tolerance): what it keeps was counted as overhang, and is contact to the last mm2.
+        union = assembly._to_manifold(m3d, assembly.validate.read_stl(stls["back"]), "back") + \
+            assembly._to_manifold(m3d, assembly.validate.read_stl(stls["letter"]), "letter")
+        raw = assembly.validate.analyse(assembly._tris_of(union))
+        self.assertGreater(raw["overhang_area_mm2"], 20.0)
+        self.assertAlmostEqual(p2["value"]["contact_area_mm2"], raw["overhang_area_mm2"], delta=0.05)
+        self.assertEqual(p2["value"]["overhang_pct"], 0.0)
+        self.assertEqual(p2["value"]["overhang_area_mm2"], 0.0)
 
 
 class BuildIntegration(unittest.TestCase):
@@ -205,8 +276,12 @@ class BuildIntegration(unittest.TestCase):
         # The label's own validation takes its lowest face as the bed; only the object knows better.
         self.assertEqual(parts["label"]["validate"]["files"][0]["metrics"]["bbox_min_mm"][2], 3.0)
         import zipfile
-        with zipfile.ZipFile(os.path.join(self.d, "out", "gen_fusion.3mf")) as z:
+        self.assertEqual(os.path.basename(out["threemf"]), "lid_peg.3mf")           # named after the objects, not the source (S3-15)
+        self.assertIsInstance(out["seconds"], float)
+        with zipfile.ZipFile(os.path.join(self.d, "out", "lid_peg.3mf")) as z:
             self.assertIn("<components>", z.read("3D/3dmodel.model").decode())
+        self.assertEqual(build.threemf_stem(["nameplate"]), "nameplate")
+        self.assertEqual(build.threemf_stem(["a" * 40, "b" * 40, "c"]), "a" * 40 + "_and_2_more")
 
     @unittest.skipUnless(HAS_M3D, "manifold3d not installed")
     def test_multi_part_object_is_checked_against_the_shared_nozzle_area(self):
@@ -232,13 +307,45 @@ class BuildIntegration(unittest.TestCase):
         code, out = self.run_record({"lid": {}, "tag": {"object": "lid"}}, [lid, tag])
         self.assertEqual(out["gate"], "FAIL")
         self.assertEqual(out["objects"][0]["gate"], "FAIL")
-        self.assertTrue(any("tag A1 FAIL" in w for w in out["warnings"]))
+        self.assertTrue(any(e.startswith("tag A1 FAIL: touches nothing") for e in out["errors"]), out["errors"])
+        self.assertFalse(any("A1 FAIL" in w for w in out["warnings"]))         # a hard FAIL is an error, not a warning
+
+    def test_part_level_hard_fails_are_errors(self):
+        """S5-F3 / S2-F10: a part's D1 or M5 FAIL is one line in the top-level errors (the lists
+        the agent reads first), not only in parts[].validate."""
+        odd = os.path.join(self.d, "odd.stl"); write_stl(odd, box(63.4, 40, 24))
+        code, out = self.run_record({"odd": {"expect": [63.6, 40, 24]}}, [odd])
+        self.assertEqual(out["gate"], "FAIL")
+        self.assertEqual([e for e in out["errors"] if e.startswith("odd D1 FAIL")],
+                         ["odd D1 FAIL: bounding box differs from the expected size"])
+        self.assertFalse(any("FAIL" in w for w in out["warnings"]), out["warnings"])
+        two = os.path.join(self.d, "two.stl"); write_stl(two, box(10, 10, 10) + box(10, 10, 10, 20, 0, 0))
+        code, out = self.run_record({"two": {"expect": [30, 10, 10]}}, [two])
+        self.assertIn("two M5 FAIL: unexpected number of separate bodies", out["errors"])
+        self.assertEqual([e for e in out["errors"] if "D1" in e], [])             # only what failed
+        code, out = self.run_record({"two": {"expect": [30, 10, 10], "shells": 2}}, [two])
+        self.assertEqual([e for e in out["errors"] if "FAIL" in e], [])
 
     def test_bad_grouping_is_reported_not_crashed(self):
         lid = os.path.join(self.d, "lid.stl"); write_stl(lid, box(60, 40, 3))
         code, out = self.run_record({"lid": {"object": "x", "role": "fused"}}, [lid])
         self.assertEqual(code, 0)
         self.assertTrue(any("_parts" in e and "role" in e for e in out["errors"]), out["errors"])
+        # A _parts that is not an object of objects (S3-18) is a usage error that names the form.
+        for bad in ("lid", ["lid", 3], {"lid": "60x40"}, 7):
+            prm = os.path.join(self.d, "params.json")
+            with open(prm, "w") as f:
+                json.dump({"_parts": bad}, f)
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                code = build.main(["record", lid, "--source", prm, "--params", prm, "--out", os.path.join(self.d, "out")])
+            out = json.loads(buf.getvalue())
+            self.assertEqual((code, out["ran"]), (1, False), bad)
+            self.assertIn('"_parts"', out["errors"][0])
+            self.assertIn("expect", out["errors"][0])
+        self.assertEqual(build.part_specs({"_parts": ["a", "b"]}, "x"), {"a": {}, "b": {}})
+        self.assertEqual(build.part_specs({"_parts": {"a": None, "b": {"expect": [1, 2, 3]}}}, "x"), {"a": {}, "b": {"expect": [1, 2, 3]}})
+        self.assertEqual(build.part_specs({}, "x"), {"x": {}})
 
     def test_copied_expect_is_flagged(self):
         """expect with four or more decimals that matches the mesh to 0.001 mm looks copied from a
@@ -278,7 +385,23 @@ class BuildIntegration(unittest.TestCase):
         self.assertEqual(code, 0, out.get("errors"))
         self.assertEqual([p["name"] for p in out["parts"]], ["latch", "keeper"])
         self.assertEqual(sorted(f for f in os.listdir(os.path.join(self.d, "mech")) if f.endswith(".stl")), ["keeper.stl", "latch.stl"])
-        self.assertEqual(out["objects"][0]["parts"], ["latch", "keeper"])              # a partial object: both free, checked
+        # A partial object (S3-5): the subset is not judged as the whole. The body is missing, so
+        # the bed, the footprint and what the free parts might hit are unknown: UNVERIFIED, not a
+        # verdict; no core 3MF item either (the subset would be dropped onto the bed).
+        obj = out["objects"][0]
+        self.assertEqual(obj["parts"], ["latch", "keeper"])
+        self.assertEqual(obj["partial"], {"object": "body", "built": ["latch", "keeper"], "missing": ["body"], "total": 3})
+        self.assertEqual({k: v["state"] for k, v in obj["checks"].items()}, {"D2": "UNVERIFIED", "P1": "UNVERIFIED", "P2": "UNVERIFIED"})
+        self.assertIn("missing body", obj["checks"]["P1"]["note"])
+        self.assertEqual(obj["gate"], "INCOMPLETE")
+        parts = {p["name"]: p for p in out["parts"]}
+        self.assertEqual(parts["latch"]["assembly"]["checks"]["A2"]["state"], "UNVERIFIED")
+        self.assertEqual(parts["keeper"]["assembly"]["checks"]["A2"]["state"], "UNVERIFIED")
+        self.assertIn("pairs", parts["keeper"]["assembly"]["checks"]["A2"]["value"])       # measured, for information
+        self.assertTrue(any(w.startswith("object 'body': built 2 of 3 parts with --only (missing: body)") for w in out["warnings"]), out["warnings"])
+        self.assertTrue(any(w.startswith("core 3MF not written") for w in out["warnings"]), out["warnings"])
+        self.assertNotIn("threemf", out)
+        self.assertEqual([f for f in os.listdir(os.path.join(self.d, "mech")) if f.endswith(".3mf")], [])
         self.assertNotEqual(out["gate"], "FAIL", out["warnings"])
 
         def run_only(only, folder):
@@ -297,15 +420,51 @@ class BuildIntegration(unittest.TestCase):
         self.assertEqual([p["name"] for p in out["parts"]], ["body", "keeper"])
         self.assertEqual(out["objects"][0]["main"], "body")
         parts = {p["name"]: p for p in out["parts"]}
-        self.assertEqual(parts["body"]["assembly"]["checks"]["A1"]["state"], "N/A")      # main + free: nothing to share faces with
-        self.assertEqual(parts["keeper"]["assembly"]["checks"]["A2"]["state"], "PASS")
+        self.assertEqual(parts["body"]["assembly"]["checks"]["A1"]["state"], "UNVERIFIED")   # the latch is missing
+        self.assertEqual(parts["keeper"]["assembly"]["checks"]["A2"]["state"], "UNVERIFIED")
         self.assertNotEqual(out["gate"], "FAIL", out["warnings"])                        # INCOMPLETE: no expect, no printer
         code, out = run_only("latch", "m5")                                             # a free part alone: no object, a note
         self.assertEqual(code, 0, out["errors"])
         self.assertEqual(out["errors"], [])
         self.assertIsNone(out["parts"][0]["role"])
         self.assertTrue(any("built alone with --only" in w for w in out["warnings"]))
-        self.assertNotEqual(out["gate"], "FAIL")
+        self.assertTrue(any("built 1 of 3 parts" in w for w in out["warnings"]))
+        self.assertNotIn("threemf", out)                                                # it would be dropped to the bed
+        self.assertEqual(out["objects"][0]["partial"]["missing"], ["body", "keeper"])     # review N6: like a subset
+        self.assertEqual((out["objects"][0]["gate"], out["gate"]), ("INCOMPLETE", "INCOMPLETE"))
+        code, out = run_only("body,latch,keeper", "m6")                                 # every part: a whole object, as without --only
+        self.assertEqual(out["objects"][0]["checks"]["P1"]["state"], "PASS")
+        self.assertNotIn("partial", out["objects"][0])
+        self.assertTrue(os.path.isfile(out["threemf"]))
+
+    @unittest.skipUnless(HAS_M3D, "manifold3d not installed")
+    def test_partial_object_keeps_a_definite_failure(self):
+        """Two free parts of a partial object that overlap each other fail A2 whatever the
+        missing body would add; a floating fused part is only UNVERIFIED (its partner is absent)."""
+        src = os.path.join(self.d, "gen.py")
+        with open(src, "w") as f:
+            f.write("import manifold3d as m3d\n"
+                    "def build(p):\n"
+                    "    return {'body': m3d.Manifold.cube([40, 30, 10]), 'latch': m3d.Manifold.cube([10, 4, 3]).translate([0, 0, 10]),\n"
+                    "            'keeper': m3d.Manifold.cube([12, 6, 5]).translate([0, 0, 12]),\n"
+                    "            'tag': m3d.Manifold.cube([5, 5, 1]).translate([30, 20, 10])}\n")
+        prm = os.path.join(self.d, "params.json")
+        with open(prm, "w") as f:
+            json.dump({"_parts": {"body": {}, "latch": {"object": "body", "role": "free"}, "keeper": {"object": "body", "role": "free"},
+                                  "tag": {"object": "body", "role": "fused"}}}, f)
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            code = build.main(["run", src, "--params", prm, "--out", os.path.join(self.d, "mech"), "--only", "latch,keeper,tag",
+                               "--no-wall-check"])
+        out = json.loads(buf.getvalue())
+        self.assertEqual(code, 0, out.get("errors"))
+        parts = {p["name"]: p for p in out["parts"]}
+        self.assertEqual(parts["latch"]["assembly"]["checks"]["A2"]["state"], "FAIL")   # overlaps the keeper: real
+        self.assertEqual(parts["keeper"]["assembly"]["checks"]["A2"]["state"], "FAIL")
+        self.assertEqual(parts["tag"]["assembly"]["checks"]["A1"]["state"], "UNVERIFIED")   # it sits on the missing body
+        self.assertEqual(out["gate"], "FAIL")
+        self.assertTrue(any(e.startswith("latch A2 FAIL") for e in out["errors"]), out["errors"])
+        self.assertFalse(any("tag A1" in e for e in out["errors"]), out["errors"])
 
     def test_help_describes_the_output(self):
         for argv in (["--help"], ["record", "--help"], ["run", "--help"]):

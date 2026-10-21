@@ -8,6 +8,7 @@ import hashlib
 import io
 import json
 import os
+import re
 import shutil
 import struct
 import subprocess
@@ -134,8 +135,21 @@ class PureHelpers(unittest.TestCase):
         self.assertEqual((colours["box"], colours["lid"], warnings), (bb.palette_rgb(0), bb.palette_rgb(1), []))
         with self.assertRaises(ValueError):
             bb.parse_colors(["nope=black"], ["box"])
-        self.assertEqual(bb.preview_rgb((0.0, 0.0, 0.0)), (0.3, 0.3, 0.3))       # black lifted for the preview
-        self.assertEqual(bb.preview_rgb((1.0, 1.0, 1.0)), (1.0, 1.0, 1.0))
+        self.assertEqual(bb.preview_rgb((0.0, 0.0, 0.0)), (0.15, 0.15, 0.15))    # black lifted a little for the preview
+        for c in bb.preview_rgb((1.0, 1.0, 1.0)):                                  # white taken down to 0.9: off the 246 background
+            self.assertAlmostEqual(c, bb.LIGHT_MAX)
+        self.assertEqual(bb.rgb_hex(bb.preview_rgb(bb.filament_rgb("Jade White"))), "#e6e6e6")
+        ivory = bb.preview_rgb(bb.hex_rgb(bb.FILAMENTS["ivorywhite"]))
+        self.assertLess(max(ivory), bb.LIGHT_MAX + 0.02)                           # light colours compressed, hue kept
+        self.assertGreater(ivory[0], ivory[2])
+        self.assertEqual(bb.preview_rgb((0.5, 0.6, 0.7)), (0.5, 0.6, 0.7))         # mid tones untouched
+        self.assertEqual(bb.preview_rgb(bb.hex_rgb("#ff6a13")), bb.hex_rgb("#ff6a13"))
+        # Blender's colour properties are scene-linear; #rrggbb is sRGB (the standard transfer function).
+        self.assertEqual(bb.srgb_to_linear(0.0), 0.0)
+        self.assertAlmostEqual(bb.srgb_to_linear(1.0), 1.0)
+        self.assertAlmostEqual(bb.srgb_to_linear(0.5), 0.21404, places=5)
+        self.assertAlmostEqual(bb.srgb_to_linear(0.04), 0.04 / 12.92)
+        self.assertEqual(bb.linear_rgb((1.0, 1.0, 1.0)), (1.0, 1.0, 1.0))
         self.assertEqual(bb.rgb_hex((1.0, 0.0, 0.5)), "#ff0080")
 
     def test_foreground_bounds(self):
@@ -359,6 +373,84 @@ emit(log=bb.LOG)
         self.assertEqual(f["metrics"]["overhang_pct"], 0.0)                   # steeper than 45 deg
         self.assertAlmostEqual(f["metrics"]["bed_contact_mm2"], (20 - 0.72) ** 2, delta=0.5)
 
+    def test_export_welds_what_the_validator_welds(self):
+        """S3-8: a closed mesh with two vertices closer than WELD (a boolean seam where a tool
+        conforms to a face) exported as it is fails M3 in validate.py, which welds them; the
+        export welds first, and refuses a mesh that keeps zero-area triangles after the weld."""
+        rep = run_in_blender(f"""
+import bmesh, bmesh.utils
+bb.new_scene_mm()
+cube = bb.box([10, 10, 10], "cube")
+bm = bmesh.new(); bm.from_mesh(cube.data); bm.edges.ensure_lookup_table()
+e = bm.edges[0]
+bmesh.utils.edge_split(e, e.verts[0], 5e-6)                   # a vertex 0.00005 mm from a corner: a sliver on two faces
+bm.to_mesh(cube.data); bm.free(); cube.data.update()
+bb.part(cube, "cube")
+raw = os.path.join({self.tmp!r}, "raw.stl")
+bb._deselect_all(); cube.select_set(True, view_layer=bb._view_layer()); bb._view_layer().objects.active = cube
+with bb._ctx():
+    bpy.ops.wm.stl_export(filepath=raw, export_selected_objects=True, apply_modifiers=True, global_scale=1.0,
+                          use_scene_unit=False, ascii_format=False, forward_axis="Y", up_axis="Z", check_existing=False)
+info = bb.export_parts({self.tmp!r})
+orig = bb.degenerate_triangles
+bb.degenerate_triangles = lambda me, area=1e-9: 3
+try:
+    bb.export_parts({self.tmp!r}); refused = None
+except ValueError as exc:
+    refused = str(exc)
+bb.degenerate_triangles = orig
+emit(info=info, refused=refused, verts=len(cube.data.vertices), nonmanifold=bb.nonmanifold_edges(cube),
+     log=[n for n in bb.LOG if n.startswith("export")], leftovers=[o.name for o in bpy.data.objects if o.name.startswith("_export")])
+""")
+        self.assertEqual(rep["nonmanifold"], 0)                                 # closed and manifold as Blender sees it
+        self.assertEqual(rep["verts"], 9)                                       # the original is untouched
+        raw = check(os.path.join(self.tmp, "raw.stl"))
+        self.assertEqual(raw["checks"]["M3"]["state"], "FAIL", raw["metrics"])  # what the plain export gave (S3-8)
+        self.assertGreaterEqual(raw["metrics"]["degenerate_faces"], 1)
+        f = check(os.path.join(self.tmp, "cube.stl"), "--expect", "10,10,10")
+        self.assertEqual({k: f["checks"][k]["state"] for k in ("D1", "M1", "M2", "M3", "M4", "M5")},
+                         {k: "PASS" for k in ("D1", "M1", "M2", "M3", "M4", "M5")}, f["metrics"])
+        self.assertEqual(rep["info"][0]["welded_vertices"], 1)
+        self.assertEqual(rep["info"][0]["triangles"], 12)
+        self.assertTrue(any("1 vertices welded on the" in n for n in rep["log"]), rep["log"])
+        self.assertIn("zero-area triangles remain after welding", rep["refused"])
+        self.assertIn("'cube'", rep["refused"])
+        self.assertEqual(rep["leftovers"], [])                                  # the export copies are gone
+
+    def test_export_welds_on_the_validators_grid(self):
+        """Review N1: validate.py welds by rounding each coordinate to a multiple of WELD, so two
+        vertices 1.5 WELD apart in one grid cell are one vertex to it. The export snaps to the
+        same grid (in world mm, so a moved part too), and the STL passes M3."""
+        rep = run_in_blender(f"""
+import bmesh, bmesh.utils
+from mathutils import Vector
+bb.new_scene_mm()
+cube = bb.box([10, 10, 10], "cube")
+bm = bmesh.new(); bm.from_mesh(cube.data); bm.edges.ensure_lookup_table()
+e = bm.edges[0]
+corner = e.verts[0]
+_, v = bmesh.utils.edge_split(e, corner, 0.5)
+c = corner.co.copy() + Vector((0.3, 0.3, 0.3))       # on the grid once the object is moved by -0.3
+corner.co = c - Vector((0.45, 0.45, 0.45)) * bb.WELD
+v.co = c + Vector((0.45, 0.45, 0.45)) * bb.WELD          # 1.56 WELD from the corner, in the same cell
+bm.to_mesh(cube.data); bm.free(); cube.data.update()
+cube.location = (-0.3, -0.3, -0.3)
+bb.part(cube, "cube")
+m = bb.box([10, 20, 5], "m")
+m.location = (30, 0, 0); m.scale = (-1, 1, 1)                 # a mirrored part keeps its faces pointing out
+bb.part(m, "m")
+info = bb.export_parts({self.tmp!r})
+emit(info=info)
+""")
+        mirrored = check(os.path.join(self.tmp, "m.stl"))
+        self.assertAlmostEqual(mirrored["metrics"]["volume_mm3"], 1000.0, delta=0.01)
+        self.assertEqual(mirrored["metrics"]["bbox_min_mm"][0], 20.0)
+        f = check(os.path.join(self.tmp, "cube.stl"))
+        self.assertEqual({k: f["checks"][k]["state"] for k in ("M1", "M2", "M3")}, {k: "PASS" for k in ("M1", "M2", "M3")},
+                         f["metrics"])
+        self.assertEqual(rep["info"][0]["welded_vertices"], 1)
+        self.assertEqual(rep["info"][0]["triangles"], 12)
+
     def test_text_single_letter_at_its_cap_height(self):
         rep = run_in_blender(f"""
 bb.new_scene_mm()
@@ -394,8 +486,101 @@ emit(info=info, log=[n for n in bb.LOG if n.startswith("text")])
         self.assertIn("unioned", notes["AA"])
         self.assertIn("tightening the character spacing", notes["AA"])       # the letters only kissed along an edge
         self.assertIn("unioned", notes["VV"])
-        self.assertIn("1 touching pair", notes["AARON"])
-        self.assertIn("separate bodies", notes["Ab3"])
+        self.assertIn("1 pair(s) with overlapping boxes unioned", notes["AARON"])
+        self.assertIn("4 separate bodies", notes["AARON"])                     # counted after the union: what M5 sees
+        self.assertIn("3 separate bodies", notes["Ab3"])
+        self.assertIn("1 separate body", notes["O"])
+        self.assertNotIn("unioned", notes["Ab3"])
+        self.assertRegex(notes["Ab3"], r"box \d+\.\d\d x \d+\.\d\d x 1\.00 mm")    # the real box, for expect
+
+    def test_text_refuses_characters_the_font_cannot_draw(self):
+        """S5-F1: a font without Hangul must not print .notdef boxes for 고양이; a font that
+        covers the script builds it, and the built-in font's fallback covers it too. A loaded
+        font is packed once, however many text() calls use it."""
+        latin = next(iter(glob.glob("/usr/share/fonts/**/DejaVuSans-Bold.ttf", recursive=True)), None)
+        cjk = next(iter(sorted(glob.glob("/usr/share/fonts/**/NotoSansCJK-*.ttc", recursive=True))), None)
+        if not latin:
+            self.skipTest("no DejaVuSans-Bold.ttf on this machine")
+        rep = run_in_blender(f"""
+bb.new_scene_mm()
+out = {{"builtin_missing": bb.missing_glyphs("고양이 H"), "latin_missing": bb.missing_glyphs("고양이 H", {latin!r}),
+        "format_chars": bb.missing_glyphs("A\u200bB\u00adC", {latin!r})}}
+try:
+    bb.text("고양이", 8.0, 1.0, font={latin!r}); out["error"] = None
+except ValueError as exc:
+    out["error"] = str(exc)
+out["objects_after_error"] = ours()
+a = bb.text("A", 6.0, 1.0, font={latin!r}, name="a"); bb.part(a, "a")
+b = bb.text("B", 6.0, 1.0, font={latin!r}, name="b"); bb.part(b, "b")
+out["fonts"] = [f.name for f in bpy.data.fonts if f.get(bb.TAG)]
+if {cjk!r}:
+    out["cjk_missing"] = bb.missing_glyphs("고양이 H", {cjk!r})
+    out["cjk_emoji"] = bb.missing_glyphs("\U0001F600", {cjk!r})
+    k = bb.text("고양이", 8.0, 1.0, font={cjk!r}, name="k"); bb.part(k, "k")
+    out["cjk_note"] = [n for n in bb.LOG if n.startswith("text '고양이'")][0]
+h = bb.text("고양이", 8.0, 1.0, name="h"); bb.part(h, "h")
+out["builtin_note"] = [n for n in bb.LOG if n.startswith("text '고양이'")][-1]
+info = bb.export_parts({self.tmp!r})
+out["info"] = info
+emit(**out)
+""")
+        self.assertEqual(rep["builtin_missing"], [])                            # Blender's fallback fonts draw Hangul
+        self.assertEqual(rep["latin_missing"], [["고", "U+ACE0"], ["양", "U+C591"], ["이", "U+C774"]])
+        self.assertEqual(rep["format_chars"], [])                               # review N3: no ink, not missing
+        self.assertIn("'고' (U+ACE0)", rep["error"])
+        self.assertIn("Noto Sans CJK", rep["error"])
+        self.assertIn("DejaVu", rep["error"])                                   # the font is named
+        self.assertEqual(rep["objects_after_error"], [])                        # nothing half-built is left behind
+        self.assertEqual(rep["fonts"], ["DejaVu Sans Bold"])                    # one packed copy for two text() calls
+
+        def bodies(note):                                                      # the LOG's count is what M5 expects
+            return re.search(r"(\d+) separate bod", note).group(1)
+        f = check(os.path.join(self.tmp, "h.stl"), "--shells", bodies(rep["builtin_note"]))
+        self.assertEqual({k: f["checks"][k]["state"] for k in ("M1", "M5")}, {"M1": "PASS", "M5": "PASS"}, f["metrics"])
+        self.assertGreaterEqual(int(bodies(rep["builtin_note"])), 3)            # jamo, not one body per syllable
+        if cjk:
+            self.assertEqual(rep["cjk_missing"], [])
+            self.assertEqual(rep["cjk_emoji"], [["\U0001F600", "U+1F600"]])    # the .notdef box of that font
+            self.assertIn("glyph pieces", rep["cjk_note"])
+            f = check(os.path.join(self.tmp, "k.stl"), "--shells", bodies(rep["cjk_note"]))
+            self.assertEqual({k: f["checks"][k]["state"] for k in ("M1", "M5")}, {"M1": "PASS", "M5": "PASS"}, f["metrics"])
+            self.assertAlmostEqual(f["metrics"]["bbox_mm"][1], 8.0, delta=2.5)  # cap height 8 mm; Hangul runs taller
+
+    def test_text_without_a_capital_h_uses_the_em_box(self):
+        """A font of another script has no 'H' (S5-F5): the height is taken as the em size with
+        a LOG note, and the note still gives the glyphs' real box."""
+        if find_spec("fontTools") is None:
+            self.skipTest("fontTools not installed (used to make a font without H)")
+        latin = next(iter(glob.glob("/usr/share/fonts/**/DejaVuSans-Bold.ttf", recursive=True)), None)
+        if not latin:
+            self.skipTest("no DejaVuSans-Bold.ttf on this machine")
+        from fontTools import subset
+        from fontTools.ttLib import TTFont
+        font = TTFont(latin)
+        options = subset.Options()
+        options.notdef_outline = True
+        sub = subset.Subsetter(options)
+        sub.populate(text="ABC")
+        sub.subset(font)
+        noh = os.path.join(self.tmp, "NoH.ttf")
+        font.save(noh)
+        rep = run_in_blender(f"""
+bb.new_scene_mm()
+out = {{"missing_h": bb.missing_glyphs("H", {noh!r}), "missing_abc": bb.missing_glyphs("ABC", {noh!r})}}
+t = bb.text("ABC", 5.0, 1.0, font={noh!r}, name="t"); bb.part(t, "t")
+out["log"] = list(bb.LOG)
+out["info"] = bb.export_parts({self.tmp!r})
+emit(**out)
+""")
+        self.assertEqual(rep["missing_h"], [["H", "U+0048"]])
+        self.assertEqual(rep["missing_abc"], [])
+        self.assertTrue(any("has no 'H'" in n and "em size" in n for n in rep["log"]), rep["log"])
+        note = [n for n in rep["log"] if n.startswith("text 'ABC'")][0]
+        self.assertIn("em size 5.0 mm (font size 5.000)", note)
+        bbox = rep["info"][0]["bbox_mm"]
+        self.assertLess(bbox[1], 5.0)                                           # caps are shorter than the em
+        self.assertGreater(bbox[1], 3.0)
+        self.assertIn("box %.2f x %.2f x 1.00 mm" % (bbox[0], bbox[1]), note)
 
     def test_parts_go_into_tagged_collections_and_params_into_props(self):
         rep = run_in_blender("""
@@ -647,6 +832,104 @@ emit(r=r, again=again, black=black, blank=blank, leftovers=[o.name for o in bpy.
             head = f.read(24)
         self.assertTrue(head.startswith(b"\x89PNG\r\n\x1a\n"))
         self.assertEqual(struct.unpack(">II", head[16:24]), (640, 480))
+
+    def test_render_colours_read_true(self):
+        """A white part reads white and an orange one orange: colours go in scene-linear and the
+        studio light keeps faces towards the camera near their colour (the field test on
+        Blender 5.2.2 drew Jade White as (176, 178, 179) and Orange as (177, 126, 74))."""
+        png = os.path.join(self.tmp, "c.png")
+        rep = run_in_blender(f"""
+import numpy as np
+bb.new_scene_mm()
+w = bb.box([30, 30, 4], "white"); bb.part(w, "white")
+o = bb.box([30, 30, 4], "orange"); o.location = (40, 0, 0); bb.part(o, "orange")
+k = bb.box([30, 30, 4], "black"); k.location = (80, 0, 0); bb.part(k, "black")
+cols = {{"white": bb.filament_rgb("Jade White"), "orange": bb.hex_rgb("#ff6a13"), "black": bb.filament_rgb("Black")}}
+r = bb.render_views({png!r}, ["top"], cols, "workbench", (1100, 400))
+img = bpy.data.images.load({png!r})
+W, H = img.size
+px = np.empty(W * H * 4, dtype=np.float32); img.pixels.foreach_get(px)
+px = (px.reshape(H, W, 4)[..., :3] * 255).round().astype(int)
+row = px[H // 2]
+inside = [i for i in range(W) if abs(int(row[i][0]) - 246) > 12 or abs(int(row[i][2]) - 246) > 12]
+a, b = inside[0], inside[-1]
+pick = lambda f: [int(v) for v in row[int(a + (b - a) * f)]]
+emit(r=r, white=pick(30 / 220), orange=pick(110 / 220), black=pick(190 / 220), corner=[int(v) for v in px[H - 5][W - 5]])
+""")
+        self.assertTrue(rep["r"]["sane"], rep["r"])
+        self.assertTrue(all(abs(c - 246) <= 2 for c in rep["corner"]), rep)              # preview.py's background
+        self.assertGreaterEqual(min(rep["white"]), 200, rep)                            # white, not grey (4.x: shadows on)...
+        self.assertLessEqual(max(rep["white"]), 246 - 10, rep)                          # ...but off the background (S2-F12)
+        # Three 30 mm squares fill about 46 % of the frame; a white face that faded into the
+        # background would leave the blank check with its outline only (about 30 %).
+        self.assertGreater(rep["r"]["fg_views"]["top"], 0.42, rep["r"])
+        r_, g_, b_ = rep["orange"]
+        self.assertTrue(r_ >= 215 and g_ <= 125 and b_ <= 60, rep)                      # orange, not tan
+        self.assertTrue(20 <= max(rep["black"]) <= 90, rep)                             # black: dark grey, edges show
+
+    def test_render_captions_pockets_and_facets(self):
+        """S3-11: a view's caption is hidden after its tile, so BACK does not show FRONT's
+        mirrored; S3-10: a blind pocket seen head-on darkens (world-space cavity scaled to the
+        part); S1-F13: a cylinder is shaded smooth for the render, and the mesh is put back."""
+        rep = run_in_blender(f"""
+import numpy as np
+def pixels(png):
+    img = bpy.data.images.load(png); W, H = img.size
+    px = np.empty(W * H * 4, dtype=np.float32); img.pixels.foreach_get(px); bpy.data.images.remove(img)
+    return (px.reshape(H, W, 4)[..., :3] * 255).round().astype(int), W, H
+bb.new_scene_mm()
+plate = bb.box([40, 30, 4], "plate"); bb.part(plate, "plate")
+bb.render_views({os.path.join(self.tmp, "cap.png")!r}, ["front", "back", "top", "bottom"], {{}}, "workbench", (800, 600))
+px, W, H = pixels({os.path.join(self.tmp, "cap.png")!r})
+# The BACK tile is top right (buffer rows are bottom-up): FRONT's caption, drawn mirrored from
+# behind, would land in its lower right band, where the thin plate seen edge-on never reaches.
+band = px[302:330, 600:800]                                                   # above the grid line
+cap = dict(leaked=int((np.abs(band - 246) > 8).any(axis=2).sum()), own=int((np.abs(px[302:330, 402:560] - 246) > 8).any(axis=2).sum()))
+bb.new_scene_mm()
+body = bb.box([40, 30, 10], "body")
+hole = bb.cylinder(4.0, 6.0, name="hole"); hole.location = (20, 15, 5)       # a blind 8 mm pocket, 5 mm deep
+bb.boolean(body, hole, "difference"); bb.part(body, "body")
+old_ssao = bb.scene().display.matcap_ssao_distance
+seen = {{}}
+orig = bb._setup_engine
+def spy(sc, engine):
+    seen["before"] = sc.display.matcap_ssao_distance
+    return orig(sc, engine)
+bb._setup_engine = spy
+r = bb.render_views({os.path.join(self.tmp, "pocket.png")!r}, ["top"], {{"body": (1.0, 1.0, 1.0)}}, "workbench", (400, 300))
+bb._setup_engine = orig
+px, W, H = pixels({os.path.join(self.tmp, "pocket.png")!r})
+pocket = dict(centre=px[H // 2, W // 2].tolist(), near_wall=px[H // 2, W // 2 + 29].tolist(), face=px[H // 2, W // 4].tolist(),
+              ssao_before=seen["before"], ssao_after=bb.scene().display.matcap_ssao_distance, old=old_ssao)
+bb.new_scene_mm()
+cyl = bb.cylinder(10, 20, segments=48, name="cyl"); bb.part(cyl, "cyl")
+me = cyl.data
+me.polygons[0].use_smooth = True                                               # one face of the user's own choice
+before = (sum(p.use_smooth for p in me.polygons), me.attributes.get("sharp_edge") is not None)
+bb.render_views({os.path.join(self.tmp, "smooth.png")!r}, ["front"], {{"cyl": (0.3, 0.5, 0.8)}}, "workbench", (400, 300))
+after = (sum(p.use_smooth for p in me.polygons), me.attributes.get("sharp_edge") is not None)
+px, W, H = pixels({os.path.join(self.tmp, "smooth.png")!r})
+row = px[H // 2, :, 1].astype(int)
+inside = [i for i in range(W) if abs(int(row[i]) - 246) > 12]
+a, b = inside[0] + 6, inside[-1] - 6
+smooth_steps = int(np.abs(np.diff(row[a:b])).max())
+bb._smooth_by_angle = lambda o, angle=30.0: (lambda: None)
+bb.render_views({os.path.join(self.tmp, "flat.png")!r}, ["front"], {{"cyl": (0.3, 0.5, 0.8)}}, "workbench", (400, 300))
+px, W, H = pixels({os.path.join(self.tmp, "flat.png")!r})
+flat_steps = int(np.abs(np.diff(px[H // 2, a:b, 1].astype(int))).max())
+emit(cap=cap, pocket=pocket, before=list(before), after=list(after), smooth_steps=smooth_steps, flat_steps=flat_steps)
+""")
+        self.assertEqual(rep["cap"]["leaked"], 0, rep["cap"])                           # no mirrored FRONT caption in BACK
+        self.assertGreater(rep["cap"]["own"], 20, rep["cap"])                           # BACK's own caption is there
+        p = rep["pocket"]
+        self.assertGreaterEqual(p["face"][0] - p["centre"][0], 10, p)                   # the pocket floor reads darker
+        self.assertGreaterEqual(p["face"][0] - p["near_wall"][0], 12, p)                # (5.x: cavity; 4.x: shadows)
+        self.assertAlmostEqual(p["ssao_before"], 6.0, places=5)                         # 0.15 x 40 mm
+        self.assertEqual(p["ssao_after"], p["old"])                                     # put back
+        self.assertEqual(rep["before"], [1, False])
+        self.assertEqual(rep["after"], [1, False])                                      # the mesh as it was
+        self.assertLessEqual(rep["smooth_steps"], 4, rep)                               # a gradient...
+        self.assertGreaterEqual(rep["flat_steps"], 8, rep)                              # ...where flat shading steps
 
 
 if __name__ == "__main__":

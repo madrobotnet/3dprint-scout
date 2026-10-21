@@ -66,8 +66,9 @@ multi-digit finger strength", *Ergonomics* 46(15), 2003, 1531–1548, Table 2
 The design value covers about 84 % of male users at a brief peak; it is a starting point,
 not a rule. A latch lever multiplies the hand force by its lever ratio: pass the amplified
 force. A lid hinge takes `finger_pull` (the open lid pulled away from the box) shared by its
-moving knuckles, no lever ratio (`design.md`, "Mechanisms that carry load"). Whatever load
-is used goes into `_assumptions` with its source.
+moving knuckles, no lever ratio (`design.md`, "Mechanisms that carry load"). A snap arm
+takes no hand-force key: its load is its own deflection or release force (`design.md`, "Snap
+fits"). Whatever load is used goes into `_assumptions` with its source.
 
 ## Safety factor
 

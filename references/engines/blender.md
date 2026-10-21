@@ -1,10 +1,10 @@
 # Blender engine (binary, `bpy` module, or a live Blender)
 
 Read this right before Phase 3 when Phase 0 found Blender and the shape is organic, freeform,
-sculpted or decorative (rule A in SKILL.md). Blender is never used for a dimension-critical
-fit: those go to Fusion, OpenSCAD or Python as before, and a mixed part gets its mechanical
-body there and its decorative part here, as a separate `_parts` entry of the same object
-("Mixed parts" below).
+sculpted or decorative (rule A in SKILL.md). A dimension-critical part goes to Python or
+OpenSCAD; Blender builds one only when its fit features are booleans of primitives and every
+round sits on flat faces (Phase 0, rule A), and a mixed part gets its mechanical body there and
+its decorative part here, as a separate `_parts` entry of the same object ("Mixed parts" below).
 
 Contents:
 
@@ -44,7 +44,7 @@ All three run the **same generator script**; only the launcher differs.
 
    ```bash
    python3 "$SKILL_DIR/scripts/build.py" run model_blender.py --params .3dprint/params.json --out out \
-     --printer .3dprint/printers.json --tools 0
+     --printer .3dprint/printers.json
    ```
 
    which executes `blender --background --factory-startup --python-exit-code 1 --python-expr
@@ -62,20 +62,37 @@ All three run the **same generator script**; only the launcher differs.
    (one line to the user: it is a few hundred MB) into a Python that has a 4.5+ wheel is fine;
    on the user's machine, ask first.
 3. **Live Blender** (an MCP connector to the user's own Blender; Phase 0 found a tool that runs
-   Python there and answered `bpy.app.version_string`). Prefer the tool that runs code in a
-   **background Blender process** when the server has one (the official Blender Lab server calls
-   them `execute_blender_code_for_cli` and the like; names differ between servers): it cannot
-   touch the user's open session. A tool that only runs code in the open GUI session is used
-   the same way, with one difference the user hears first: the build adds a scene named
-   `3dprint-scout` next to theirs (their window stays on their scene), and when
-   `bpy.data.is_dirty` is true, ask before running anything. Send `blender_builder.py` and the
-   generator to a folder on the user's machine under a **new name per version**, check the md5
-   of both files after the transfer (print `hashlib.md5(open(p, "rb").read()).hexdigest()` there
-   and compare with yours), then run a loader that gives the generator its command line and
-   makes sure no stale helper from an earlier run is used:
+   Python there and answered `bpy.app.version_string`). This is also the only path to the
+   user's Blender when your shell is a VM or a cloud container linked to their computer:
+   `detect` there sees only the shell's machine. Prefer the tool that runs code in a
+   **background Blender process** when the server has one and it works (the official Blender
+   Lab server calls it `execute_blender_code_for_cli`; names differ between servers): it cannot
+   touch the user's open session.
+   - It opens a `.blend` you name: give it a **new empty file in the working folder**, never the
+     user's file (the official tool saves a numbered copy of an open file with unsaved changes
+     next to it, which this engine never does). Make one through the GUI tool with
+     `bpy.data.libraries.write(folder + "/empty.blend", set())`: a file with no data, written
+     without touching the open file or its unsaved state.
+   - It starts `blender` from `PATH` or `BLENDER_PATH`. The Windows and macOS installers put
+     Blender on neither, so the call fails with "Blender executable not found". Then use the GUI
+     tool for this run and tell the user once: set a user environment variable `BLENDER_PATH` to
+     the Blender executable and restart the app that runs the MCP server, for background runs.
+
+   A tool that only runs code in the open GUI session (the official `execute_blender_code`) is
+   used the same way, with one difference the user hears first: the build adds a scene named
+   `3dprint-scout` next to theirs (their window stays on their scene). When
+   `bpy.data.is_dirty` is true and the file has a path or holds more than Blender's startup
+   scene (Camera, Cube, Light), ask before running anything; an untitled startup scene reports
+   unsaved changes after trivial actions and holds nothing to lose, so say what will be added
+   and go. Send `blender_builder.py` and the generator to a folder on the user's machine under a
+   **new name per version**, check the md5 of both files after the transfer (print
+   `hashlib.md5(open(p, "rb").read()).hexdigest()` there and compare with yours), then run a
+   loader that gives the generator its command line, makes sure no stale helper from an
+   earlier run is used, and hands back the `@@3DPS` line (the official server returns only a
+   variable named `result`, never printed output; other servers return what is printed):
 
    ```python
-   import hashlib, runpy, sys
+   import contextlib, hashlib, io, json, runpy, sys
    folder = r"<folder you sent the files to>"
    expected = {"blender_builder.py": "<md5 you computed before sending>", "model_v3.py": "<md5>"}
    for name, digest in expected.items():
@@ -86,17 +103,23 @@ All three run the **same generator script**; only the launcher differs.
    sys.modules.pop("blender_builder", None)                    # never a helper left from an earlier run
    sys.path.insert(0, folder)
    sys.argv = ["blender", "--", "--params", folder + "/params.json", "--out", folder + "/out"]
+   out = io.StringIO()
    try:
-       runpy.run_path(folder + "/model_v3.py", run_name="__main__")
+       with contextlib.redirect_stdout(out):
+           runpy.run_path(folder + "/model_v3.py", run_name="__main__")
    finally:
        sys.argv, sys.path[:] = saved_argv, saved_path          # leave the session as found
        sys.modules.pop("blender_builder", None)
+   lines = [ln for ln in out.getvalue().splitlines() if ln.startswith("@@3DPS ")]
+   result = json.loads(lines[-1][7:]) if lines else {"output": out.getvalue()[-2000:]}
+   print(lines[-1] if lines else out.getvalue()[-2000:])
    ```
 
-   The generator writes the STLs and the `.blend` into `--out` only; print the `@@3DPS` line it
-   ends with (sizes, solver, notes). Bring the STLs back to where `build.py` runs (the host's
-   file tools, or the user copies them), print each file's md5 on the user's side before and
-   check it on yours after, then record and validate like Fusion's parts:
+   The generator writes the STLs and the `.blend` into `--out` only; the `@@3DPS` line comes
+   back as `result` (sizes, solver, notes, `mode: "live"`). Bring the STLs back to where
+   `build.py` runs (the host's file tools, a folder the user connected, or the user copies
+   them), print each file's md5 on the user's side before and check it on yours after, then
+   record and validate like Fusion's parts:
 
    ```bash
    python3 "$SKILL_DIR/scripts/build.py" record out/body.stl out/label.stl --engine blender \
@@ -118,10 +141,10 @@ sits next to the generator). Millimetres everywhere, Z-up, Z = 0 on the bed.
 | `bb.new_scene_mm()` | The build scene `3dprint-scout` at 1 unit = 1 mm (`METRIC`, `scale_length` 0.001, `MILLIMETERS`) with its own world, created next to whatever is open and reused on the next run with only the module's own objects removed; nothing is ever reset |
 | `bb.box(size, name)`, `bb.cylinder(r, h, segments, name)`, `bb.prism(outline, height, name, z0)`, `bb.ring(r_in, r_out, h, segments, name, z0)` | Primitives on the bed (box corner at the origin; cylinder and ring on the Z axis; outline as `[(x, y), ...]`) |
 | `bb.mesh_object(name, bmesh)` | Any bmesh you build yourself, linked and tagged |
-| `bb.bevel(obj, width, segments=None, angle=30, bed=False)` | Real fillets on every edge sharper than `angle`, except edges on the bed; `segments` default one per line width along the arc; refuses a result with zero-area faces instead of welding it. `bb.chamfer(obj, width)` is the one-segment case |
-| `bb.bed_chamfer(obj, height=0.4)` | The elephant-foot chamfer, cut into the bottom edges (P6), slightly steeper than 45° so P2 never counts it |
+| `bb.bevel(obj, width, segments=None, angle=30, bed=False)` | Real fillets on every edge sharper than `angle`, except edges on the bed; `segments` default one per line width along the arc; refuses a result with zero-area faces instead of welding it. `bb.chamfer(obj, width)` is the one-segment case. It picks no edges (all of them above `angle`), and `width` is Blender's offset, which equals the radius only on a 90° edge; next to a finely faceted curved face it fails, so round such an edge in the profile |
+| `bb.bed_chamfer(obj, height=0.4)` | The elephant-foot chamfer, cut into the bottom edges (P6), slightly steeper than 45° so P2 never counts it. It reads the mesh's local coordinates: apply a rotation first |
 | `bb.boolean(target, tool, "difference" \| "union" \| "intersect")`, `bb.join(target, *tools)` | Boolean modifier, Manifold solver (`solver="EXACT"` forces the old one); checks both inputs and the result are manifold; applied, the tool removed (`apply=False` keeps it live, tool hidden) |
-| `bb.text(string, height, depth, font=None, align="CENTER")` | Letters as one mesh standing on z = 0, `height` the **cap height**, Blender's built-in font or a font file (`bb.load_font` packs it into the `.blend` under its base name); each glyph welded on its own, touching glyphs unioned ("Booleans and text" below) |
+| `bb.text(string, height, depth, font=None, align="CENTER")` | Letters as one mesh standing on z = 0, `height` the **cap height** of a Latin "H" (non-Latin glyphs come out taller), Blender's built-in font or a font file (`bb.load_font` packs it into the `.blend` under its base name); each glyph welded on its own, touching glyphs unioned ("Booleans and text" below) |
 | `bb.part(obj, name, object=None, role=None)` | Registers the part: object renamed, moved into the collection of its object (one collection per `_parts` object, made by the module; a user's collection of the same name is never reused), `role` kept as a property |
 | `bb.params_to_props(p)` | The parameters on a `PARAMETERS` empty (numbers, strings, lists; anything else as JSON text; a string that is an absolute path is stored as its base name) |
 | `bb.check_props()` | Refuses a string property that holds a path, naming object and property; `main` runs it before any STL is written |
@@ -129,6 +152,8 @@ sits next to the generator). Millimetres everywhere, Z-up, Z = 0 on the bed.
 | `bb.save_blend(path, overwrite=False)` | The build scene's data-blocks only (no UI, no preferences, no window state) via `bpy.data.libraries.write`, compressed; fonts and images packed and renamed to `//<name>`; refuses the open file's path and an existing path; an uncompressed twin is scanned for this machine's folders first and a hit leaves nothing behind |
 | `bb.render_views(out, views, colors, engine="workbench", size, overwrite=False)` | The preview grid (iso, front, right, top, as `preview.py`), see "Renders" |
 | `bb.world_bbox(obj)`, `bb.nonmanifold_edges(obj)`, `bb.LOG` | Numbers to assert on inside `build`, and the notes the runner prints |
+| `bb.evaluated_mesh(obj)`, `bb.degenerate_triangles(me)`, `bb.apply_modifiers(obj)` | A new mesh with the modifiers applied (remove it after use); the triangles M3 would count in a mesh (area under 1e-9 mm² or two vertices within `WELD`); the modifiers applied to the object itself |
+| `bb.circle_segments(r)`, `bb.segments_for(width)`, `bb.WELD` | Segments for a circle (chord under 0.4 mm, at least 64) and for a fillet (one per line width along the arc); the validator's welding grid, 1e-4 mm (every coordinate rounded to a multiple of it; the export does the same) |
 
 Run as a script (`blender_builder.py -- render a.stl b.stl -o out.png`) it renders STLs;
 `scripts/render.py` is the front end.
@@ -173,7 +198,8 @@ if __name__ == "__main__":
 - Parameters and properties hold names, never paths: a path in a string parameter is reduced
   to its base name, a path written into a custom property by the script stops the build before
   any STL is written.
-- Allowed inside a generator: `bpy`, `bmesh`, `mathutils`, the standard library. **Not allowed**:
+- Allowed inside a generator: `bpy`, `bmesh`, `mathutils`, the standard library (with the `bpy`
+  wheel, `import bpy` before `import bmesh`). **Not allowed**:
   writing outside `--out`, the network, `subprocess` / `os.system`, deleting anything, and
   anything that touches the user's file (below). The official MCP server runs code without
   guards, so a generator must be safe to run blind.
@@ -196,15 +222,23 @@ scale an exported mesh.
 non-manifold edges, and refuses a result that came out open (usually a tool that ends exactly
 on a face: overshoot cutters by 0.01–0.1 mm).
 
-`bb.text` gives **one body per separate letter**. A text object left as its own part therefore
-fails M5 unless its `_parts` entry says how many bodies it has (`"shells": 5` for a five-letter
-word, `parts.md`); the better design is to union the letters onto a face that carries them (the
+`bb.text` gives **one body per separate glyph piece**, not per letter: Hangul jamo, the dot of i
+and j and Hanzi radicals are pieces of their own. A text object left as its own part therefore
+fails M5 unless its `_parts` entry says how many bodies it has: `shells` is the body count of
+the `bb.text` line in `LOG` ("N glyph pieces, M separate bodies": M), never the letter count
+(`parts.md`); the better design is to union the letters onto a face that carries them (the
 part itself, or a plaque that becomes a `fused` colour part, as above), which makes one body.
 Letters that touch are handled inside `bb.text`: every glyph is welded on its own (welding the
 whole string would merge "AA" into an open mesh), touching glyphs are unioned, and letters that
 only kiss along an edge (the feet of "AA", the tops of "VV") get the character spacing
 tightened by 1 % steps, 5 % at most, until the union is one closed body; `LOG` says what
 happened, and an error says what did not.
+
+`height` is the cap height of a Latin "H" (the em size for a font without one; `LOG` says so):
+Hangul and other non-Latin glyphs come out taller (Hangul 25–33 % in a test run). Take a text
+part's `expect` from the box the `bb.text` line in `LOG` reports (the font's metrics, not a
+measured mesh), rounded to 0.1 mm (D1's tolerance), and say so in `_assumptions`. Which font,
+its licence, and what a packed `.ttc` costs: `design.md`, "Text, logos, cosmetic faces".
 
 ## Live session: keep the user's file safe
 
@@ -226,33 +260,54 @@ happened, and an error says what did not.
 - Never install Blender add-ons or change preferences without asking.
 - A tool call that times out: retry once, then treat Blender as unavailable for this run and
   say why (as for Fusion).
+- Make the harmless read (`import bpy; bpy.app.version_string`) again before **each** live run,
+  not only in Phase 0: in a long session the add-on's bridge can stop while Blender stays open.
+  Keep each call to one step (send files, load, check), so a failure says which step failed.
+- Setting up the official Blender Lab server, when the user asks how: Blender 5.1 or newer, the
+  MCP add-on installed (Preferences → Get Extensions → Install from Disk, the `.zip`), the MCP
+  server bundle (`.mcpb`) installed in the client (Claude Desktop: Settings → Extensions →
+  Advanced settings → Install Extension…). The add-on's bridge listens on `localhost:9876` and
+  starts only with Preferences → System → Network → **Allow Online Access** on (it refuses
+  otherwise: "Online access must be enabled"), from the add-on's preferences or by autostart.
+  Its own page warns that it runs generated code in Blender without guards; say so.
 
 ## Mixed parts: one object, two engines
 
 A mechanical body with a decorative part on it: the body in the CAD engine, the decorative part
 here, both modelled in the same frame (Z-up, Z = 0 on the bed, the decorative part at its
 assembled place) and listed in one `_parts` object (`role: fused` where they meet on a face).
-Build each with `--only` into its own folder, then record both STLs together with every source
-and the shared parameters, so one manifest hash covers the object:
+Build each with `--only` and `--no-3mf` into its own folder (half an object makes no 3MF;
+`record` writes the object's), then record both STLs together with the union of the `sources`
+both runs printed (each generator's includes and local imports too) and the shared parameters,
+so one manifest hash covers the object:
 
 ```bash
-python3 "$SKILL_DIR/scripts/build.py" run body.scad --params .3dprint/params.json --out out/body --only body --printer .3dprint/printers.json
-python3 "$SKILL_DIR/scripts/build.py" run deco_blender.py --params .3dprint/params.json --out out/deco --only deco --printer .3dprint/printers.json
+python3 "$SKILL_DIR/scripts/build.py" run body.scad --params .3dprint/params.json --out out/body --only body --no-3mf --printer .3dprint/printers.json
+python3 "$SKILL_DIR/scripts/build.py" run deco_blender.py --params .3dprint/params.json --out out/deco --only deco --no-3mf --printer .3dprint/printers.json
 python3 "$SKILL_DIR/scripts/build.py" record out/body/body.stl out/deco/deco.stl --engine openscad+blender \
   --source body.scad deco_blender.py "$SKILL_DIR/references/engines/blender_builder.py" \
   --params .3dprint/params.json --printer .3dprint/printers.json
 ```
 
 `record` groups the parts from `_parts`, runs A1 / A2 and the object checks, and writes the core
-3MF; the engine name in the manifests is whatever `--engine` says. On the live path the Blender
-STL comes back from the user's machine as in "Three ways it runs" (md5 both ways).
+3MF; the engine name in the manifests is whatever `--engine` says. It also adds the sources each
+STL's own build manifest lists, and an STL whose manifest is stale is an R3 FAIL: rebuild it. On the live path the Blender
+STL comes back from the user's machine as in "Three ways it runs" (md5 both ways). The `.blend`
+of `out/deco` holds the Blender parts only; the CAD parts are delivered as STLs (and their
+source).
+
+The reverse case, a decorative body with a fit feature (an organic plaque with keyholes on its
+back): split it along a plane into a CAD part that carries the fit (a flat back plate) and the
+Blender body on it, `fused` on that face. Compute a shared outline once and put it in
+`params.json` (a list of `[x, y]` points both generators read; OpenSCAD gets it through `-D`)
+instead of implementing it twice: two copies drift apart, and the seam with them.
 
 ## Renders
 
 When Blender is there, concept previews (Phase 1) and the delivery image can be Blender renders:
 
 ```bash
-python3 "$SKILL_DIR/scripts/render.py" out/body.stl out/label.stl -o out/render.png --color "label=Jade White"
+python3 "$SKILL_DIR/scripts/render.py" out/body.stl out/label.stl -o out/render.png --color "label=Jade White" --overwrite
 ```
 
 Workbench by default (headless, no GPU; about 6 s for a four-view 1200 × 900 grid and 9 s at
@@ -261,8 +316,11 @@ when asked (slower). Part colours from `--color part=<filament name or #rrggbb>`
 built-in table of **approximate** screen colours of common Bambu filaments (whole names only,
 "Light Blue" is not "Blue"), the user's AMS colours win when known, unnamed parts take the
 palette, an unknown name gets neutral grey and a warning in the JSON; never ask about colours.
+For a filament name the table lacks, pass an approximate `#rrggbb` instead and say it is
+approximate.
 Very dark colours are lifted a little for the preview (`drawn` beside `colour` in the JSON)
-so black parts still show their edges. Same views, grid and JSON as `preview.py`, same `sane`
+so black parts still show their edges, and very light ones are drawn a little darker (white
+as about `#e6e6e6`) so a white part stands off the near-white background. Same views, grid and JSON as `preview.py`, same `sane`
 check plus two: a render whose pixels nearly all differ from the background (a black or missing
 world) is not sane, and neither is one with a blank view (exit 2). The check counts the rendered
 views only, without the caption and the grid lines (`fg_views` per view in the JSON).
@@ -275,21 +333,30 @@ evidence.
 |---|---|---|
 | D4 FAIL, everything 1000× too small or large | Scene units left at metres, or `use_scene_unit` on | `bb.new_scene_mm()`; export through `bb.export_parts` |
 | `bevel ... made N zero-area triangles` | The bevel meets a chamfer, a cut or a dense outline closer than its width | Bevel first, cut and chamfer after; a smaller width; fewer outline points |
-| M1 FAIL after a boolean | The tool ends exactly on a face | Overshoot by 0.01–0.1 mm; check `bb.nonmanifold_edges` on the inputs |
-| M5 FAIL on a text part | One body per letter | Union the text onto the face or a plaque, or set `shells` in `_parts` |
+| M1 FAIL after a boolean (non-manifold edges) | The tool ends exactly on a face | Overshoot by 0.01–0.1 mm; check `bb.nonmanifold_edges` on the inputs |
+| `boolean ... left N zero-area triangles` (M3, and M1 once they are dropped) | The cut crosses a fan of thin triangles: a hole through the pole of a revolved floor or a cap | Build a round hole on the axis into the profile (revolve it with the hole), give the face ring topology where it is cut, or move the cut off the pole; overshooting does not help |
+| M5 FAIL on a text part | One body per glyph piece | Union the text onto the face or a plaque, or set `shells` in `_parts` to the body count in `LOG` |
 | `text ...: letters touch only along an edge` | Two glyphs kiss and even 5 % tighter spacing does not make them overlap | Put the text on a plate (union with it), or another font / spacing |
-| P3 WARN on text | Strokes thinner than 1.2 mm | Text follows the text rule (strokes ≥ 0.8 mm, `design.md`); say so, or a larger cap height |
+| P3 WARN on text | Strokes thinner than 1.2 mm, or an inlay less than 1.2 mm deep (P3 measures the depth) | Text follows the text rule (strokes ≥ 0.8 mm, `design.md`); say so, or a larger cap height |
 | `import bpy` hangs or takes a minute | First import loads most of Blender | `build.py detect` probes it in a subprocess with a timeout; wait once |
 | `EGL Error` lines in the output | Headless GPU context on Linux | Harmless: Workbench and Cycles still render; `build.py` drops those lines |
 | `Blender ... is older than 4.5` | The floor of this engine | Install Blender 4.5 LTS or newer, or `pip install bpy` (needs a matching Python) |
 | The `.blend` save fails with "would hold a path of this machine" | A data-block still pointed at an absolute path | `bb.load_font` for fonts; no external images; nothing linked |
 | `custom property 'x' on 'y' holds a path` | The script stored a path in a property | Store a name; the parameters are scrubbed automatically |
 | The render is not sane: "no background" | A scene without a world (black background) | `new_scene_mm` and `render_views` set one; a hand-made scene needs `scene.world` |
+| A seam or doubled faces down the middle of a symmetric part | The two halves were edited apart, or thickened / bevelled before they were joined | Build one half to the centre plane, mirror it with merge and clipping, apply; only then thickness and bevels (outline → mirror → thickness → rounds) |
+| Colours in a hand-made render look washed out or grey | An sRGB `#rrggbb` put straight into a Blender colour (they are scene-linear) | `bb.linear_rgb(rgb)`; `render_views` already does it |
+| `NameError: name 'bpy' is not defined` from the live tool | The server's namespace has nothing imported | Start every snippet with the imports it uses |
+| `Blender executable not found at 'blender'` from the background tool | Blender is not on `PATH` and `BLENDER_PATH` is not set | Use the GUI tool for this run; tell the user how to set `BLENDER_PATH` (above) |
+| `Online access must be enabled in the system preferences` | The official add-on's bridge needs it to start | The user turns on Preferences → System → Network → Allow Online Access (ask first) |
 
 ## Still to confirm
 
-- The binary path on a real `blender` install (the exact flags come from the Blender manual's
-  command-line page; here the `bpy` module 4.5.14 and 5.2.2 and an emulated binary ran).
-- The live path on a real MCP server (which tool runs in the background, its timeouts).
+- The binary path on macOS and Linux installs. Confirmed on Windows with Blender 5.2.2 LTS
+  (2026-10-20: `detect` found it in Program Files; build, rebuild and render passed; no path of
+  the machine in the STLs, manifests, 3MF or `.blend`), and with the `bpy` module 4.5.14 and 5.2.2.
+- The background tool of the official server with `BLENDER_PATH` set. Its GUI tool
+  (`execute_blender_code`, add-on 1.0.3) ran the loader on 2026-10-20: 0.17 s for the coaster,
+  the user's scene and window untouched.
 - EEVEE in a headless Linux session (slow here: about 40 s for a small scene; Workbench and
   Cycles take seconds).

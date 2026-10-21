@@ -177,7 +177,8 @@ class Refusals(Base):
             (["--printer", "fdm_test_common"], "not a selectable printer"),
             (["--filament", "Test PETG @Other"], "not compatible"),
             (["--filament", "Test PLA @base"], "not a selectable filament"),
-            (["--colour", "green"], "#RRGGBB"),
+            (["--colour", "Ice Blue"], "unknown filament colour"),
+            (["--colour", "#12345"], "#RRGGBB"),
         ]
         for i, (extra, msg) in enumerate(cases):
             argv = ["--profiles", self.profiles, "--printer", PRINTER, "--app-version", "02.08.02.61",
@@ -194,6 +195,23 @@ class Refusals(Base):
             self.assertEqual(code, 1, extra)
             self.assertIn(msg, " ".join(res["errors"]), extra)
             self.assertFalse(os.path.exists(os.path.join(self.dir, f"r{i}.3mf")))
+
+    def test_help_and_colour_names(self):
+        """-h prints usage (S1-F6 / S5-F14); --colour takes a filament name through
+        blender_builder's table as well as #RRGGBB (S1-F7)."""
+        buf = io.StringIO()
+        with redirect_stdout(buf), self.assertRaises(SystemExit) as cm:
+            bambu_template.main(["--help"])
+        self.assertEqual(cm.exception.code, 0)
+        self.assertIn("--profiles DIR", buf.getvalue())
+        self.assertIn("--colour", buf.getvalue())
+        code, res = self.run_cli("--filament", "Test PLA @Test", "--filament", "Test PLA @Test", "--colour", "Jade White",
+                                 "--colour", "#ff6a13")
+        self.assertEqual(code, 0, res.get("errors"))
+        self.assertEqual([f["colour"] for f in res["filaments"]], ["#FFFFFF", "#FF6A13"])
+        self.assertEqual(self.cfg()["filament_colour"], ["#FFFFFF", "#FF6A13"])
+        self.assertEqual(bambu_template.colour_hex("Bambu PLA Basic Black"), "#000000")
+        self.assertEqual(bambu_template.colour_hex("#abcdef"), "#ABCDEF")
 
     def test_refuses_to_overwrite_and_missing_index(self):
         self.run_cli()

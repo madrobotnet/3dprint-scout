@@ -314,6 +314,22 @@ class PrintabilityP(Base):
         self.assertEqual(self.check(out, "P2"), "WARN")
         self.assertNotEqual(out["files"][0]["checks"]["P2"]["kind"], "hard")
         self.assertNotEqual(out["gate"], "FAIL")             # soft checks never fail the gate
+        p2 = out["files"][0]["checks"]["P2"]
+        # S1-F8: the limit is named as such, and the steepest overhang is measured (the bar's
+        # underside faces straight down: 90 deg from vertical); the note carries both.
+        self.assertEqual(p2["value"]["limit_deg"], 45.0)
+        self.assertEqual(p2["value"]["steepest_deg"], 90.0)
+        self.assertNotIn("max_angle_deg", p2["value"])
+        self.assertIn("steepest face 90.0 deg", p2["note"])
+        self.assertIn(f"{p2['value']['overhang_pct']} %", p2["note"])
+        _, out = self.run_v(self.stl("c.stl", box(20, 20, 20)))
+        self.assertEqual(out["files"][0]["checks"]["P2"]["value"]["steepest_deg"], 0.0)     # walls only: nothing overhangs
+        # Octahedron on a vertex: its lower faces lean 45 deg from vertical (the limit itself is not over it).
+        v = [(0, 0, -10), (10, 0, 0), (0, 10, 0), (-10, 0, 0), (0, -10, 0), (0, 0, 10)]
+        f = [(0, 2, 1), (0, 3, 2), (0, 4, 3), (0, 1, 4), (5, 1, 2), (5, 2, 3), (5, 3, 4), (5, 4, 1)]
+        _, out = self.run_v(self.stl("oct.stl", [(v[a], v[b], v[c]) for a, b, c in f]))
+        self.assertAlmostEqual(out["files"][0]["checks"]["P2"]["value"]["steepest_deg"], 35.3, delta=0.1)
+        self.assertEqual(self.check(out, "P2"), "PASS")
 
     def test_no_flat_bottom(self):
         # Octahedron balanced on a vertex: nothing flat on the bed
@@ -391,6 +407,27 @@ class FreshnessR3(Base):
         self.assertIn("lib.scad", r3["note"])
         self.assertIn("--source", r3["note"])
 
+    def test_extra_sources_do_not_make_a_part_stale(self):
+        """A mixed build's --source list holds every generator; R3 hashes only the files this
+        STL's manifest recorded, so another part's generator may change (S3-1 / S3-2)."""
+        src = os.path.join(self.d, "model.scad"); other = os.path.join(self.d, "other.py")
+        for p in (src, other):
+            with open(p, "w") as f:
+                f.write("// " + p)
+        stl = self.stl("m.stl", box(20, 20, 20))
+        validate.write_manifest(stl, [src], {}, "openscad")
+        _, out = self.run_v(stl, "--source", src, other)
+        self.assertEqual(self.check(out, "R3"), "PASS")
+        with open(other, "a") as f:
+            f.write("\n# changed\n")
+        _, out = self.run_v(stl, "--source", src, other)
+        self.assertEqual(self.check(out, "R3"), "PASS")                     # not this part's source
+        with open(src, "a") as f:
+            f.write("\n// changed\n")
+        _, out = self.run_v(stl, "--source", src, other)
+        self.assertEqual(self.check(out, "R3"), "FAIL")
+        self.assertTrue(out["files"][0]["checks"]["R3"]["note"].startswith("STALE: source"))
+
 
 def tube(n, r_out=30.0, r_in=28.0, h=20.0):
     """A closed hollow cylinder with 2 mm walls and 8*n triangles."""
@@ -424,6 +461,12 @@ class OptionalWallP3(Base):
             self.skipTest("numpy/rtree not installed")
         thin = validate.wall_thickness(box(30, 30, 30) + box(28, 28, 28, 1, 1, 1, inward=True), 1.2)
         self.assertEqual(thin[0], "WARN"); self.assertAlmostEqual(thin[1]["wall_p5_mm"], 1.0, delta=0.01)
+        self.assertIn("wall 1.00 mm against the 1.2 mm minimum", thin[2])       # S5-F4: the value is in the note
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            validate.main([self.stl("thin.stl", box(30, 30, 30) + box(28, 28, 28, 1, 1, 1, inward=True)), "--shells", "2"])
+        out = json.loads(buf.getvalue())
+        self.assertTrue(any(w.startswith("thin.stl P3: 5th-percentile wall 1.00 mm") for w in out["warnings"]), out["warnings"])
         thick = validate.wall_thickness(box(30, 30, 30) + box(26, 26, 26, 2, 2, 2, inward=True), 1.2)
         self.assertEqual(thick[0], "PASS"); self.assertAlmostEqual(thick[1]["wall_p5_mm"], 2.0, delta=0.01)
         solid = validate.wall_thickness(box(30, 30, 30), 1.2)            # thicker than the depth cap

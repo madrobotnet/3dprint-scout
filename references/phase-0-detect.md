@@ -23,8 +23,11 @@ Find what works:
   newer only; an older one is listed with a note and not used. Never pass the obsolete
   `--enable=manifold`, which silently falls back to CGAL.
 - **Live Blender** — a tool that runs Python in the user's own Blender (an MCP connector; names
-  differ between servers) and answers a harmless read, `bpy.app.version_string` (4.5 or newer),
-  counts as the live Blender path. A timeout or an error: retry once, then treat it as
+  differ between servers) and answers a harmless read, `import bpy; bpy.app.version_string`
+  (4.5 or newer), counts as the live Blender path. `detect` runs where your shell is: in a VM
+  or a cloud container linked to the user's computer it cannot see their Blender, so "no
+  Blender" from `detect` plus a working live tool means the live path, with files passed
+  through a folder the user connected. A timeout or an error: retry once, then treat it as
   unavailable and say why. Never install add-ons or change preferences there without asking;
   the build adds a `3dprint-scout` scene next to theirs and writes only into its output folder
   (`references/engines/blender.md`, "Live session").
@@ -37,9 +40,19 @@ Find what works:
 
 Then choose **by the shape**, among the engines that work (rule A in SKILL.md):
 
-- **Mechanical or prismatic** (dimensions that must fit, holes, bosses, fillets, a part the user
-  may want to edit later) → Fusion, else OpenSCAD, else Python. Blender is never used for a
-  dimension-critical fit.
+- **Mechanical or prismatic** (dimensions that must fit, holes, bosses, screw fits, snaps,
+  hinges) → **Python** (manifold3d with the tested part library in `scripts/parts.py`: holes,
+  countersinks, teardrops, snaps, hinges, threads), or **OpenSCAD** when the user wants an
+  editable `.scad` (idioms in `references/engines/openscad.md`).
+  - **Fusion** only when the user wants an editable CAD design (a Fusion document, STEP) and
+    Fusion is connected: through MCP it is slow, and freeform shapes are hard to drive there.
+  - **Blender** may build such a part only when its fit features are booleans of primitives
+    (holes, slots, pockets, made with `bb.circle_segments`, never Blender's default 32-vertex
+    primitives) and every round sits on flat faces. Round an edge next to a curved, tessellated
+    face in the profile instead: Blender's bevel fails there (zero-area triangles, or a clamped,
+    too-small round). `measure.py` and `fit.py` check it as any other part. A comparison on
+    2026-10-20 measured the same accuracy in both engines (fit features within 0.002 mm, the same
+    `fit.py` play) and found the mechanical helpers only on the Python side.
 - **Organic, freeform, sculpted or decorative** (leaves, sculpted grips, terrain, reliefs, smooth
   blends, surface patterns, embossed art, fillets on a freeform body) → **Blender when it is
   there** (binary, `bpy` module or live), else Python, which builds such surfaces from height
@@ -80,7 +93,7 @@ With Blender (any of the three paths), `render.py` draws the same grid through B
 Workbench engine, headless, with part colours from filament names, for STLs from any engine:
 
 ```bash
-python3 "$SKILL_DIR/scripts/render.py" out/body.stl -o out/render.png --color "body=Jade White"
+python3 "$SKILL_DIR/scripts/render.py" out/body.stl -o out/render.png --color "body=Jade White" --overwrite
 ```
 
 Same JSON and `sane` check; `preview.py` stays the fallback and the G4 check

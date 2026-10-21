@@ -118,6 +118,40 @@ class FitTestPieces(unittest.TestCase):
         f = validate_stl(out["steps"][0]["stl"])
         self.assertEqual(f["checks"]["M1"]["state"], "PASS")
 
+    def test_overwrite_only_under_the_working_folder(self):
+        """S4-10: a rerun into out/ replaces the pieces with --overwrite; a folder outside the
+        current directory (a delivered copy) is never replaced."""
+        cwd = os.getcwd()
+        os.chdir(self.d)
+        try:
+            code, out = run_fit_test("--profile", "circle", "--size", "12", "--out", "out/fit", "--steps", "2")
+            self.assertEqual(code, 0, out["errors"])
+            code, out = run_fit_test("--profile", "circle", "--size", "12", "--out", "out/fit", "--steps", "2")
+            self.assertEqual(code, 1)
+            self.assertIn("already exists", out["errors"][0])
+            self.assertIn("--overwrite", out["errors"][0])
+            code, out = run_fit_test("--profile", "circle", "--size", "12.4", "--out", "out/fit", "--steps", "2", "--overwrite")
+            self.assertEqual(code, 0, out["errors"])
+            self.assertEqual(out["profile"]["size_mm"], [12.4, 12.4])
+            with open(os.path.join("out", "fit", "fit.json"), encoding="utf-8") as f:
+                self.assertEqual(json.load(f)["profile"]["size_mm"], [12.4, 12.4])     # rewritten
+            # Review N5: fewer steps than last time; the earlier series' extra pieces go, so the
+            # folder holds one series (and says what it removed).
+            code, out = run_fit_test("--profile", "circle", "--size", "12", "--out", "out/fit", "--steps", "4", "--overwrite")
+            self.assertEqual(code, 0, out["errors"])
+            code, out = run_fit_test("--profile", "circle", "--size", "12", "--out", "out/fit", "--steps", "1", "--overwrite")
+            self.assertEqual(code, 0, out["errors"])
+            self.assertEqual(sorted(os.listdir(os.path.join("out", "fit"))), ["fit.json", "fit_1.stl"])
+            self.assertTrue(any(w.startswith("removed fit_2.stl, fit_3.stl, fit_4.stl") for w in out["warnings"]), out["warnings"])
+            with tempfile.TemporaryDirectory() as elsewhere:
+                code, out = run_fit_test("--profile", "circle", "--size", "12", "--out", elsewhere, "--steps", "1")
+                self.assertEqual(code, 0, out["errors"])
+                code, out = run_fit_test("--profile", "circle", "--size", "12", "--out", elsewhere, "--steps", "1", "--overwrite")
+                self.assertEqual(code, 1)
+                self.assertIn("working folder under the current directory only", out["errors"][0])
+        finally:
+            os.chdir(cwd)
+
     def test_usage_errors_are_json(self):
         code, out = run_fit_test("--profile", "rect", "--size", "10", "--out", os.path.join(self.d, "x"))
         self.assertEqual(code, 1)
@@ -199,6 +233,9 @@ class FitCheck(unittest.TestCase):
         # plug 56.6 x 36.6 overlaps the 2 mm walls by 0.3 mm on each side over 5 mm height
         self.assertAlmostEqual(f3["value"]["interference_mm3"], (56.6 * 36.6 - 56 * 36) * 5, delta=1.0)
         self.assertEqual(out["metrics"]["play"], [])                               # not measured when overlapping
+        self.assertIn("designed snap or press fit", f3["note"])                     # S2-F06: not "shrink" for a snap
+        self.assertIn("intended undercut", f3["note"])
+        self.assertIn("otherwise one part must shrink", f3["note"])
 
     def test_far_apart_and_custom_directions(self):
         code, out = run_fit(self.box, self.lids["lid"], "--b-translate", "0,0,100")
@@ -227,6 +264,73 @@ class FitCheck(unittest.TestCase):
         code, out = run_fit(self.box, open_mesh)
         self.assertEqual(code, 1)
         self.assertIn("not a closed mesh", out["errors"][0])
+
+    def test_report_records_the_stl_hashes(self):
+        code, out = run_fit(self.box, self.lids["lid"], *self.place, "--min-clearance", "0.2")
+        self.assertEqual(code, 0, out["errors"])
+        self.assertEqual(out["parts"]["a"]["sha256"], validate.file_sha256(self.box))
+        self.assertEqual(out["parts"]["b"]["sha256"], validate.file_sha256(self.lids["lid"]))
+        self.assertIsNone(out["parts"]["a"]["input_hash"])                       # no build manifest
+        src = os.path.join(self.d, "box.py")
+        with open(src, "w") as f:
+            f.write("# box\n")
+        man = validate.write_manifest(self.box, [src], {"w": 60}, "python")
+        code, out = run_fit(self.box, self.lids["lid"], *self.place, "--min-clearance", "0.2")
+        self.assertEqual(out["parts"]["a"]["input_hash"], man["input_hash"])
+        # A manifest that records another STL says nothing about this one.
+        with open(validate.manifest_path(self.lids["lid"]), "w") as f:
+            json.dump(dict(man, artifact_sha256="0" * 64), f)
+        code, out = run_fit(self.box, self.lids["lid"], *self.place, "--min-clearance", "0.2")
+        self.assertIsNone(out["parts"]["b"]["input_hash"])
+
+    def test_check_finds_a_stale_report(self):
+        code, out = run_fit(self.box, self.lids["lid"], *self.place, "--min-clearance", "0.2")
+        self.assertEqual(out["gate"], "PASS")
+        report = os.path.join(self.d, "fit_box_lid.json")
+        with open(report, "w") as f:
+            json.dump(out, f)
+        code, chk = run_fit("--check", report)
+        self.assertEqual(code, 0, chk["errors"])
+        self.assertEqual((chk["gate"], chk["checks"]["F3_fresh"]["state"]), ("PASS", "PASS"))
+        self.assertEqual(chk["checks"]["F3_fresh"]["value"]["report_gate"], "PASS")
+        # The lid is rebuilt with other geometry at the same path: the old PASS proves nothing.
+        with open(self.lids["touch"], "rb") as src, open(self.lids["lid"], "wb") as dst:
+            dst.write(src.read())
+        code, chk = run_fit("--check", report)
+        self.assertEqual(code, 0)
+        f3 = chk["checks"]["F3_fresh"]
+        self.assertEqual((chk["gate"], f3["state"], f3["return_to"]), ("FAIL", "FAIL", "current"))
+        self.assertIn("STALE", f3["note"])
+        self.assertIn(self.lids["lid"], f3["note"])
+        self.assertNotEqual(chk["parts"]["b"]["current_sha256"], chk["parts"]["b"]["recorded_sha256"])
+        self.assertEqual(chk["parts"]["a"]["current_sha256"], chk["parts"]["a"]["recorded_sha256"])
+        # A part that is gone, and a report from before the hashes were recorded.
+        os.remove(self.lids["lid"])
+        code, chk = run_fit("--check", report)
+        self.assertEqual(chk["gate"], "FAIL")
+        self.assertIn("file not found", chk["checks"]["F3_fresh"]["note"])
+        for k in ("a", "b"):
+            del out["parts"][k]["sha256"]
+        with open(report, "w") as f:
+            json.dump(out, f)
+        code, chk = run_fit("--check", report)
+        self.assertEqual(chk["gate"], "UNVERIFIED")
+
+    def test_check_usage(self):
+        code, out = run_fit("--check", os.path.join(self.d, "nope.json"))
+        self.assertEqual((code, out["ran"]), (1, False))
+        code, out = run_fit(self.box, "--check", os.path.join(self.d, "nope.json"))
+        self.assertEqual(code, 1)
+        self.assertIn("takes no STLs", out["errors"][0])
+        code, out = run_fit(self.box)
+        self.assertEqual(code, 1)
+        self.assertIn("two STLs", out["errors"][0])
+        bad = os.path.join(self.d, "other.json")
+        with open(bad, "w") as f:
+            json.dump({"schema": "3dprint-scout.validate/1"}, f)
+        code, out = run_fit("--check", bad)
+        self.assertEqual(code, 1)
+        self.assertIn("not a 3dprint-scout.fit/1 report", out["errors"][0])
 
     def test_cli_prints_json(self):
         r = subprocess.run([sys.executable, "-I", os.path.join(SCRIPTS, "fit.py"), self.box, self.lids["lid"], *self.place,

@@ -19,11 +19,12 @@
 4. **치수** — 모든 치수를 출처와 함께 표로 보여 줘요(캘리퍼 실측, 공식 사양, 서로 일치하는 2차 자료
    두 곳). 지어낸 숫자는 없어요. 모양을 정확히 모르는 물건에 끼울 부품이면, 작은 끼워보기 조각을
    먼저 만들어요(공차를 세 단계로 나누고 구멍 1·2·3개로 표시해요).
-5. **모델링** — 모양에 맞춰 엔진을 골라요. 기계 부품은 Fusion(MCP 연결), 없으면 OpenSCAD.
-   곡면이 많은 유기적인 모양이나 장식적인 모양은 [Blender](https://www.blender.org)가 있으면
-   Blender(MCP로 연결한 내 Blender, `blender` 실행 파일, 또는 `bpy` 모듈: 자유곡면에 진짜 필렛,
-   Manifold 불리언, 어떤 글꼴이든 글자, STL 옆에 편집 가능한 `.blend`). Blender가 없는 유기적인
-   모양, 그리고 다른 엔진이 하나도 없을 때는 Python([manifold3d](https://github.com/elalish/manifold)).
+5. **모델링** — 모양에 맞춰 엔진을 골라요. 기계 부품은
+   Python([manifold3d](https://github.com/elalish/manifold)) 또는 OpenSCAD이고, Fusion(MCP 연결)은
+   편집 가능한 CAD 설계를 원할 때만 써요. 곡면이 많은 유기적인 모양이나 장식적인 모양은
+   [Blender](https://www.blender.org)가 있으면 Blender(MCP로 연결한 내 Blender, `blender` 실행 파일,
+   또는 `bpy` 모듈: 자유곡면에 진짜 필렛, Manifold 불리언, 어떤 글꼴이든 글자, STL 옆에 편집 가능한
+   `.blend`), 없으면 Python으로 만들어요.
    Python 엔진에는 검증된 부품 라이브러리(모서리를 둥글리거나 깎은 상자, 나사·인서트 구멍, 물방울
    모양 구멍, 보스, 스냅 후크, 한 번에 출력하는 경첩, 글자, 나사산)와 매끈하게 이어지는 유기적인
    모양을 위한 SDF(부호 거리 함수) 도구가 함께 들어 있어요. 역할이 따로 있거나 색을 달리할 만한
@@ -137,13 +138,20 @@ Bambu Lab 프린터에서는 Bambu Studio 프로젝트 파일을 만들어요(**
 
 ## 현황
 
-**v0.4.0.** Blender(4.5 LTS 이상)가 있으면 써요: MCP 커넥터로 연결한 내 Blender, `blender` 실행
+**v0.5.0.** 실제 Windows의 Blender 5.2.2 LTS에서 실행 파일 경로와 공식 Blender Lab MCP 서버로
+돌려 봤고, 다섯 가지 시나리오(유기적인 화분, 스냅 클립, 혼합 이름판, Gridfinity 빈, 한글 키링)로
+스킬을 처음부터 끝까지 써 봤어요. 거기서 나온 문제를 고쳤어요: 필라멘트 실제 색 그대로 렌더링,
+글꼴에 없는 글자는 오류로 알리는 글자 도구, 오래된 STL을 통과시키지 않는 `record`, `strength.py
+snap`, 표준 규격·글꼴·두 색 글자 규칙. 기계 부품은 이제 Python이나 OpenSCAD로 만들고 Fusion은 편집
+가능한 CAD를 원할 때만 써요. Blender와 비교했더니 정확도는 같았지만 곡면 옆 라운드를 안정적으로
+못 만들었어요. 아직 안 돌려 본 것: MCP 서버의 백그라운드 도구, macOS·Linux의 실행 파일.
+v0.4.0은 Blender(4.5 LTS 이상)가 있으면 써요: MCP 커넥터로 연결한 내 Blender, `blender` 실행
 파일, 또는 `bpy` 모듈. 유기적·장식적인 모양에 진짜 필렛, Manifold 불리언, 어떤 글꼴이든 글자, 그리고
 STL 옆에 편집 가능한 `.blend`가 생기고, 미리보기를 필라멘트 색으로 Blender가 렌더링할 수 있어요. 내
 Blender에 연결했을 때는 별도의 씬에서 작업하고 출력 폴더에만 써요: 열려 있는 파일을
 초기화하거나 저장하거나 덮어쓰는 일은 없고, 전달하는 `.blend`에 내 데이터가 섞여 들어가지도 않아요.
-`bpy` 모듈 4.5.14와 5.2.2, 그리고 실행 파일을 흉내 낸 테스트로 확인했고, 실제 `blender` 설치본이나
-Blender MCP 서버로는 아직 돌려 보지 않았어요. Blender가 없으면 v0.3.1과 똑같이 동작해요.
+출시 때는 `bpy` 모듈 4.5.14와 5.2.2, 그리고 실행 파일을 흉내 낸 테스트로 확인했고, 실제 실행 파일과
+MCP 서버는 v0.5.0에서 돌려 봤어요. Blender가 없으면 v0.3.1과 똑같이 동작해요.
 
 v0.3.1은 v0.3.0으로 해 본 시험 요청(걸쇠 기준으로 경첩을 키우다 상자까지 커진 SD카드 케이스)에서
 나온 수정이에요: 기구 부재의 규칙을 용도별로 나눴어요. 손으로 조작하는 걸쇠·레버·클램프는 현장
@@ -158,8 +166,8 @@ v0.3.0은 파트를 객체로 묶는 기능과 그에 맞는 검사·3MF 작성�
 v0.1.0과 v0.2.0은 Bambu Lab X2D + Bambu Studio 02.08.02.61, OpenSCAD 2021.01, manifold3d 3.5.4로
 처음부터 끝까지 시험했고, 자동 생성 템플릿은 A1 mini, A1, P1S, X1C, H2D, H2C 프로필로도 확인했어요.
 v0.3의 여러 파트로 된 Bambu 객체, 서포트 인터페이스 설정, v0.2.1의 필라멘트 6개 템플릿 수정은
-2026-10-18에 앱에서 확인했어요. Fusion에서 아직 돌려 보지 않은 것: 정리한 Builder. 실제 Blender
-실행 파일이나 MCP 서버로 아직 돌려 보지 않은 것: v0.4의 Blender 경로. 아직 전혀 시험하지
+2026-10-18에 앱에서 확인했어요. Fusion에서 아직 돌려 보지 않은 것: 정리한 Builder. 아직 돌려
+보지 않은 것: Blender MCP 서버의 백그라운드 도구, macOS·Linux의 실행 파일. 아직 전혀 시험하지
 않은 것: OrcaSlicer. 예정: 프린터 프로필 가져오기, 브리지·최소 크기 검사. FDM 전용이고 레진은
 지원하지 않아요.
 
@@ -174,6 +182,15 @@ python3 -m unittest discover -s tests
 진입점은 `SKILL.md`예요. 항상 지켜야 하는 규칙, 단계별 짧은 뼈대, 체크리스트가 거기에 있어요.
 각 단계의 진행 방법(`references/phase-0-detect.md`부터 `phase-6-deliver.md`까지), 엔진별 규칙, 공차,
 Bambu 관련 내용은 `references/`에 있고 그 단계에 들어갈 때 읽어요.
+
+## 기여자
+
+3dprint-scout를 함께 다듬어 주신 분들이에요.
+
+- [@fivetaku](https://github.com/fivetaku): fit 보고서에 측정한 STL을 기록하고 `fit.py --check`로
+  확인하는 기능([#9](../../pull/9)), Blender MCP 작업 흐름 메모([#8](../../issues/8)).
+
+이슈와 PR은 언제든 환영해요.
 
 ## 응원하기
 

@@ -1,5 +1,77 @@
 # Changelog
 
+## 0.5.0 — 2026-10-21
+
+Tested in the field and by scenario: the Blender paths ran on a real Windows install (Blender
+5.2.2 LTS, the binary and the official Blender Lab MCP server), and five scenario runs used the
+skill end to end (an organic pot, a snap clip, a mixed nameplate, a Gridfinity bin and a
+Hangul keyring). What they found is fixed here, together with the first outside contribution
+(#9, thanks @fivetaku) and workflow notes from #8.
+
+- **Field test on Windows**: `detect` finds the binary in Program Files; build, rebuild into the
+  same `out/` and render pass; no path of the machine in the STLs, manifests, 3MF or `.blend`.
+  The official MCP server's GUI tool ran the documented loader in 0.17 s with the user's scene
+  and window untouched. `blender.md` now says what that server needs: `result` instead of
+  printed output (the loader hands back the `@@3DPS` line), a new empty `.blend` for its
+  background tool (made with `bpy.data.libraries.write`, never the user's file),
+  `BLENDER_PATH` for that tool on Windows and macOS, Allow Online Access for its bridge, and a
+  harmless read before each live run. `detect` in a VM or container linked to the user's
+  computer cannot see their Blender; the live tool can. `@@3DPS` says `mode: "live"` there.
+- **Rule A** (the owner's decision after a comparison build): mechanical or prismatic parts go
+  to Python (its part library) or OpenSCAD; Fusion only when the user wants editable CAD
+  (slow through MCP); Blender builds a fit only when its fit features are booleans of
+  primitives and every round sits on flat faces. Both engines measured the same (fit features
+  within 0.002 mm, the same `fit.py` play), but Blender's bevel failed every round next to a
+  curved, faceted face, and the mechanical helpers exist only in Python.
+- **Renders in true colours**: colours go into Blender's scene-linear properties converted from
+  sRGB, under a brighter studio light; Jade White was drawn (176, 178, 179) and Orange
+  (177, 126, 74), now near-white just below the background and (243, 107, 46). Black is a dark
+  grey whose edges show; the background is `preview.py`'s 246. Captions stay in their own
+  tile, blind pockets darken, curved surfaces shade smooth, and the blank check counts the
+  part only, per view (`fg_views`), so a blank view or grid fails.
+- **Text**: `bb.text` and `parts.text` refuse a character the font cannot draw, naming it and
+  its code point (a font without Hangul gave boxes or placeholder glyphs that passed every
+  check). `parts.text` keeps its default font (DejaVu Sans, in `weight`) when it draws the
+  text, else takes `parts.find_font(text)`'s choice with a warning in the build report (Noto
+  Sans CJK for Korean and CJK); format characters such as a zero-width space are not missing. `shells` counts glyph pieces, not letters; height is the cap
+  height of a Latin "H" (the em size without one) and the LOG gives the real box. Rules for
+  fonts (licences, never a proprietary system font in a deliverable, `.ttc` size) and for
+  two-colour text (inlay ≥ 1.0 mm for light on dark).
+- **Fresh evidence**: `record` keeps the manifest `run` wrote for an STL and merges its sources;
+  a stale one, or one built from a generator not among `--source`, fails R3 instead of being
+  re-stamped (a manifest an earlier `record` wrote is re-stamped). R3 accepts a `--source`
+  superset.
+  Fit reports name their STLs (#9): `parts.a` and `parts.b` carry the STL's `sha256` and the
+  manifest's `input_hash` when it records this very STL; `fit.py --check REPORT` prints
+  `F3_fresh` (PASS, FAIL `STALE`, UNVERIFIED for an old report), and Phase 5 counts F3 only from
+  a report that passes it.
+- **Checks**: every hard FAIL of a part, an object or an assembly is a line in `errors`; A1
+  checks every body of a multi-body fused part (a floating letter fails, a sealed void is no
+  body); unmerged contacts of fused parts are no longer object overhang; `--only` on part of
+  an object, one part or several, leaves its object INCOMPLETE and out of the 3MF; P2 reports `limit_deg` and `steepest_deg` (no
+  `max_angle_deg`); P3's warning carries the measured wall. `bb.boolean` and `export_parts`
+  refuse zero-area triangles with the cause, and the export welds on the validator's own grid;
+  M1 points at M3 when they are the same defect.
+- **Snaps, fits, standards**: `strength.py snap` (strain against the limit, the deflection force
+  as the load, insertion and release forces); snap arms are exempt from the latch floors; a
+  C-clip row, full-width snap coupons, hole compensation on bores, OpenSCAD idioms for mating,
+  teardrop and countersunk holes (the head clearance built in, as in `parts.screw_hole`), `parts.screw_hole(head_d=, head_h=)` for a measured head,
+  keyholes. Published standards and disagreeing sources, official sizes without a tolerance,
+  a standard's counterpart as an F3 proxy, licences not shown, another maker's geometry
+  library only with a permissive licence.
+- **Workflow (#8)**: the 3-fix cap counts per phase and part and is never reset by going back;
+  before any geometry, one line per part on what it is and what is uncertain; previews are
+  judged one view at a time; symmetric shapes are built as a half and mirrored.
+- **Smaller**: `--tools` explained once and no longer hard-coded in examples; a tuning row for
+  parts that hold water; the X2D example's hole compensation corrected (its preset has it
+  off); `bambu_template.py` and `bambu3mf.py` have `--help`, and `--colour` takes filament
+  names; `fit_test.py --overwrite` (an earlier series' extra pieces are removed); no `__pycache__` in the project; Fusion files through a
+  connected folder; P6 may be decided from the generator and its log; a Contributors section
+  in the READMEs.
+- **Tests**: 255 → 284, passing with Python 3.13 + Blender 5.2.2, Python 3.11 + Blender 4.5.14
+  and without Blender or numpy. Not yet run: the official server's background tool with
+  `BLENDER_PATH` set, and the binary path on macOS and Linux.
+
 ## 0.4.0 — 2026-10-20
 
 Blender, used to the full when it is there. If the agent can reach Blender anywhere (an MCP

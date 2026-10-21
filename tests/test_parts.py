@@ -119,6 +119,27 @@ class Holes(PartCase):
         cut = box - parts.screw_hole("M3", 12, "clearance", comp=0.1).translate([15, 15, 10])   # F1: model-side
         self.assertAlmostEqual(box.volume() - cut.volume(), math.pi * 1.8 ** 2 * 10, delta=8)
 
+    def test_measured_head_overrides_the_table(self):
+        """S2-F05: a wood screw's caliper head (8.0 mm) replaces ISO 10642's 8.96 mm dk; the
+        radial head clearance and comp still apply, as for the table value."""
+        box = m3d.Manifold.cube([30, 30, 10])
+        iso = parts.screw_hole("M4", 8, "countersunk")
+        wood = parts.screw_hole("M4", 8, "countersunk", head_d=8.0)
+        self.assertAlmostEqual(wood.bounding_box()[3] - wood.bounding_box()[0], 8.0 + 2 * 0.3 + 2 * 0.1, delta=0.05)
+        self.assertLess(wood.volume(), iso.volume())
+        self.assertSolid(box - wood.translate([15, 15, 10]), bbox=[30, 30, 10])
+        bore = parts.screw_hole("M4", 8, "counterbore", head_d=9.0, head_h=3.0, comp=0.1)
+        self.assertAlmostEqual(bore.bounding_box()[3] - bore.bounding_box()[0], 9.0 + 2 * 0.3 + 2 * 0.1, delta=0.05)
+        self.assertAlmostEqual(bore.bounding_box()[5], 0.1, delta=1e-6)       # the recess overshoots the mouth
+        cut = box - bore.translate([15, 15, 10])
+        recess = math.pi * (9.6 / 2) ** 2 * 3.3                               # head_h + head_clearance deep
+        shank = math.pi * (4.5 / 2 + 0.1) ** 2 * (8 - 3.3)
+        self.assertAlmostEqual(box.volume() - cut.volume(), recess + shank, delta=25)
+        for kw in (dict(head_d=8.0), dict(kind="insert", head_d=8.0), dict(kind="countersunk", head_h=2.0),
+                   dict(kind="counterbore", head_d=4.0), dict(kind="counterbore", head_h=0)):
+            with self.assertRaises(ValueError, msg=kw):
+                parts.screw_hole("M4", 8, **kw)
+
     def test_through_hole_overshoots_both_faces(self):
         box = m3d.Manifold.cube([30, 30, 10])
         m = self.assertSolid(box - parts.screw_hole("M4", 10).translate([15, 15, 10]), bbox=[30, 30, 10])
@@ -335,6 +356,14 @@ class Text(PartCase):
         self.assertSolid(plate - parts.text("OK", 6, 1).translate([3, 3, 2]), bbox=[30, 12, 3])    # engraved
         with self.assertRaises(ValueError):
             parts.text("   ", 6, 1)
+        # Review S2: Latin text keeps matplotlib's DejaVu Sans in `weight` (as before 0.5), with
+        # no warning; a font file chosen for it would ignore the weight.
+        import warnings
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            bold, normal = parts.text("Hello", 6, 1), parts.text("Hello", 6, 1, weight="normal")
+        self.assertEqual([str(w.message) for w in caught if issubclass(w.category, UserWarning)], [])
+        self.assertLess(normal.volume(), bold.volume() * 0.8)
 
     @unittest.skipUnless(HAS_M3D and find_spec("fontTools") is not None, "fontTools not installed")
     def test_text_fonttools(self):
@@ -345,6 +374,51 @@ class Text(PartCase):
         self.assertGreaterEqual(len(outlines), 4)                            # B has two holes, 8 has two
         cs = m3d.CrossSection([[list(p) for p in c] for c in outlines], m3d.FillRule.NonZero)
         self.assertSolid(m3d.Manifold.extrude(cs, 1), shells=2)
+
+    @unittest.skipUnless(HAS_M3D and (find_spec("fontTools") or find_spec("matplotlib")), "no outline backend")
+    def test_characters_the_font_cannot_draw_are_refused(self):
+        """S5-F1: Hangul in a Latin font must raise, naming the character and its code point,
+        not print placeholder glyphs; find_font(text=) picks a font that covers the text."""
+        import glob
+        latin = next(iter(glob.glob("/usr/share/fonts/**/DejaVuSans-Bold.ttf", recursive=True)), None)
+        if latin:
+            self.assertEqual(parts.font_missing(latin, "고양이 H"), [("고", "U+ACE0"), ("양", "U+C591"), ("이", "U+C774")])
+            self.assertEqual(parts.font_missing(latin, "ABC 8"), [])
+            self.assertEqual(parts.find_font(text="ABC"), parts.find_font())  # Latin text: the Latin font, as before
+            with self.assertRaises(ValueError) as cm:
+                parts.text("고양이", 8, 1, font=latin)
+            self.assertIn("'고' (U+ACE0)", str(cm.exception))
+            self.assertIn("Noto Sans CJK", str(cm.exception))
+            self.assertIn("DejaVuSans-Bold.ttf", str(cm.exception))
+            for backend in parts.text_backends():
+                fn = parts._outlines_matplotlib if backend == "matplotlib" else parts._outlines_fonttools
+                with self.assertRaises(ValueError) as cm:
+                    fn("고양이", latin, "bold")
+                self.assertIn("U+ACE0", str(cm.exception))
+        if find_spec("matplotlib") is not None:
+            with self.assertRaises(ValueError) as cm:                          # an unknown family: matplotlib's default
+                parts.text("고양이", 8, 1, font="No Such Font Family")
+            self.assertIn("U+ACE0", str(cm.exception))
+            self.assertIn("not installed", str(cm.exception))
+        cjk = parts.find_font(text="고양이")
+        if not cjk:
+            self.assertIsNone(parts.find_font(text="고양이"))                  # no covering font: None, not a Latin one
+            self.skipTest("no CJK font on this machine")
+        self.assertRegex(os.path.basename(cjk), r"(?i)cjk|nanum|malgun|gothic")
+        self.assertEqual(parts.font_missing(cjk, "고양이"), [])
+        import warnings
+        with warnings.catch_warnings(record=True) as caught:                   # no font given: find_font(text=) picks one
+            warnings.simplefilter("always")
+            t = parts.text("고양이", 8, 1)
+        if find_spec("matplotlib") is not None:                                # the switch from the default is said
+            notes = [str(w.message) for w in caught if issubclass(w.category, UserWarning)]
+            self.assertEqual(len(notes), 1, notes)
+            self.assertIn(os.path.basename(cjk), notes[0])
+        m = metrics(t)
+        self.assertEqual(m["open_edges"], 0)
+        self.assertGreaterEqual(m["shells"], 3)                                 # jamo pieces, not one body per syllable
+        self.assertAlmostEqual(m["bbox_mm"][1], 8.0, delta=2.5)                 # cap height 8 mm; Hangul runs taller
+        self.assertAlmostEqual(m["bbox_mm"][2], 1.0)
 
 
 class Threads(PartCase):

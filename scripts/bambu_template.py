@@ -28,6 +28,9 @@ Usage:
       [--process "0.20mm Standard @BBL X2D"] [--filament NAME ...] [--colour "#RRGGBB" ...]
       [--bed-type "Textured PEI Plate"]
 
+  --colour takes #RRGGBB or a filament colour name ("Jade White", "Black": the table of common
+  Bambu colours in references/engines/blender_builder.py); -h prints this usage.
+
   DIR is a folder with BBL.json (Bambu Studio's resources/profiles, or the updated copy
   in the app's data folder "system"). Without --process / --filament the printer's own
   defaults are used (for most printers "0.20mm Standard" and Bambu PLA Basic).
@@ -67,6 +70,33 @@ class TemplateError(Exception):
 class _JsonArgParser(argparse.ArgumentParser):
     def error(self, message):
         raise TemplateError(message)
+
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+COLOUR_TABLE = os.path.join(os.path.dirname(HERE), "references", "engines", "blender_builder.py")
+
+
+def colour_hex(text: str) -> str:
+    """'#RRGGBB' (upper case) from '#rrggbb' or a filament name such as 'Jade White', looked up
+    in blender_builder.py's table of common Bambu filament colours (its pure helpers import
+    without bpy). An unknown name is refused: the colour goes into the project file, so a
+    guess would be wrong there."""
+    text = str(text).strip()
+    if re.fullmatch(r"#[0-9A-Fa-f]{6}", text):
+        return text.upper()
+    if text.startswith("#"):
+        raise TemplateError(f"colour '{text}' is not #RRGGBB")
+    if not os.path.isfile(COLOUR_TABLE):
+        raise TemplateError(f"colour '{text}': give #RRGGBB (the filament colour table, {COLOUR_TABLE}, is not here)")
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("_bambu_template_colours", COLOUR_TABLE)
+    table = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(table)
+    rgb, warning = table.colour_for(text)
+    if warning:
+        raise TemplateError(f"unknown filament colour '{text}'; give #RRGGBB, or a name from the table "
+                            f"({', '.join(sorted(table.FILAMENTS))})")
+    return table.rgb_hex(rgb).upper()
 
 
 # --------------------------------------------------------------------------- #
@@ -220,10 +250,7 @@ def project_settings(prof: Profiles, args) -> tuple[dict, dict]:
     colours = args.colour or []
     if len(colours) > len(filament_names):
         raise TemplateError("more --colour values than filaments")
-    for c in colours:
-        if not re.fullmatch(r"#[0-9A-Fa-f]{6}", c):
-            raise TemplateError(f"colour '{c}' is not #RRGGBB")
-    colours = [c.upper() for c in colours] + [DEFAULT_COLOUR] * (len(filament_names) - len(colours))
+    colours = [colour_hex(c) for c in colours] + [DEFAULT_COLOUR] * (len(filament_names) - len(colours))
 
     fil = []
     for name in filament_names:
@@ -327,15 +354,20 @@ def write(out: str, cfg: dict, app_version: str, multi_extruder: bool) -> None:
 def main(argv=None):
     out = {"schema": SCHEMA, "ran": False, "errors": []}
     try:
-        ap = _JsonArgParser(add_help=False)
-        ap.add_argument("--profiles", required=True)
-        ap.add_argument("--printer", required=True)
-        ap.add_argument("--app-version", required=True)
-        ap.add_argument("--out", required=True)
-        ap.add_argument("--process")
-        ap.add_argument("--filament", action="append")
-        ap.add_argument("--colour", action="append")
-        ap.add_argument("--bed-type")
+        ap = _JsonArgParser(description="write an empty Bambu Studio project that names system presets (one JSON "
+                                        "document is printed; exit 0 on success, 1 on error)",
+                            epilog="DIR is a folder with BBL.json (Bambu Studio's resources/profiles, or the app's data "
+                                   "folder 'system'). --app-version must not be newer than the user's Bambu Studio "
+                                   "(Help > About).")
+        ap.add_argument("--profiles", required=True, metavar="DIR", help="Bambu profile folder holding BBL.json")
+        ap.add_argument("--printer", required=True, help='printer preset name, e.g. "Bambu Lab X2D 0.4 nozzle"')
+        ap.add_argument("--app-version", required=True, help="the user's Bambu Studio version, e.g. 02.08.02.61")
+        ap.add_argument("--out", required=True, help="the .3mf to write (never overwritten)")
+        ap.add_argument("--process", help="process preset (default: the printer's own default)")
+        ap.add_argument("--filament", action="append", help="filament preset (repeatable; default: the printer's own)")
+        ap.add_argument("--colour", action="append",
+                        help='#RRGGBB or a filament colour name such as "Jade White", one per --filament (repeatable)')
+        ap.add_argument("--bed-type", help='e.g. "Textured PEI Plate" (default: the printer model\'s own)')
         args = ap.parse_args(sys.argv[1:] if argv is None else argv)
         if not re.fullmatch(r"\d{2}\.\d{2}\.\d{2}\.\d{2}", args.app_version):
             raise TemplateError("--app-version looks like 02.08.02.61 (Bambu Studio > Help > About)")

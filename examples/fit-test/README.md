@@ -21,7 +21,7 @@ pieces. Here: three rings for a 45.1 × 14.0 mm rounded rectangle (2 mm corners)
 python3 ../../scripts/fit_test.py --profile rounded --size 45.1,14.0 --radius 2 --out out --name fit
 python3 ../place.py out/fit_2.stl out/fit_2_side.stl --translate 0,30,0
 python3 ../place.py out/fit_3.stl out/fit_3_side.stl --translate 0,60,0
-python3 ../../scripts/preview.py out/fit_1.stl out/fit_2_side.stl out/fit_3_side.stl -o out/preview.png --views iso,top
+python3 ../../scripts/preview.py out/fit_1.stl out/fit_2_side.stl out/fit_3_side.stl -o out/preview.png --views iso,top --overwrite
 ```
 
 `out/fit.json` lists each ring's clearance, hole size and mass. Other profiles: `--profile rect`,

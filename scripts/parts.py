@@ -86,11 +86,9 @@ METRIC = {
 }
 FITS = {"fine": 0, "medium": 1, "coarse": 2}
 
-# One-time design strain for a cantilever printed flat (beam flexing within the layer plane).
-# Starting points, calibrate with a test hook: derived from bulk one-time values (Bayer:
-# PC 4 %, PC/ABS 2.5 %) and printed break strains (Fictiv: PLA 4-8 %, ABS 7 %, nylon 4-15 %)
-# with a safety factor for layer bonds (references/design.md, snap fits).
-SNAP_STRAIN = {"PLA": 0.010, "PETG": 0.015, "ABS": 0.020, "ASA": 0.020, "PC": 0.025, "PA": 0.030, "NYLON": 0.030}
+# One-time design strain for a cantilever printed flat (beam flexing within the layer plane):
+# the one copy lives in strength.py (its `snap` case uses the same numbers), sources there.
+SNAP_STRAIN = MappingProxyType(dict(_strength.SNAP_STRAIN))
 
 OVERSHOOT = 0.1          # mm; cutters pass through faces by this much (no coincident faces)
 MIN_SEGMENTS = 64        # python.md: enough segments so round parts meet D1
@@ -383,15 +381,26 @@ def hole(d: float, depth: float, comp: float = 0.0, segments: int | None = None,
 
 def screw_hole(size: str = "M3", depth: float = 10.0, kind: str = "clearance", fit: str = "medium",
                comp: float = 0.0, insert_d: float | None = None, head_clearance: float = 0.3,
-               segments: int | None = None) -> Manifold:
+               segments: int | None = None, head_d: float | None = None, head_h: float | None = None) -> Manifold:
     """Cutter for a metric screw. Mouth at z = 0, going down.
 
     kind: "clearance" (ISO 273, `fit` fine/medium/coarse), "tap" (d - P, screw forms its own
     thread; starting point), "insert" (heat-set insert hole; pass insert_d from the datasheet
     of your insert, the default is the common chart value), "countersunk" (medium clearance
     plus a 90-degree countersink to ISO 10642 dk), "counterbore" (medium clearance plus a
-    recess for an ISO 4762 socket head). head_clearance widens head recesses (radial)."""
+    recess for an ISO 4762 socket head). head_clearance widens head recesses (radial).
+    head_d (and, for a counterbore, head_h) is a measured head: a caliper reading of a wood
+    screw or another non-ISO head replaces the table value (the clearances and `comp` are
+    still added, so pass the head itself, not a hole size)."""
     spec = _metric(size)
+    if head_d is not None and kind not in ("countersunk", "counterbore"):
+        raise ValueError("head_d is for countersunk or counterbore holes (a clearance, tap or insert hole has no head recess)")
+    if head_h is not None and kind != "counterbore":
+        raise ValueError("head_h is for a counterbore (a countersink's depth follows from its 90-degree cone)")
+    if head_d is not None and (not head_d > spec["clearance"][FITS["medium"]]):
+        raise ValueError(f"head_d {head_d} mm is not wider than the {spec['clearance'][FITS['medium']]} mm shank hole")
+    if head_h is not None and not head_h > 0:
+        raise ValueError("head_h must be positive")
     if kind == "clearance":
         d = spec["clearance"][FITS[fit]]
         return hole(d, depth, comp, segments)
@@ -404,14 +413,14 @@ def screw_hole(size: str = "M3", depth: float = 10.0, kind: str = "clearance", f
         d = spec["clearance"][FITS["medium"]]
         shank = hole(d, depth, comp, segments)
         if kind == "countersunk":
-            top_d = spec["csk"][0] + 2 * head_clearance + 2 * comp
+            top_d = (float(head_d) if head_d is not None else spec["csk"][0]) + 2 * head_clearance + 2 * comp
             cone_h = (top_d - d) / 2            # 90 degrees: radius drop equals depth
             r_top = top_d / 2 + OVERSHOOT       # the cone keeps widening above the mouth
             head = Manifold.cylinder(cone_h + OVERSHOOT, d / 2 + comp, r_top,
                                      segments or circle_segments(r_top)).translate([0, 0, -cone_h])
         else:
-            hd = spec["cap"][0] + 2 * head_clearance + 2 * comp
-            hh = spec["cap"][1] + head_clearance
+            hd = (float(head_d) if head_d is not None else spec["cap"][0]) + 2 * head_clearance + 2 * comp
+            hh = (float(head_h) if head_h is not None else spec["cap"][1]) + head_clearance
             head = hole(hd, hh, 0.0, segments)
         return shank + head
     raise ValueError("kind must be clearance, tap, insert, countersunk or counterbore")
@@ -495,7 +504,7 @@ def snap_fit_check(length: float, thickness: float, deflection: float, material:
     key = material.upper()
     if key not in SNAP_STRAIN:
         raise ValueError(f"no strain limit for {material!r}; known: {', '.join(SNAP_STRAIN)}")
-    limit = SNAP_STRAIN[key] * (0.6 if repeated else 1.0)
+    limit = SNAP_STRAIN[key] * (_strength.SNAP_REPEATED if repeated else 1.0)
     strain = snap_fit_strain(length, thickness, deflection, q)
     max_deflection = limit * length ** 2 * q / (1.5 * thickness)
     return {"strain": round(strain, 5), "limit": limit, "ok": strain <= limit,
@@ -670,8 +679,14 @@ def hinge(length: float = 30.0, knuckle_d: float = 9.8, pin_d: float = 3.2, leaf
 _FONT_DIRS = ["/usr/share/fonts", "/usr/local/share/fonts", os.path.expanduser("~/.fonts"),
               "/System/Library/Fonts", "/Library/Fonts", os.path.expanduser("~/Library/Fonts"),
               os.path.join(os.environ.get("WINDIR", "C:\\Windows"), "Fonts")]
+# Latin first (bold sans-serif: bold strokes print better, design.md), then fonts that cover
+# Korean / CJK (Noto Sans CJK, Nanum Gothic, the Windows and macOS system fonts); find_font(text=)
+# takes the first that draws every character of the text.
 _FONT_NAMES = ["DejaVuSans-Bold.ttf", "DejaVuSans.ttf", "LiberationSans-Bold.ttf", "arialbd.ttf", "arial.ttf",
-               "NotoSans-Bold.ttf", "FreeSansBold.ttf", "Helvetica.ttc"]
+               "NotoSans-Bold.ttf", "FreeSansBold.ttf", "Helvetica.ttc",
+               "NotoSansCJK-Bold.ttc", "NotoSansCJK-Regular.ttc", "NotoSansCJKkr-Bold.otf", "NotoSansCJKkr-Regular.otf",
+               "NanumGothicBold.ttf", "NanumGothic.ttf", "NanumGothic-Bold.ttf", "NanumGothic-Regular.ttf",
+               "malgunbd.ttf", "malgun.ttf", "AppleSDGothicNeo.ttc"]
 
 
 def text_backends() -> list:
@@ -690,22 +705,86 @@ def text_backends() -> list:
     return out
 
 
-def find_font() -> str | None:
-    """A bold sans-serif font file on this machine (bold strokes print better, design.md)."""
+def _font_files() -> dict:
+    """{name: path} of the _FONT_NAMES found on this machine (the first hit per name)."""
+    found = {}
     for d in _FONT_DIRS:
         if not os.path.isdir(d):
             continue
         for root, _dirs, files in os.walk(d):
             for name in _FONT_NAMES:
-                if name in files:
-                    return os.path.join(root, name)
-    return None
+                if name in files and name not in found:
+                    found[name] = os.path.join(root, name)
+    return found
+
+
+def font_missing(path: str, text: str) -> list | None:
+    """[(character, 'U+XXXX')] of the distinct non-space characters of `text` that the font
+    file does not map (its cmap, read with fontTools or matplotlib's FT2Font), or None when
+    neither library is installed to read it."""
+    chars = [ch for ch in dict.fromkeys(text) if not ch.isspace()]
+    try:
+        from fontTools.ttLib import TTFont
+        cmap = TTFont(path, fontNumber=0).getBestCmap() or {}
+        return [(ch, f"U+{ord(ch):04X}") for ch in chars if cmap.get(ord(ch)) is None]
+    except ImportError:
+        pass
+    try:
+        from matplotlib.ft2font import FT2Font
+        ft = FT2Font(path)
+        return [(ch, f"U+{ord(ch):04X}") for ch in chars if ft.get_char_index(ord(ch)) == 0]
+    except ImportError:
+        return None
+
+
+def _missing_glyph_error(text: str, missing: list, where: str) -> ValueError:
+    what = ", ".join(f"{ch!r} ({cp})" for ch, cp in missing)
+    return ValueError(f"text {text!r}: {where} cannot draw {what}; it would print a placeholder glyph. Use a font that "
+                      "covers this script (for Korean/CJK e.g. Noto Sans CJK), passed as font=path, or let "
+                      "find_font(text=...) pick one")
+
+
+def find_font(text: str | None = None) -> str | None:
+    """A bold sans-serif font file on this machine, in _FONT_NAMES order; with `text`, the
+    first of them that maps every non-space character (Latin fonts first, then the CJK ones),
+    or None when none does (or when no font at all is found)."""
+    found = _font_files()
+    first = None
+    for name in _FONT_NAMES:
+        path = found.get(name)
+        if not path:
+            continue
+        if text is None or not text.strip():
+            return path
+        missing = font_missing(path, text)
+        if missing is None:                                   # no cmap reader: the first font, as before
+            return path
+        if not missing:
+            return path
+        first = first or path
+    return None if text and text.strip() else first
 
 
 def _outlines_matplotlib(text: str, font: str | None, weight: str) -> list:
-    from matplotlib.font_manager import FontProperties
+    from matplotlib.font_manager import FontProperties, findfont
     from matplotlib.textpath import TextPath
-    prop = FontProperties(fname=font) if font and os.path.isfile(font) else FontProperties(family=font or "DejaVu Sans", weight=weight)
+    if font and os.path.isfile(font):
+        prop, resolved, where = FontProperties(fname=font), font, f"the font file {os.path.basename(font)}"
+    else:
+        family = font or "DejaVu Sans"
+        prop = FontProperties(family=family, weight=weight)
+        resolved = findfont(prop)                               # an unknown family is silently swapped for the default
+        where = f"the font {os.path.basename(resolved)} (matplotlib's choice for family {family!r}"
+        try:
+            from matplotlib.ft2font import FT2Font
+            if FT2Font(resolved).family_name.lower() != family.lower():
+                where += ", which is not installed, so matplotlib substituted its default"
+        except (ImportError, RuntimeError, OSError):
+            pass
+        where += ")"
+    missing = font_missing(resolved, text)
+    if missing:
+        raise _missing_glyph_error(text, missing, where)
     path = TextPath((0, 0), text, size=1000, prop=prop)      # big size: curves are flattened finely
     return [[(float(x) / 1000.0, float(y) / 1000.0) for x, y in poly] for poly in path.to_polygons() if len(poly) >= 3]
 
@@ -713,12 +792,16 @@ def _outlines_matplotlib(text: str, font: str | None, weight: str) -> list:
 def _outlines_fonttools(text: str, font: str | None, weight: str) -> list:
     from fontTools.pens.basePen import BasePen
     from fontTools.ttLib import TTFont
-    path = font if font and os.path.isfile(font) else find_font()
+    path = font if font and os.path.isfile(font) else find_font(text)
     if not path:
-        raise ImportError("fontTools needs a font file: pass font='/path/to/font.ttf'")
+        raise ImportError("fontTools needs a font file that covers the text: pass font='/path/to/font.ttf' "
+                          "(for Korean/CJK e.g. Noto Sans CJK)")
     tt = TTFont(path, fontNumber=0)
     upm = float(tt["head"].unitsPerEm)
     cmap = tt.getBestCmap()
+    missing = [(ch, f"U+{ord(ch):04X}") for ch in dict.fromkeys(text) if not ch.isspace() and cmap.get(ord(ch)) is None]
+    if missing:
+        raise _missing_glyph_error(text, missing, f"the font file {os.path.basename(path)}")
     glyphs = tt.getGlyphSet()
     hmtx = tt["hmtx"]
 
@@ -752,8 +835,9 @@ def _outlines_fonttools(text: str, font: str | None, weight: str) -> list:
     out, x = [], 0.0
     for ch in text:
         name = cmap.get(ord(ch))
-        if name is None:
-            name = cmap.get(ord("?")) or ".notdef"
+        if name is None:                                      # an unmapped space (checked above): advance only
+            x += upm / 4
+            continue
         pen = FlatPen(glyphs, x)
         glyphs[name].draw(pen)
         out += pen.contours
@@ -776,22 +860,54 @@ def text_outlines(text: str, font: str | None = None, weight: str = "bold") -> l
     raise ImportError("; ".join(errors))
 
 
+def _default_font(string: str, weight: str) -> str | None:
+    """text()'s font when none is given: None (matplotlib's DejaVu Sans in `weight`, the
+    default before 0.5, so Latin text keeps its shape) when that font maps every character or
+    matplotlib is not installed; otherwise the find_font(text=) font that does, with a warning.
+    None again when no font draws it all: the outline step then names what is missing."""
+    try:
+        from matplotlib.font_manager import FontProperties, findfont
+    except ImportError:
+        return None                                           # fontTools: it calls find_font(text) itself
+    default = findfont(FontProperties(family="DejaVu Sans", weight=weight))
+    missing = font_missing(default, string)
+    if not missing:
+        return None
+    picked = find_font(string)
+    if picked:
+        import warnings
+        what = "".join(ch for ch, _ in missing[:8])
+        warnings.warn(f"text {string!r}: the default font {os.path.basename(default)} cannot draw {what!r}; "
+                      f"using {os.path.basename(picked)} (pass font= to choose)", stacklevel=3)
+    return picked
+
+
 def text(string: str, height: float = 6.0, depth: float = 1.0, font: str | None = None, weight: str = "bold",
          align: str = "left") -> Manifold:
-    """Text as a solid from z = 0 to z = depth, baseline on y = 0, cap height = `height` mm.
+    """Text as a solid from z = 0 to z = depth, baseline on y = 0, cap height = `height` mm
+    (the em size when the font has no 'H', as in a font of another script).
 
     Union it onto a face for embossed text, or subtract it (translated so it starts `depth`
     below the face) for engraved text. Minimum sizes: tolerances.md (0.6 mm high or deep,
     0.8 mm stroke; 1.0 mm recommended). `align`: "left" (x starts at 0) or "center".
-    font: a font family name (matplotlib) or a .ttf/.otf path; default a bold sans-serif.
+    font: a font family name (matplotlib) or a .ttf/.otf path; default: matplotlib's DejaVu Sans
+    in `weight` when it draws every character (as before 0.5), else the first font of
+    find_font(text=string) that does (Noto Sans CJK / Nanum Gothic for Korean and CJK), with a
+    UserWarning naming it. A character the font cannot draw raises ValueError, naming it and
+    its code point, instead of printing a placeholder glyph.
     Needs matplotlib, or fontTools plus a font file (text_backends())."""
     if not string.strip():
         raise ValueError("text is empty")
     if height <= 0 or depth <= 0:
         raise ValueError("height and depth must be positive")
+    if font is None:
+        font = _default_font(string, weight)
     outlines = text_outlines(string, font, weight)
-    cap = text_outlines("H", font, weight)
-    cap_h = max(y for c in cap for _, y in c) - min(y for c in cap for _, y in c)
+    try:
+        cap = text_outlines("H", font, weight)
+        cap_h = max(y for c in cap for _, y in c) - min(y for c in cap for _, y in c)
+    except ValueError:                                        # no 'H' in this font: height is the em size
+        cap_h = 1.0
     scale = height / cap_h
     contours = [[[x * scale, y * scale] for x, y in c] for c in outlines]
     cs = CrossSection(contours, m3d.FillRule.NonZero)

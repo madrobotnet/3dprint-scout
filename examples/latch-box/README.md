@@ -36,7 +36,7 @@ python3 ../../scripts/fit.py out/box.stl out/lid.stl --b-translate 1.8,1.8,22 --
 python3 ../place.py out/lid.stl out/lid_side.stl --translate 0,50,0
 python3 ../place.py out/label.stl out/label_side.stl --translate 0,50,0
 python3 ../place.py out/latch.stl out/latch_side.stl --translate 0,50,0
-python3 ../../scripts/preview.py out/box.stl out/lid_side.stl out/label_side.stl out/latch_side.stl -o out/preview.png
+python3 ../../scripts/preview.py out/box.stl out/lid_side.stl out/label_side.stl out/latch_side.stl -o out/preview.png --overwrite
 ```
 
 The lid prints top up, flat on the bed; moved by (1.8, 1.8, 22) it sits on the ledge inside the

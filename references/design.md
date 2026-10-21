@@ -15,6 +15,7 @@ Contents:
 - [Orientation for strength](#orientation-for-strength)
 - [Snap fits (cantilever)](#snap-fits-cantilever)
 - [Screws, inserts and threads](#screws-inserts-and-threads)
+- [Keyholes and hanging slots](#keyholes-and-hanging-slots)
 - [Print-in-place joints](#print-in-place-joints)
 - [Mechanisms that carry load](#mechanisms-that-carry-load)
 - [Colour and function seams: split into parts](#colour-and-function-seams-split-into-parts)
@@ -57,7 +58,7 @@ Contents:
   1.35, 1.8 mm. Walls thinner than one perimeter do not print, and walls between one and two
   perimeters print badly [1]. Design walls as a whole number of lines: 1.2 mm minimum,
   1.6–2.0 mm for anything structural (`tolerances.md`). Avoid 1.0 mm (two lines plus a gap the
-  slicer cannot fill).
+  slicer cannot fill); text strokes are the exception ("Text, logos, cosmetic faces").
 - Free-standing pins under 5 mm are weak; give them a fillet or chamfer at the base, or use a
   metal pin for anything that must not snap off [2]. Printed pins and ribs: 0.8 mm minimum,
   1.2 mm recommended (`tolerances.md`).
@@ -90,12 +91,26 @@ Contents:
   and printed break strains (PLA 4–8 %, ABS 7 %, nylon 4–15 % [6]) with a safety margin for
   layer bonds. Joints opened often: 60 % of that [9]. A cantilever built along Z halves the
   allowable strain [6]; do not build them that way.
+- A snap opened every day: that 60 % strain and SF 3 on the arm (`materials.md`, "Safety
+  factor"). PLA is fine when the arm is not held deflected (PLA creeps under a held load); PETG
+  when the undercut needs more strain than PLA allows.
 - Lead-in (entry) angle 30°; retention angle 90° locks (needs a release window), 45° lets the
   joint open by hand [9]. Thickness 1.2 mm minimum, flexing within the layer plane
   (`tolerances.md`). Fillet or chamfer the root (about half the wall thickness) [6].
-- `parts.snap_fit_check(L, t, y, material)` gives the strain and the maximum deflection;
+- `strength.py snap` (any engine) and `parts.snap_fit_check(L, t, y, material)` give the strain
+  against the limit and the maximum deflection; `strength.py snap` adds the deflection force and
+  the insertion and release forces;
   `parts.snap_hook(...)` refuses a beam over the limit; `parts.snap_window(...)` cuts the
   matching window with the snug clearance of `tolerances.md`.
+- A snap arm is exempt from the latch floors ("Mechanisms that carry load"). Its load case in
+  `strength.py` is its own deflection or release force (P above, at full undercut), not a
+  hand-force key.
+- **Snap-in cylinder (C-clip)**: a round part pushed into a ring open at the mouth. The bore
+  clearance sets only the rattle (snug, `tolerances.md`); the hold comes from the mouth
+  undercut (cylinder Ø minus mouth width), sized by the strain formula above. Each arm deflects
+  about half the undercut when both arms flex, the whole undercut when one side is rigid; the
+  straight-beam formula only approximates a curved arm. A start value only: confirm it with a
+  full-width test piece (`parts.md`, "Printing the mechanism first").
 
 ## Screws, inserts and threads
 
@@ -121,9 +136,26 @@ heads ISO 10642 (theoretical dk, 90°) [14]; M2/M2.5 countersink values are star
   around the hole 2 mm (five lines), and a 1 mm floor (starting points; `parts.standoff`).
 - Countersink: 90° cone to the head's theoretical dk plus 0.3 mm radial clearance; counterbore:
   dk plus 0.3 mm radial, k plus 0.3 mm deep (starting points; `parts.screw_hole(kind=...)`).
+  For a wood screw or any screw in hand, the caliper's head diameter beats the ISO table
+  (`parts.screw_hole(..., head_d=)`).
 - Printed threads from M6 up (`tolerances.md`); `parts.thread(...)` makes an approximate ISO
   profile (60° flanks, flat crest and root, no rounding) with 0.25 mm radial clearance for the
   nut as a starting point. Below M6: inserts or thread-forming screws.
+
+## Keyholes and hanging slots
+
+- A keyhole hangs the part on a screw head in the wall: a round entry the head passes through,
+  a slot for the shank, and a pocket behind the slot that holds the head. The part slides
+  **down** onto the screw, so in the hanging pose the slot runs **up** from the entry.
+- Shank slot and head pocket: the shank's and the head's diameter plus the sliding clearance
+  (`tolerances.md`, per side); the entry a little wider than the pocket. Pocket depth: the
+  head height plus room for how far the screw stands out of the wall.
+- The head height is rarely given: ask, or assume it (a standard head of that size) and record
+  it in `_assumptions`.
+- The lip (between the back face and the pocket, it carries the part) and the roof (in front
+  of the pocket) are structural walls, 1.6–2.0 mm (`tolerances.md`). Printed back-down, the
+  roof bridges the pocket: keep that span under 10 mm ("Overhangs").
+- These are start values: confirm the hang with a test piece when the screw is at hand.
 
 ## Print-in-place joints
 
@@ -249,6 +281,29 @@ refuses a pin wall under 2.2 mm (measured above the teardrop's point, which reac
   built-in font is a regular weight: its strokes reach 0.8 mm only at about a 7 mm cap height
   (measured in the coaster example); pass a bold font file to `blender_builder.text` for
   smaller text (it is packed into the `.blend`).
+- Text strokes are not walls: a 0.8–1.2 mm stroke prints with gap fill or the Arachne wall
+  generator's variable-width lines, not whole perimeters, so "avoid 1.0 mm" (walls, above) does
+  not apply. Bambu's system process presets use the classic wall generator (`fdm_process_common`,
+  profiles 02.08.02.61): for small text set `wall_generator: "arachne"` on the object
+  (`bambu-process.md`).
+- **Two colours.** Light text on a dark body (white on black): a flush inlay at least 1.0 mm
+  deep, 5 layers at 0.2 mm, so the dark does not show through the light layers (starting point).
+  Raised text in a second colour only for dark on light, or 0.8 mm high or more (4 layers).
+  The text is a `fused` part of the body's object (`parts.md`): A1 checks it, and F3 is N/A
+  (no clearance, no joint). P3 WARNs on an inlay under 1.2 mm deep (it measures the depth); the
+  text rule decides.
+- **Fonts.** The font must cover the script: `bb.text` and `parts.text` refuse a character the
+  font cannot draw, while OpenSCAD's `text()` draws boxes or falls back to another font without
+  a word (2021.01, a test run), so there name a font that covers the script and check the body
+  count and the preview. Prefer OFL or Apache fonts; for Korean and other CJK text the default
+  is Noto Sans CJK (SIL OFL 1.1). Record the font and its licence in `_assumptions`. A font the
+  user supplies stays in the project's `fonts/`. Never pack a proprietary system font (Malgun
+  Gothic, Apple SD Gothic Neo, ...) into a delivered file: deliver the STLs only, without the
+  `.blend`, or ask. A `.ttc` loads its first face, and a packed CJK font makes the `.blend`
+  large (a 20 MB `.ttc` gave a 15 MB `.blend` in a test run).
+- Text height is the cap height of a Latin "H": Hangul and other non-Latin glyphs come out
+  taller (Hangul 25–33 % in a test run), so take the text's size from what the build reports
+  (`engines/blender.md`, "Booleans and text"), not from the height you asked for.
 - Engraved text on the top face prints sharpest. Embossed text on a vertical wall is fine when
   the relief is shallow (about 1 mm: the underside of each letter is a tiny overhang). Text on
   the bottom face takes the bed's finish; engrave it, and expect elephant foot to round it.

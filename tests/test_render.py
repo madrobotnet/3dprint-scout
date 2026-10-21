@@ -136,6 +136,10 @@ class WithBlender(Base):
         self.assertTrue(out["ran"] and out["sane"])
         self.assertEqual(out["files"][0]["views"], ["iso", "front", "right", "top"])
         self.assertIn("of the pixels show the part", out["files"][0]["note"])
+        self.assertEqual(sorted(out["files"][0]["fg_views"]), ["front", "iso", "right", "top"])   # per view, for the agent
+        self.assertTrue(all(0.0005 < f < 0.95 for f in out["files"][0]["fg_views"].values()), out["files"][0])
+        self.assertAlmostEqual(out["files"][0]["fg"], sum(out["files"][0]["fg_views"].values()) / 4, delta=0.02)
+        self.assertEqual(out["parts"][1]["drawn"], "#e6e6e6")               # white taken down a little, off the background
         self.assertEqual(out["size_mm"], [40.0, 30.0, 8.0])
         self.assertEqual([p["name"] for p in out["parts"]], ["body", "lid"])
         self.assertEqual(out["parts"][1]["colour"], "#ffffff")
