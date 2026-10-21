@@ -112,4 +112,5 @@ report is fresh and its F3 / F3_sweep PASS against the delivered parts (or a dec
 every declared member's `strength.py` gate is PASS, no WARN is left unaccepted, the delivered
 copies (with `--deliver`) are the verified files, and `joints` and `strength` were declared at
 all. Paths are relative to the folder it ran in. Exit 0 when it ran, 1 on a usage or file error
-(a missing or wrong `--build`, a bad `_verify`, an existing `--bundle` folder).
+(a missing or wrong `--build`, a bad `_verify`, an existing `--bundle` folder, a source outside
+the project folder). A malformed 3MF manifest is an `open` reason, not an error.

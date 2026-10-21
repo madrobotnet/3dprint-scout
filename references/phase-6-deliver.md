@@ -27,10 +27,12 @@ checks pass". `--deliver` checks the delivery folder: every STL must be one of t
 STLs, every 3MF must carry its manifest (`<file>.3mf.manifest.json`, written next to it by
 `build.py` and `bambu3mf.py`: copy it along, or write the Bambu project straight into the
 delivery folder) naming exactly the verified STLs, and every part must be delivered in one of
-them. `--bundle` writes a new folder with the generator (not the
-skill's libraries), `params.json`, the `printers.json` the build used, the report as
+them. `--bundle` writes a new folder with the generator and its own files (not the
+skill's libraries) at their places in the project folder (`lib/helper.py` stays
+`lib/helper.py`), `params.json`, the `printers.json` the build used, the report as
 `verification.json` and `REPRODUCE.md`, the commands that rebuild and re-check the parts; it
-refuses a source or `params.json` that holds a path of this machine (put a name there); deliver it with the files so a later change can
+refuses a source outside the project folder (move it in and build again) and a source or
+`params.json` that holds a path of this machine (put a name there); deliver it with the files so a later change can
 start from it. Deliver:
 
 1. Files chosen by the slicer saved in Phase 2:

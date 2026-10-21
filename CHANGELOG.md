@@ -57,8 +57,10 @@ for new features.
   It re-checks with the settings the build used (now in the build JSON with each STL's sha256),
   needs every `_parts` part built and a build without errors, and with `--deliver` checks every
   STL and 3MF in the delivery folder (a 3MF through the `<file>.3mf.manifest.json` that
-  `build.py` and `bambu3mf.py` now write next to it). `--bundle` writes the generator,
-  parameters, printers.json, the report and `REPRODUCE.md`, and refuses a file that holds a path
+  `build.py` and `bambu3mf.py` now write next to it; a malformed one is an open reason).
+  `--bundle` writes the generator and its own files at their places in the project folder (so
+  imports, includes and loaded files still resolve), parameters, printers.json, the report and
+  `REPRODUCE.md`, and refuses a source outside the project folder or a file that holds a path
   of this machine (a whole folder, in any form: JSON-escaped, MSYS, any case; the report itself
   is scrubbed of every form). The build's object checks count only with the build's settings
   and printers.json (`settings_drift`). A D1 against an expect copied from the model stays open
@@ -80,8 +82,9 @@ for new features.
   inset outline. A third pass found rounds on a cut's face that crossed themselves while every
   mesh check passed, a weld that hid an overlap, a gentle curve folded flat, a round's end that
   met another round, and an object judged on one printer reported as verified for another; all
-  are fixed or refused, with tests.
-- **Tests**: 289 → 325, with Python 3.13 + Blender 5.2.2 and without Blender.
+  are fixed or refused, with tests. Codex's review found the bundle flattening sources into one
+  folder and a malformed 3MF manifest giving a traceback; both fixed.
+- **Tests**: 289 → 327, with Python 3.13 + Blender 5.2.2 and without Blender.
 
 ## 0.5.1 — 2026-10-21
 

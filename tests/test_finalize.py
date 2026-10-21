@@ -201,6 +201,71 @@ class Finalize(Workspace):
         code, fin = self.finalize("--deliver", "deliver")
         self.assertTrue(any("old.3mf: no 3MF manifest" in o for o in fin["open"]), fin["open"])
 
+    def test_the_bundle_keeps_each_source_at_its_place(self):
+        """Codex review of 0.6 (P1): a generator that imports lib/helper.py or loads
+        assets/base.stl rebuilds from the bundle only if those keep their places; a source
+        outside the project folder is refused, not flattened."""
+        self.params(self.full_verify())
+        os.makedirs("lib")
+        os.makedirs("assets")
+        with open("lib/helper.py", "w") as f:
+            f.write("W = 2\n")
+        with open("assets/base.txt", "w") as f:
+            f.write("base\n")
+        code, out = run(build, "record", "out/box.stl", "out/lid.stl", "--source", "gen.py", "lib/helper.py",
+                        "assets/base.txt", "--params", ".3dprint/params.json", "--printer", ".3dprint/printers.json",
+                        "--out", "out", "--no-wall-check", "--no-3mf")
+        with open("out/build.json", "w") as f:
+            json.dump(out, f)
+        code, fin = self.finalize("--bundle", "deliver/source")
+        self.assertEqual(code, 0, fin["errors"])
+        for path in ("deliver/source/gen.py", "deliver/source/lib/helper.py", "deliver/source/assets/base.txt"):
+            self.assertIn(path, fin["bundle"])
+            self.assertTrue(os.path.isfile(path), path)
+        with open("deliver/source/REPRODUCE.md", encoding="utf-8") as f:
+            line = next(ln for ln in f.read().splitlines() if "--source" in ln)
+        self.assertEqual(sorted(line.split("--source ")[1].split(" --params")[0].split()),
+                         ["assets/base.txt", "gen.py", "lib/helper.py"])
+        outside = tempfile.mkdtemp(prefix="3dps-out-")
+        self.addCleanup(shutil.rmtree, outside, ignore_errors=True)
+        with open(os.path.join(outside, "far.py"), "w") as f:
+            f.write("X = 1\n")
+        code, out = run(build, "record", "out/box.stl", "out/lid.stl", "--source", "gen.py",
+                        os.path.join(outside, "far.py"), "--params", ".3dprint/params.json", "--printer",
+                        ".3dprint/printers.json", "--out", "out", "--no-wall-check", "--no-3mf")
+        with open("out/build.json", "w") as f:
+            json.dump(out, f)
+        code, fin = self.finalize("--bundle", "deliver/other")
+        self.assertEqual(code, 1)
+        self.assertIn("far.py is outside the folder the build ran in", fin["errors"][0])
+        self.assertFalse(os.path.exists("deliver/other"))
+
+    def test_a_malformed_3mf_manifest_is_a_reason_not_a_crash(self):
+        """Codex review of 0.6 (P2): a manifest whose parts is not a map gave a traceback."""
+        self.params(self.full_verify())
+        code, out = run(build, "record", "out/box.stl", "out/lid.stl", "--source", "gen.py", "--params",
+                        ".3dprint/params.json", "--printer", ".3dprint/printers.json", "--out", "out", "--no-wall-check")
+        with open("out/build.json", "w") as f:
+            json.dump(out, f)
+        os.makedirs("deliver")
+        shutil.copyfile(out["threemf"], "deliver/set.3mf")
+        with open(out["threemf"] + ".manifest.json", encoding="utf-8") as f:
+            good = json.load(f)
+        for bad in (["box", "lid"], "box", {"box": 1}, None):
+            os.remove(out["threemf"] + ".manifest.json") if os.path.exists(out["threemf"] + ".manifest.json") else None
+            with open("deliver/set.3mf.manifest.json", "w", encoding="utf-8") as f:
+                json.dump(dict(good, parts=bad), f)
+            code, fin = self.finalize("--deliver", "deliver")
+            self.assertEqual(code, 0, fin.get("errors"))
+            self.assertTrue(any("deliver/set.3mf: its manifest set.3mf.manifest.json is malformed" in o
+                                for o in fin["open"]), (bad, fin["open"]))
+            self.assertEqual(fin["geometry"], "not verified")
+        with open("deliver/set.3mf.manifest.json", "w", encoding="utf-8") as f:
+            json.dump(dict(good, artifact_sha256=["x"]), f)                   # not even a hash: no manifest
+        code, fin = self.finalize("--deliver", "deliver")
+        self.assertEqual(code, 0, fin.get("errors"))
+        self.assertTrue(any("deliver/set.3mf: no 3MF manifest" in o for o in fin["open"]), fin["open"])
+
     def test_a_stale_build_json_or_a_missing_part_is_not_verified(self):
         """Review of 0.6: the saved build JSON must be the build of these STLs, and of every part."""
         self.params(self.full_verify(), _parts={"box": {"expect": [40, 30, 20], "object": "o"},

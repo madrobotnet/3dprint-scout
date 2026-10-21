@@ -54,11 +54,13 @@ for the delivery message.
 --deliver DIR checks the delivery folder: every STL in it must be one of the verified STLs,
 every 3MF must carry a manifest (`<file>.3mf.manifest.json`, written by build.py and bambu3mf.py
 next to the 3MF; copy it along) that lists exactly the verified STLs, and every part must be
-delivered in one or the other. --bundle DIR writes a new folder with the generator sources (not
-the skill's own libraries), params.json, the printers.json the build used, this report and
+delivered in one or the other; a malformed manifest is a reason, not an error. --bundle DIR
+writes a new folder with the generator sources (not the skill's own libraries) at their places
+relative to the folder the build ran in (lib/helper.py stays lib/helper.py, so imports, includes
+and loaded files still resolve), params.json, the printers.json the build used, this report and
 REPRODUCE.md (the commands that rebuild and re-check the parts); it refuses an existing folder,
-and a source or params file that holds a path of this machine. Exit 0 when it ran (read
-"geometry"), 1 on a usage or file error.
+a source outside the project folder, and a source or params file that holds a path of this
+machine. Exit 0 when it ran (read "geometry"), 1 on a usage or file error.
 """
 from __future__ import annotations
 
@@ -433,7 +435,8 @@ def check_references(verify, objects):
 
 
 def threemf_manifests(folders):
-    """Every 3MF manifest in the folders: {artifact sha256: manifest}."""
+    """Every 3MF manifest in the folders: {artifact sha256: manifest}; a manifest whose `parts`
+    is not a map of part names to sha256 strings is {"_malformed": its file name}."""
     found = {}
     for folder in folders:
         if not folder or not os.path.isdir(folder):
@@ -446,8 +449,15 @@ def threemf_manifests(folders):
                             m = json.load(f)
                     except (OSError, ValueError):
                         continue
-                    if isinstance(m, dict) and m.get("schema") == MANIFEST_3MF and m.get("artifact_sha256"):
-                        found[m["artifact_sha256"]] = m
+                    if not (isinstance(m, dict) and m.get("schema") == MANIFEST_3MF
+                            and isinstance(m.get("artifact_sha256"), str) and m["artifact_sha256"]):
+                        continue
+                    sha, parts = m["artifact_sha256"], m.get("parts")
+                    if isinstance(parts, dict) and parts and all(isinstance(k, str) and isinstance(v, str)
+                                                                 for k, v in parts.items()):
+                        found[sha] = m
+                    elif sha not in found:              # never in place of a sound one
+                        found[sha] = {"_malformed": fn}
     return found
 
 
@@ -478,7 +488,11 @@ def check_delivered(deliver, parts, build):
             sha = validate.file_sha256(path)
             m = manifests.get(sha)
             entry = {"file": rel(path), "kind": "3mf", "manifest": bool(m)}
-            if not m:
+            if m and m.get("_malformed"):
+                entry["manifest"] = False
+                reasons.append(f"{rel(path)}: its manifest {m['_malformed']} is malformed (`parts` must map each part "
+                               "name to its STL's sha256): write the 3MF again with build.py / bambu3mf.py")
+            elif not m:
                 reasons.append(f"{rel(path)}: no 3MF manifest says which STLs it was written from (copy "
                                f"{fn}.manifest.json along, or write it with build.py / bambu3mf.py from the verified STLs)")
             else:
@@ -513,6 +527,19 @@ def holds_machine_path(path):
     return any(re.search(re.escape(form) + r"(?![\w-])", text, flags=re.IGNORECASE) for form, _ in machine_forms())
 
 
+BUNDLE_OWN = ("params.json", "printers.json", "REPRODUCE.md", "verification.json")
+
+
+def bundle_path(src):
+    """Where a source goes in the bundle: its path relative to the working folder (the folder the
+    build ran in), so an import, an include or a loaded file still finds it; None outside it."""
+    try:
+        r = os.path.relpath(os.path.abspath(src))
+    except ValueError:                                   # another drive on Windows
+        return None
+    return None if r == ".." or r.startswith(".." + os.sep) else r.replace(os.sep, "/")
+
+
 def write_bundle(folder, build, params_path, settings, report):
     if os.path.exists(folder):
         raise FinalizeError(f"{folder} exists; the bundle goes into a new folder (never overwrites)")
@@ -523,13 +550,20 @@ def write_bundle(folder, build, params_path, settings, report):
     if leaking:
         raise FinalizeError(f"{', '.join(leaking)} holds a path of this machine; take it out (a name, not a path) "
                             "before bundling")
-    names = [os.path.basename(f) for f in files]
-    if len(set(names)) != len(names):
-        raise FinalizeError(f"two bundled files share a name ({', '.join(names)}); rename one")
+    places = {src: bundle_path(src) for src in srcs}
+    outside = [os.path.basename(src) for src, place in places.items() if place is None]
+    if outside:
+        raise FinalizeError(f"{', '.join(outside)} is outside the folder the build ran in; the bundle keeps every "
+                            "source at its place relative to that folder (imports, includes and loaded files depend "
+                            "on it): move it into the project folder and build again")
+    clash = [place for place in places.values() if place.lower() in {n.lower() for n in BUNDLE_OWN}]
+    if clash:
+        raise FinalizeError(f"{', '.join(clash)} would take the place of a file the bundle writes itself; rename it")
     os.makedirs(folder)
     written = []
     for src in srcs:
-        dst = os.path.join(folder, os.path.basename(src))
+        dst = os.path.join(folder, *places[src].split("/"))
+        os.makedirs(os.path.dirname(dst), exist_ok=True)
         shutil.copyfile(src, dst)
         written.append(rel(dst))
     shutil.copyfile(params_path, os.path.join(folder, "params.json"))
@@ -537,7 +571,8 @@ def write_bundle(folder, build, params_path, settings, report):
     if printers:
         shutil.copyfile(printers, os.path.join(folder, "printers.json"))
         written.append(rel(os.path.join(folder, "printers.json")))
-    main = os.path.basename(build.get("source") or (srcs[0] if srcs else "model"))
+    main_src = build.get("source") or (srcs[0] if srcs else None)
+    main = (bundle_path(main_src) or os.path.basename(main_src)) if main_src else "model"
     engine = build.get("engine") or "?"
     flags = []
     if printers:
@@ -558,7 +593,7 @@ def write_bundle(folder, build, params_path, settings, report):
         lines += [f"This build was recorded (`build.py record`, engine {engine}): run the generator in {engine}, export "
                   "one STL per part named after the part into `out/`, then:", "", "```bash",
                   f'python3 "$SKILL_DIR/scripts/build.py" record out/<part>.stl ... --source '
-                  f'{" ".join(os.path.basename(s) for s in srcs) or main} --params params.json --engine {engine} '
+                  f'{" ".join(places[s] for s in srcs) or main} --params params.json --engine {engine} '
                   f"--out out{flag_text} > build.json", "```", ""]
     lines += ["Then re-check:", "", "```bash",
               'python3 "$SKILL_DIR/scripts/finalize.py" --build build.json --params params.json', "```", "",
