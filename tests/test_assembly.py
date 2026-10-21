@@ -77,6 +77,22 @@ class ObjectChecks(unittest.TestCase):
         self.assertEqual(assembly.object_gate(rep), "FAIL")
         self.assertTrue(any("near A2" in w for w in rep["warnings"]))
 
+    def test_free_parts_touching_each_other_fail(self):
+        """0.5.1: two print-in-place parts that touch each other fuse together just as one that
+        touches the body does: A2 FAIL on both, not a short-clearance WARN."""
+        stls = {"body": self.stl("body.stl", box(40, 40, 3)),
+                "p": self.stl("p.stl", box(10, 10, 5, 5, 5, 3.5)),               # 0.5 mm above the body
+                "q": self.stl("q.stl", box(10, 10, 5, 15, 5, 3.5)),              # face to face with p
+                "r": self.stl("r.stl", box(10, 10, 5, 25.5, 5, 3.5))}            # 0.5 mm from q: clear
+        specs = {"body": {"object": "o"}, "p": {"object": "o", "role": "free"},
+                 "q": {"object": "o", "role": "free"}, "r": {"object": "o", "role": "free", "clearance": 0.3}}
+        rep = assembly.check_object(assembly.group_parts(specs)[0], stls, specs)
+        a2 = {n: rep["parts"][n]["checks"]["A2"] for n in ("p", "q", "r")}
+        self.assertEqual({n: c["state"] for n, c in a2.items()}, {"p": "FAIL", "q": "FAIL", "r": "PASS"}, a2)
+        self.assertIn("touches or overlaps q", a2["p"]["note"])
+        self.assertIn("touches or overlaps p", a2["q"]["note"])
+        self.assertEqual(assembly.object_gate(rep), "FAIL")
+
     def test_every_body_of_a_fused_part_must_touch(self):
         """S3-3: a text part is one STL of several bodies; a letter that floats above the plate
         fails A1 even though the other letters sit on it."""

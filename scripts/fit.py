@@ -4,8 +4,10 @@ fit.py - F3 check: do two mating parts fit, from both sides, with numbers.
 
 Given two STLs placed as they will be assembled, it measures
   - interference: the volume both parts claim (exact boolean intersection, manifold3d);
-  - play: how far part B can move along each --play direction before it first touches A
-    (bisection on the boolean, to --play-precision mm). A lid seated on a rim has zero gap
+  - play: how far part B can move along each --play direction before it first touches A,
+    following the whole move (in steps no longer than the current gap, or 0.2 mm, so an
+    obstacle B would pass through and leave is found), then bisection on the boolean to
+    --play-precision mm. A lid seated on a rim has zero gap
     in -Z but 0.2 mm of play sideways: that sideways play is the clearance of the fit;
   - minimum gap: the smallest distance between the two surfaces at the given placement
     (manifold3d min_gap; 0 when the parts touch, as a seated lid does);
@@ -24,10 +26,14 @@ away from its placed pose, and reports the interference and gap at each step, th
 which B first hits A (its stop) and the free travel before it. Angles are travel from the
 placed pose in one direction: 0:90:2 turns counter-clockwise about the axis, -40:0:2 (or
 0:-40:2) clockwise; a range on both sides of 0 is two sweeps, run them separately. The
-verdict F3_sweep: PASS when nothing is hit, or when --sweep-travel DEG is given and the
-part is free through that travel (the stop angle is reported); FAIL when it hits before
-the required travel; WARN when it hits and no travel was required (then say what the
-part must do). A lever that must turn 40 degrees before its stop:
+verdict F3_sweep needs --sweep-travel DEG, the travel the part must have (a magnitude): PASS
+when the part is free through it (a stop beyond it is reported); FAIL when it hits before
+it; WARN when it hits and no travel was given (then say what the part must do);
+UNVERIFIED when nothing is hit but no travel was given, when the range does not start at 0
+or ends before the travel, or when the turn between steps needed more checks than a sweep
+allows. Between two steps the turn is followed too, wherever the gaps at the steps do not
+cover it, so a thin stop between steps is found. A lever that must turn 40 degrees before
+its stop:
 
   python3 fit.py out/body.stl out/lever.stl --sweep-axis z --sweep-pivot 12,0,0 \
       --sweep-angles 0:90:2 --sweep-travel 40
@@ -70,6 +76,13 @@ DEFAULT_MAX_INTERFERENCE = 0.001  # mm3; coincident faces can leave slivers of t
 DEFAULT_SEARCH = 5.0             # mm; gaps beyond this are "not mating"
 DEFAULT_PLAY = "1,0,0;-1,0,0;0,1,0;0,-1,0"   # sideways play of a part dropped in from above
 DEFAULT_PLAY_PRECISION = 0.001   # mm
+PATH_STEP = 0.2                  # mm: the finest step along a move or a turn. A move is followed
+                                 # in steps no longer than the current gap (nothing can meet
+                                 # sooner) or this; only an obstacle and B's own feature together
+                                 # thinner than this along the path (half a 0.4 mm line) could be
+                                 # passed unseen
+SWEEP_BUDGET = 1000              # turns checked between the steps of one sweep; more and the
+                                 # sweep is UNVERIFIED (a slow, huge report helps nobody)
 
 
 class FitError(Exception):
@@ -260,17 +273,33 @@ def parse_directions(text):
 
 
 def play(a, b, direction, max_travel, precision, eps):
-    """How far B can move along `direction` before it overlaps A: bisection on the
-    interference volume. Returns (travel, hit): hit False means free for max_travel."""
+    """How far B can move along `direction` before it first overlaps A, following the whole
+    path: B advances by its current gap to A (a move shorter than the gap cannot make them
+    meet), or by PATH_STEP where the gap is smaller, checking the overlap at each stop; the
+    first overlap is then narrowed by bisection. An obstacle B would pass through and leave
+    (a lip a ring sits behind) is found, not only one still in the way at max_travel.
+    Returns (travel, hit): hit False means free for max_travel."""
+    def moved(t):
+        return b.translate([direction[0] * t, direction[1] * t, direction[2] * t])
+
     def overlaps(t):
-        moved = b.translate([direction[0] * t, direction[1] * t, direction[2] * t])
-        inter = a ^ moved
+        inter = a ^ moved(t)
         return (not inter.is_empty()) and inter.volume() > eps
     if overlaps(0.0):
         return 0.0, True
-    if not overlaps(max_travel):
-        return max_travel, False
-    lo, hi = 0.0, max_travel
+    t = 0.0
+    while True:
+        remaining = max_travel - t
+        gap = a.min_gap(moved(t), remaining + PATH_STEP)
+        if gap >= remaining:                       # nothing of A within reach of the rest of the move
+            return max_travel, False
+        nxt = min(max_travel, t + max(gap, PATH_STEP))
+        if overlaps(nxt):
+            lo, hi = t, nxt
+            break
+        if nxt >= max_travel:
+            return max_travel, False
+        t = nxt
     while hi - lo > precision:
         mid = (lo + hi) / 2
         if overlaps(mid):
@@ -330,18 +359,74 @@ def rotation_about(axis, pivot, deg):
     return np.c_[R, t]
 
 
-def sweep(a, b, axis, pivot, angles, eps, search):
-    """[{angle_deg, interference_mm3, min_gap_mm}] over the angles, plus the first overlap."""
-    rows, first = [], None
-    for deg in angles:
+def reach_radius(b, axis, pivot):
+    """The largest distance of B's vertices from the axis through the pivot (mm): a turn by
+    d degrees moves no point of B farther than 2 r sin(d / 2)."""
+    import numpy as np
+    v = np.asarray(b.to_mesh().vert_properties[:, :3], dtype=np.float64) - np.asarray(pivot, dtype=np.float64)
+    k = np.asarray(axis, dtype=np.float64)
+    radial = v - np.outer(v @ k, k)
+    return float(np.sqrt((radial * radial).sum(axis=1)).max()) if len(v) else 0.0
+
+
+def _reach_deg(gap, radius):
+    """Degrees B can turn with no point moving farther than `gap` (so it cannot meet A)."""
+    if radius <= 0 or gap >= 2 * radius:
+        return 180.0
+    return math.degrees(2 * math.asin(max(gap, 0.0) / (2 * radius)))
+
+
+def sweep(a, b, axis, pivot, angles, eps, search, budget=None):
+    """([{angle_deg, interference_mm3, min_gap_mm}], first overlap, reach radius, turns checked
+    between steps, whether that check finished). Up to the first overlap the turn between two
+    steps is followed too: where the gaps at the two steps leave part of it uncovered (a point
+    of B could move farther than the gap), angles in between are added (marked
+    "between_steps") until no point of B moves more than PATH_STEP between two checked angles,
+    so a thin stop between two steps is found. A part that turns in contact (gap 0 all the
+    way) needs the most of them; past `budget` the check stops unfinished."""
+    radius = reach_radius(b, axis, pivot)
+    fine = math.degrees(PATH_STEP / radius) if radius > 0 else 180.0
+    budget = SWEEP_BUDGET if budget is None else budget
+    used = [0, True]                                   # turns checked between steps, finished
+
+    def sample(deg):
         moved = b.transform(rotation_about(axis, pivot, deg)) if deg else b
         inter = a ^ moved
         vol = inter.volume() if not inter.is_empty() else 0.0
         gap = a.min_gap(moved, search)
-        rows.append({"angle_deg": deg, "interference_mm3": round(vol, 4), "min_gap_mm": round(gap, 4)})
+        return {"angle_deg": round(deg, 6), "interference_mm3": round(vol, 4), "min_gap_mm": round(gap, 4)}, vol, gap
+
+    def between(u0, g0, u1, g1, sign):
+        """Rows added inside (u0, u1) (travel in degrees) and the first overlap there, or None."""
+        if _reach_deg(g0, radius) + _reach_deg(g1, radius) >= u1 - u0 or u1 - u0 <= fine:
+            return [], None
+        if used[0] >= budget:
+            used[1] = False
+            return [], None
+        used[0] += 1
+        m = (u0 + u1) / 2
+        row, vol, gm = sample(sign * m)
+        row["between_steps"] = True
+        hit = vol > eps
+        left, first = between(u0, g0, m, 0.0 if hit else gm, sign)
+        if first is not None:
+            return left, first
+        if hit:
+            return left + [row], row["angle_deg"]
+        right, first = between(m, gm, u1, g1, sign)
+        return left + [row] + right, first
+
+    rows, first, prev = [], None, None
+    for deg in angles:
+        row, vol, gap = sample(deg)
+        if first is None and prev is not None:
+            extra, first = between(abs(prev[0]), prev[1], abs(deg), gap, -1.0 if deg < 0 else 1.0)
+            rows += extra
+        rows.append(row)
         if first is None and vol > eps:
             first = deg
-    return rows, first
+        prev = (deg, gap) if vol <= eps else None
+    return rows, first, radius, used[0], used[1]
 
 
 def build_input_hash(path, sha):
@@ -439,9 +524,10 @@ def check(args) -> dict:
             travel, hit = play(a, b, d, args.search, args.play_precision, args.max_interference)
             plays.append({"direction": [round(c, 4) for c in d], "play_mm": round(travel, 4), "contact": hit})
     metrics["play"] = plays
-    metrics["play_method"] = (f"B moved along each direction until the boolean overlap exceeds {args.max_interference} mm3, "
-                              f"bisection to {args.play_precision} mm; a direction without contact within {args.search} mm "
-                              "reports that length with contact false")
+    metrics["play_method"] = (f"B moved along each direction, in steps no longer than its gap to A or {PATH_STEP} mm, until "
+                              f"the boolean overlap first exceeds {args.max_interference} mm3, then bisection to "
+                              f"{args.play_precision} mm; a direction without contact within {args.search} mm reports that "
+                              "length with contact false")
     try:
         import numpy  # noqa: F401
         cutoff = max(args.contact_tol * 2, (args.min_clearance or 0.0) * 1.5, 0.5)
@@ -484,34 +570,63 @@ def check(args) -> dict:
         out["warnings"].append(f"F3: {note}")
 
     if args.sweep_angles:
-        rows, first = sweep(a, b, args.sweep_axis, args.sweep_pivot, args.sweep_angles, args.max_interference, args.search)
+        angles = args.sweep_angles
+        rows, first, radius, checked, finished = sweep(a, b, args.sweep_axis, args.sweep_pivot, angles,
+                                                       args.max_interference, args.search)
         before = rows if first is None else rows[: [r["angle_deg"] for r in rows].index(first)]
         free = [r["angle_deg"] for r in before if r["interference_mm3"] <= args.max_interference]
         closest = min(rows, key=lambda r: r["min_gap_mm"]) if rows else None
-        direction = "counter-clockwise" if rows[-1]["angle_deg"] >= 0 else "clockwise"
+        direction = "counter-clockwise" if angles[-1] >= 0 else "clockwise"
+        start, end = abs(angles[0]), abs(angles[-1])
+        need = abs(args.sweep_travel) if args.sweep_travel is not None else None     # a travel, either way round
+        from_pose = start <= 1e-9
+        until = free[-1] if free and from_pose else None
+        # The table keeps the steps, and of the turns checked between them only the two that
+        # bracket the stop; the rest are counted (a part turning in contact needs hundreds).
+        keep = {first, until}
+        table = [r for r in rows if not r.get("between_steps") or r["angle_deg"] in keep]
         sw = {"axis": [round(c, 4) for c in args.sweep_axis], "pivot_mm": args.sweep_pivot,
-              "direction": direction, "angles_deg": [rows[0]["angle_deg"], rows[-1]["angle_deg"]],
-              "step_deg": round(abs(rows[1]["angle_deg"] - rows[0]["angle_deg"]), 6) if len(rows) > 1 else None,
-              "first_overlap_deg": first, "free_until_deg": free[-1] if free else None,
-              "free_travel_deg": abs(free[-1]) if free else 0.0, "required_travel_deg": args.sweep_travel,
-              "closest": closest, "table": rows,
+              "direction": direction, "angles_deg": [angles[0], angles[-1]],
+              "step_deg": round(abs(angles[1] - angles[0]), 6) if len(angles) > 1 else None,
+              "reach_radius_mm": round(radius, 3), "between_steps_checked": checked,
+              "first_overlap_deg": first, "free_until_deg": until,
+              "free_travel_deg": abs(until) if until is not None else 0.0, "required_travel_deg": need,
+              "closest": closest, "table": table,
               "method": "B is rotated about the axis through the pivot, from its placed pose outward in travel order; "
-                        "interference and gap at each angle; the first step with an overlap is the stop"}
+                        "interference and gap at each angle, and between two steps wherever their gaps do not cover "
+                        f"the turn, until no point of B moves more than {PATH_STEP} mm between two checked angles "
+                        f"(at most {SWEEP_BUDGET}); the first overlap is the stop"}
         out["metrics"]["sweep"] = sw
-        span = f"{rows[0]['angle_deg']}..{rows[-1]['angle_deg']} deg ({direction})"
-        if first is None:
-            st, note = "PASS", f"no overlap over {span}; closest approach {closest['min_gap_mm']} mm at {closest['angle_deg']} deg"
-        elif args.sweep_travel is not None:
-            if sw["free_travel_deg"] + 1e-9 >= args.sweep_travel:
-                st, note = "PASS", (f"free through the required {args.sweep_travel} deg (last free step {sw['free_until_deg']} deg); "
-                                    f"stops at {first} deg")
-            else:
-                st, note = "FAIL", (f"hits at {first} deg, before the required {args.sweep_travel} deg of travel "
-                                    f"(free through {sw['free_until_deg']} deg)" if free else
-                                    f"hits at {first} deg, the first step: not free in the placed pose")
+        span = f"{angles[0]}..{angles[-1]} deg ({direction})"
+        if first is not None and need is not None and abs(first) < need - 1e-9:
+            # A hit inside the needed travel decides on its own, wherever the sweep started.
+            st, note = "FAIL", (f"hits at {first} deg, before the required {need:g} deg of travel"
+                                + (f" (free through {until} deg)" if until is not None else
+                                   " (not free from the placed pose)" if from_pose else ""))
+        elif not from_pose:
+            # Travel is counted from the placed pose: a sweep that starts later says nothing about
+            # the first degrees, where a part is most often caught.
+            st, note = "UNVERIFIED", (f"the sweep starts at {angles[0]} deg, not at the placed pose (0): the first "
+                                      f"{start:g} deg are not checked; run it from 0")
+        elif not finished and (first is None or need is None or abs(first) >= need):
+            st, note = "UNVERIFIED", (f"the turn between the steps needed more than {SWEEP_BUDGET} checks (the part stays "
+                                      f"within {closest['min_gap_mm']} mm of the other as it turns), so a thin stop between "
+                                      "steps is not ruled out: sweep a shorter range at a time, or the parts as lighter "
+                                      "proxies")
+        elif first is None and need is None:
+            st, note = "UNVERIFIED", (f"no overlap over {span}, but the travel the part needs is not given: pass "
+                                      "--sweep-travel DEG to decide")
+        elif first is None and end + 1e-9 < need:
+            st, note = "UNVERIFIED", (f"no overlap over {span}, but the sweep ends at {angles[-1]} deg, short of the "
+                                      f"required {need:g} deg: run it through {need:g} deg")
+        elif first is None:
+            st, note = "PASS", (f"free through the required {need:g} deg: no overlap over {span}; closest approach "
+                                f"{closest['min_gap_mm']} mm at {closest['angle_deg']} deg")
+        elif need is not None:
+            st, note = "PASS", f"free through the required {need:g} deg (last free check {until} deg); stops at {first} deg"
         else:
-            st, note = "WARN", (f"hits at {first} deg over {span}, free through {sw['free_until_deg']} deg; pass --sweep-travel DEG "
-                                "with the travel the part needs to decide PASS or FAIL" if free else
+            st, note = "WARN", (f"hits at {first} deg over {span}, free through {until} deg; pass --sweep-travel DEG "
+                                "with the travel the part needs to decide PASS or FAIL" if until is not None else
                                 f"hits at {first} deg, the first step; pass --sweep-travel DEG to decide")
         out["checks"]["F3_sweep"] = {"state": st, "kind": "hard",
                                      "value": {k: sw[k] for k in ("first_overlap_deg", "free_until_deg", "free_travel_deg",
@@ -524,6 +639,10 @@ def check(args) -> dict:
             out["warnings"].append(f"F3_sweep: {note}")
             if out["gate"] == "PASS":
                 out["gate"] = "WARN"
+        elif st == "UNVERIFIED":
+            out["warnings"].append(f"F3_sweep: {note}")
+            if out["gate"] in ("PASS", "WARN"):
+                out["gate"] = "UNVERIFIED"                 # the motion is not decided: no PASS from this report
     return out
 
 
@@ -568,7 +687,8 @@ def main(argv=None):
         ap.add_argument("--sweep-pivot", default="", help="x,y,z mm: a point on the axis (after B's placement)")
         ap.add_argument("--sweep-angles", default="", help="start:end:step degrees from the placed pose, one direction "
                                                             "(0:90:2 or -40:0:2); enables the sweep")
-        ap.add_argument("--sweep-travel", type=float, default=None, help="degrees the part must turn freely (decides PASS/FAIL)")
+        ap.add_argument("--sweep-travel", type=float, default=None,
+                        help="degrees the part must turn freely from its placed pose, a magnitude (decides PASS/FAIL)")
         args = ap.parse_args(join_negative_values(sys.argv[1:] if argv is None else argv))
         if args.check:
             if args.a or args.b:

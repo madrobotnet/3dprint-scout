@@ -59,6 +59,11 @@ A fit report names the STLs it measured, so it can be told apart from a newer bu
 
 `sha256` is the STL file's hash; `input_hash` is copied from the build manifest next to the STL
 only when that manifest records this very STL (its `artifact_sha256` matches), else `null`.
+With `--sweep-*` there is a second check, `F3_sweep` (`value`: `first_overlap_deg`,
+`free_until_deg`, `free_travel_deg`, `required_travel_deg`, `closest`), and `metrics.sweep`
+holds the table of steps (plus the two angles between steps that bracket the stop, marked
+`between_steps`), `reach_radius_mm` (the farthest point of B from the axis) and
+`between_steps_checked` (how many angles between steps were checked).
 Save each report (`fit.py A B ... > out/fit_box_lid.json`). `fit.py --check REPORT`, run from the
 folder the fit was run in, rehashes the STLs at the recorded paths and prints the same envelope
 (plus `report`, the file it read; `parts` holds each path with its `recorded_sha256` and

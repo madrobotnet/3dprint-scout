@@ -477,7 +477,7 @@ class OptionalWallP3(Base):
         meshes; the batched version must finish inside a 768 MB address space (Linux) in seconds."""
         import subprocess, time
         p = self.stl("big.stl", tube(12500))                                  # 100 000 triangles
-        cmd = [sys.executable, "-I", os.path.join(HERE, "..", "scripts", "validate.py"), p]
+        cmd = [sys.executable, "-I", "-B", os.path.join(HERE, "..", "scripts", "validate.py"), p]
         kw = {}
         if sys.platform.startswith("linux"):
             import resource

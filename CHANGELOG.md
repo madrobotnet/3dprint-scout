@@ -1,5 +1,38 @@
 # Changelog
 
+## 0.5.1 — 2026-10-21
+
+Three checks could pass what they should not. An outside review of 0.5.0 (by GPT) found them by
+reading the code; each was reproduced with a small model before the fix, each fix has a test
+that fails on 0.5.0, and an independent review of the fixes found two more of the same kind.
+
+- **F3 play follows the whole move.** `fit.py` judged a direction by its two ends: a ring held
+  under a lip, moved 10 mm up, was past the lip at the end and reported free (F3 PASS). The move
+  is now followed in steps no longer than the gap to the other part (nothing can meet sooner)
+  or 0.2 mm, and the first overlap is narrowed by bisection; the ring stops at 1.0 mm.
+- **F3_sweep decides only the travel it checked.**
+  - A sweep that ends before `--sweep-travel` (0–10° when 30° is needed) was a PASS when
+    nothing was hit; it is now UNVERIFIED, and so is a sweep that does not start at the placed
+    pose, unless it hits inside the needed travel, which is a FAIL wherever it started.
+  - A free sweep without `--sweep-travel` is UNVERIFIED instead of PASS: the travel the part
+    needs decides, so give it (a stop without it stays a WARN).
+  - `--sweep-travel` is a magnitude: `-40` for a clockwise sweep was always met (a false PASS
+    with a stop at −16°); it now means 40.
+  - The turn between two steps is followed too, wherever the gaps at the steps do not cover it,
+    until no point of the part moves more than 0.2 mm between two checked angles: a thin stop
+    between steps is found (a 0.6 mm post at 5° passed with 10° steps). A part turning in
+    contact is bounded: past 1000 such checks the sweep is UNVERIFIED, never PASS. The table
+    keeps the steps and the two angles that bracket the stop; the report adds
+    `reach_radius_mm` and `between_steps_checked`.
+- **A2 fails two free parts that touch.** A free part's contact was checked against fused parts
+  only, so two print-in-place parts face to face got a short-clearance WARN; any contact or
+  overlap of a free part is now an A2 FAIL. `parts.md` says what that means for a moving piece
+  in two colours (not supported yet).
+- Tests that run a script with `python -I` (which ignores `PYTHONDONTWRITEBYTECODE`) pass `-B`
+  too, so a test run with that variable set leaves no `__pycache__` in `scripts/`.
+- The 0.5.0 entry below said 255 tests before it; there were 257.
+- **Tests**: 284 → 289.
+
 ## 0.5.0 — 2026-10-21
 
 Tested in the field and by scenario: the Blender paths ran on a real Windows install (Blender
@@ -68,7 +101,7 @@ Hangul keyring). What they found is fixed here, together with the first outside 
   names; `fit_test.py --overwrite` (an earlier series' extra pieces are removed); no `__pycache__` in the project; Fusion files through a
   connected folder; P6 may be decided from the generator and its log; a Contributors section
   in the READMEs.
-- **Tests**: 255 → 284, passing with Python 3.13 + Blender 5.2.2, Python 3.11 + Blender 4.5.14
+- **Tests**: 257 → 284, passing with Python 3.13 + Blender 5.2.2, Python 3.11 + Blender 4.5.14
   and without Blender or numpy. Not yet run: the official server's background tool with
   `BLENDER_PATH` set, and the binary path on macOS and Linux.
 

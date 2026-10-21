@@ -333,7 +333,7 @@ class FitCheck(unittest.TestCase):
         self.assertIn("not a 3dprint-scout.fit/1 report", out["errors"][0])
 
     def test_cli_prints_json(self):
-        r = subprocess.run([sys.executable, "-I", os.path.join(SCRIPTS, "fit.py"), self.box, self.lids["lid"], *self.place,
+        r = subprocess.run([sys.executable, "-I", "-B", os.path.join(SCRIPTS, "fit.py"), self.box, self.lids["lid"], *self.place,
                             "--min-clearance", "0.2"], capture_output=True, text=True, encoding="utf-8")
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(json.loads(r.stdout)["gate"], "PASS")
@@ -370,11 +370,17 @@ class Sweep(unittest.TestCase):
         self.assertEqual(out["checks"]["F3"]["state"], "PASS")              # the placed pose is clear
         sw = out["metrics"]["sweep"]
         # The bar's far corner (15, 1) reaches y = 5 when 15 sin(t) + cos(t) = 5: t is about 15.5 deg.
-        self.assertTrue(14 <= sw["first_overlap_deg"] <= 18, sw["first_overlap_deg"])
-        self.assertEqual(sw["free_until_deg"], sw["first_overlap_deg"] - 2)
+        # Between the 14 and 16 deg steps the turn is followed, so the stop is bracketed to within
+        # PATH_STEP at the reach radius (0.2 mm at 15.03 mm: 0.76 deg); the table keeps the two
+        # angles that bracket it and counts the other checks between steps.
+        self.assertTrue(15.4 <= sw["first_overlap_deg"] <= 16.0, sw["first_overlap_deg"])
+        self.assertTrue(0 < sw["first_overlap_deg"] - sw["free_until_deg"] <= 0.77, sw)
+        self.assertGreaterEqual(sw["between_steps_checked"], 1)
         self.assertEqual(sw["free_travel_deg"], sw["free_until_deg"])
+        self.assertAlmostEqual(sw["reach_radius_mm"], math.hypot(15, 1), places=3)
         self.assertEqual(sw["direction"], "counter-clockwise")
-        self.assertEqual(len(sw["table"]), 46)
+        self.assertEqual(len([r for r in sw["table"] if not r.get("between_steps")]), 46)
+        self.assertTrue(all(14 < r["angle_deg"] < 16 for r in sw["table"] if r.get("between_steps")))
         self.assertEqual(sw["table"][0], {"angle_deg": 0.0, "interference_mm3": 0.0, "min_gap_mm": 4.0})
         gaps = [r["min_gap_mm"] for r in sw["table"][: sw["table"].index(next(r for r in sw["table"] if r["interference_mm3"] > 0))]]
         self.assertEqual(gaps, sorted(gaps, reverse=True))                  # closing in step by step
@@ -398,8 +404,10 @@ class Sweep(unittest.TestCase):
         """-40:0:2 about +z is the clockwise sweep from the placed pose: the bar swings away from
         the block and stays free, exactly like 0:40:2 about -z; and 0:40:2 about +z hits where
         -40:0:2 about -z hits, at the same magnitude."""
-        cw_z = run_fit(self.stop, self.lever, "--play", "none", "--sweep-axis", "z", "--sweep-angles", "-40:0:2")[1]
-        ccw_negz = run_fit(self.stop, self.lever, "--play", "none", "--sweep-axis", "0,0,-1", "--sweep-angles", "0:40:2")[1]
+        cw_z = run_fit(self.stop, self.lever, "--play", "none", "--sweep-axis", "z", "--sweep-angles", "-40:0:2",
+                       "--sweep-travel", "40")[1]
+        ccw_negz = run_fit(self.stop, self.lever, "--play", "none", "--sweep-axis", "0,0,-1", "--sweep-angles", "0:40:2",
+                           "--sweep-travel", "40")[1]
         for out in (cw_z, ccw_negz):
             self.assertEqual(out["checks"]["F3_sweep"]["state"], "PASS", out["checks"]["F3_sweep"])
             self.assertIsNone(out["metrics"]["sweep"]["first_overlap_deg"])
@@ -423,6 +431,112 @@ class Sweep(unittest.TestCase):
             self.assertFalse(out["ran"])
         self.assertEqual(fit.parse_angles("40:0:-5"), [0.0, 5.0, 10.0, 15.0, 20.0, 25.0, 30.0, 35.0, 40.0])
         self.assertEqual(fit.parse_angles("-10:0:5"), [0.0, -5.0, -10.0])
+
+
+@unittest.skipUnless(HAS_NP, "numpy not installed")
+@unittest.skipUnless(HAS_M3D, "manifold3d not installed")
+class FollowsThePath(unittest.TestCase):
+    """0.5.1: a move or a turn is followed along its path, not judged at its ends only."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.d = self.tmp.name
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def save(self, man, name):
+        from build import write_binary_stl
+        path = os.path.join(self.d, name)
+        mesh = man.to_mesh()
+        write_binary_stl(path, mesh.vert_properties[:, :3].tolist(), mesh.tri_verts.tolist())
+        return path
+
+    def test_a_ring_behind_a_lip_is_caught_by_the_lip(self):
+        """A ring sits in a tube under a lip 1 mm above it. At the end of a 10 mm move up it would
+        be past the lip, so an end-point check called it free; the lip stops it after 1 mm."""
+        import manifold3d as m3d
+        tube = m3d.Manifold.cylinder(10, 15, 15, 96) - m3d.Manifold.cylinder(10, 10.5, 10.5, 96)
+        lip = (m3d.Manifold.cylinder(1, 15, 15, 96) - m3d.Manifold.cylinder(1, 9, 9, 96)).translate([0, 0, 10])
+        ring = (m3d.Manifold.cylinder(2, 10.3, 10.3, 96) - m3d.Manifold.cylinder(2, 9.5, 9.5, 96)).translate([0, 0, 7])
+        a, b = self.save(tube + lip, "tube.stl"), self.save(ring, "ring.stl")
+        code, out = run_fit(a, b, "--play", "0,0,1;1,0,0", "--search", "10", "--min-clearance", "0.15")
+        self.assertEqual(code, 0, out["errors"])
+        up, side = out["metrics"]["play"]
+        self.assertTrue(up["contact"], up)
+        self.assertAlmostEqual(up["play_mm"], 1.0, delta=0.01)             # ring top z 9, lip underside z 10
+        self.assertTrue(side["contact"])
+        self.assertAlmostEqual(side["play_mm"], 0.2, delta=0.02)          # 10.5 bore, 10.3 ring
+        self.assertIn("0.2 mm", out["metrics"]["play_method"])
+
+    def test_a_thin_stop_between_two_steps_is_found(self):
+        """A lever 0.6 mm thick and a 0.6 mm post at 5 deg: the 10 deg steps land on either side
+        of it, so a step check called the turn free; the turn between the steps is followed."""
+        import manifold3d as m3d
+        post = m3d.Manifold.cube([0.6, 0.6, 4], center=True).translate([12 * math.cos(math.radians(5)),
+                                                                          12 * math.sin(math.radians(5)), 0])
+        lever = m3d.Manifold.cube([15, 0.6, 2]).translate([0, -0.3, -1])
+        a, b = self.save(post, "post.stl"), self.save(lever, "lever.stl")
+        code, out = run_fit(a, b, "--play", "none", "--sweep-axis", "z", "--sweep-pivot", "0,0,0",
+                            "--sweep-angles", "0:30:10", "--sweep-travel", "30")
+        self.assertEqual(code, 0, out["errors"])
+        sw, f3 = out["metrics"]["sweep"], out["checks"]["F3_sweep"]
+        self.assertEqual([r["interference_mm3"] for r in sw["table"] if not r.get("between_steps")], [0.0] * 4)
+        self.assertEqual(f3["state"], "FAIL", f3)
+        self.assertTrue(1.5 < sw["first_overlap_deg"] < 3.5, sw["first_overlap_deg"])
+        self.assertEqual(out["gate"], "FAIL")
+
+    def test_a_sweep_short_of_the_travel_or_not_from_zero_is_unverified(self):
+        import manifold3d as m3d
+        a = self.save(m3d.Manifold.cube([10, 10, 10]).translate([10, 5, -4]), "stop.stl")
+        b = self.save(m3d.Manifold.cube([15, 2, 2]).translate([0, -1, 0]), "lever.stl")
+        code, out = run_fit(a, b, "--play", "none", "--sweep-angles", "0:10:2", "--sweep-travel", "30")
+        f3 = out["checks"]["F3_sweep"]
+        self.assertEqual((f3["state"], out["gate"]), ("UNVERIFIED", "UNVERIFIED"))   # free to 10 deg, 30 needed
+        self.assertIn("short of the required 30 deg", f3["note"])
+        code, out = run_fit(a, b, "--play", "none", "--sweep-angles", "40:90:2")
+        f3 = out["checks"]["F3_sweep"]
+        self.assertEqual(f3["state"], "UNVERIFIED")                                   # the stop at ~15.5 deg is before 40
+        self.assertIn("the first 40 deg are not checked", f3["note"])
+        self.assertEqual(out["metrics"]["sweep"]["free_travel_deg"], 0.0)
+        self.assertIsNone(out["metrics"]["sweep"]["free_until_deg"])
+        # A hit inside the needed travel decides on its own, wherever the sweep started.
+        code, out = run_fit(a, b, "--play", "none", "--sweep-angles", "5:60:2", "--sweep-travel", "40")
+        self.assertEqual(out["checks"]["F3_sweep"]["state"], "FAIL")
+        # The travel is a magnitude: -40 for a clockwise sweep is 40, not a requirement always met.
+        code, out = run_fit(a, b, "--play", "none", "--sweep-axis", "0,0,-1", "--sweep-angles", "-60:0:2",
+                            "--sweep-travel", "-40")
+        f3 = out["checks"]["F3_sweep"]
+        self.assertEqual((f3["state"], f3["value"]["required_travel_deg"]), ("FAIL", 40.0), f3)
+        # Nothing hit and no travel given: nothing to decide.
+        code, out = run_fit(a, b, "--play", "none", "--sweep-angles", "-40:0:2")
+        self.assertEqual(out["checks"]["F3_sweep"]["state"], "UNVERIFIED")
+        self.assertIn("--sweep-travel", out["checks"]["F3_sweep"]["note"])
+
+    def test_a_turn_in_contact_is_bounded(self):
+        """A lever lying on its plate turns with gap 0 all the way: the checks between steps stop
+        at PATH_STEP spacing, the table keeps only the steps, and a budget too small to finish
+        leaves the sweep UNVERIFIED, never PASS."""
+        import manifold3d as m3d
+        a = self.save(m3d.Manifold.cube([120, 120, 2]).translate([-60, -60, -2]), "plate.stl")
+        b = self.save(m3d.Manifold.cube([50, 4, 2]).translate([0, -2, 0]), "lever.stl")
+        code, out = run_fit(a, b, "--play", "none", "--sweep-angles", "0:90:2", "--sweep-travel", "90")
+        sw = out["metrics"]["sweep"]
+        self.assertEqual(out["checks"]["F3_sweep"]["state"], "PASS", out["checks"]["F3_sweep"])
+        self.assertEqual(len(sw["table"]), 46)                                       # steps only: no stop to bracket
+        spacing = math.radians(2) * sw["reach_radius_mm"] / (sw["between_steps_checked"] / 45 + 1)
+        self.assertLessEqual(spacing, fit.PATH_STEP + 1e-6)                           # every gap covered at 0.2 mm
+        self.assertLess(sw["between_steps_checked"], fit.SWEEP_BUDGET)
+        orig = fit.SWEEP_BUDGET
+        try:
+            fit.SWEEP_BUDGET = 50
+            code, out = run_fit(a, b, "--play", "none", "--sweep-angles", "0:90:2", "--sweep-travel", "90")
+        finally:
+            fit.SWEEP_BUDGET = orig
+        f3 = out["checks"]["F3_sweep"]
+        self.assertEqual((f3["state"], out["gate"]), ("UNVERIFIED", "UNVERIFIED"), f3)
+        self.assertIn("more than 50 checks", f3["note"])
+        self.assertEqual(out["metrics"]["sweep"]["between_steps_checked"], 50)
 
 
 @unittest.skipUnless(HAS_NP, "numpy not installed")

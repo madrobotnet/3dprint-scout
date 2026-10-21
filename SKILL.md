@@ -224,7 +224,7 @@ assumption repeated.
 | M4 | No duplicate faces | hard | validate.py | current |
 | M5 | Number of bodies as intended | hard | validate.py | current |
 | A1 | A `fused` part shares faces with another part of its object, no overlap | hard | build.py (assembly.py) | Phase 4 |
-| A2 | A `free` part keeps its clearance from every other part (WARN below it) | hard | build.py (assembly.py) | Phase 4 |
+| A2 | A `free` part keeps its clearance from every other part, free ones included (FAIL on contact, WARN below it) | hard | build.py (assembly.py) | Phase 4 |
 | P1 | Flat area on the bed | soft | validate.py | user |
 | P2 | Overhang area ≤ 2 % (bed contact excluded, area-weighted); for an object with several parts, judged on their union | soft | validate.py, build.py | user |
 | P3 | Wall thickness ≥ 1.2 mm (ray casting; needs numpy and rtree, skipped above 400k triangles) | soft | validate.py | user |

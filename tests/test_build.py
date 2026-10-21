@@ -330,7 +330,7 @@ class Record(Base):
         with open(trunc, "r+b") as f:
             f.truncate(84 + 50 * 5)
         src = self.write("gen_fusion.py", "def run(context=None):\n    pass\n")
-        r = subprocess.run([sys.executable, "-I", os.path.join(HERE, "..", "scripts", "build.py"), "record",
+        r = subprocess.run([sys.executable, "-I", "-B", os.path.join(HERE, "..", "scripts", "build.py"), "record",
                             good, empty, trunc, "--source", src, "--out", self.out, "--no-wall-check"],
                            capture_output=True, text=True, encoding="utf-8")
         out = json.loads(r.stdout)                                # stdout is one JSON document
@@ -824,11 +824,11 @@ class ThreeMF(Base):
     def test_cli_prints_json(self):
         a = os.path.join(self.d, "a.stl"); write_stl(a, box(20, 10, 5))
         out = os.path.join(self.d, "c.3mf")
-        r = subprocess.run([sys.executable, "-I", os.path.join(HERE, "..", "scripts", "threemf.py"), out, a],
+        r = subprocess.run([sys.executable, "-I", "-B", os.path.join(HERE, "..", "scripts", "threemf.py"), out, a],
                            capture_output=True, text=True, encoding="utf-8")
         rep = json.loads(r.stdout)
         self.assertEqual((r.returncode, rep["ran"], rep["objects"]["a"]["triangles"]), (0, True, 12))
-        r = subprocess.run([sys.executable, "-I", os.path.join(HERE, "..", "scripts", "threemf.py"), out, a],
+        r = subprocess.run([sys.executable, "-I", "-B", os.path.join(HERE, "..", "scripts", "threemf.py"), out, a],
                            capture_output=True, text=True, encoding="utf-8")
         rep = json.loads(r.stdout)                                           # refuses to overwrite, in JSON
         self.assertEqual((r.returncode, rep["ran"]), (1, False))

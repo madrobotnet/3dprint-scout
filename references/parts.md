@@ -70,7 +70,7 @@ gets, in `objects[]`:
 | D2 | The whole object fits the usable bed | hard | One rotation for the whole object; the 3MF writers place the parent, never a part alone. For an object with several parts, or any object of a job that uses several filaments, the usable bed is the intersection of every tool's area in `printers.json` (`value.tools`), as `bambu3mf.py` lays such jobs out: on an X2D / H2D both nozzles may have to reach it |
 | P1, P2 | Bed contact and overhang of the union of the parts | soft | Needs manifold3d: shared faces vanish, so a label on a lid is no overhang. Without it P2 is UNVERIFIED |
 | A1 | `fused` part shares faces with another part, no overlap | hard | FAIL when it floats (nearest part named with its gap) or overlaps (the slicer would clip the overlap by its own rules). Bodies exported separately rarely share a tessellation (a 48-segment pin in a 64-segment hole crosses it by a few hundredths of a mm³), so an overlap up to a 0.01 mm skin over the shared area counts as touching, and a gap up to 0.01 mm does too |
-| A2 | `free` part keeps its clearance | hard | FAIL on contact or overlap; WARN below the clearance (like F3) |
+| A2 | `free` part keeps its clearance | hard | FAIL on contact or overlap with any other part, free or fused; WARN below the clearance (like F3). A print-in-place piece is one `free` part: two free parts that touch are two pieces fused together, and a `fused` colour part cannot sit on a free one (A1 counts fused partners only), so a moving piece is one colour for now |
 
 The gate of the build is the worst of every part and every object. A part's own P1/P2
 take its lowest face as the bed, so for a part that sits on another one read the object's

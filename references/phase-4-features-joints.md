@@ -18,12 +18,19 @@ python3 "$SKILL_DIR/scripts/fit.py" out/box.stl out/lid.stl --b-rotate 180,0,0 \
 
 `fit.py` places part B as assembled (rotation about its origin, then translation), then measures
 the overlap volume, how far B can move sideways before it touches A (`play`, the real clearance of
-a seated part), the smallest gap and the contact area, and prints a verdict in the validate.py
-style: FAIL on overlap, WARN when the play is below `--min-clearance` or the parts bind, PASS
-otherwise. A press fit fails by design; compare its overlap with the intended one instead. A
-moving part gets a sweep (`--sweep-axis z --sweep-pivot x,y,z --sweep-angles 0:90:2
---sweep-travel 40`): the angle at which it hits its stop and the free travel before it; PASS when
-it is free through the travel the part needs (give it, or the sweep only WARNs). Build a small
+a seated part; the whole move is followed, so a lip B would pass through and leave still stops
+it), the smallest gap and the contact area, and prints a verdict in the validate.py style: FAIL
+on overlap, WARN when the play is below `--min-clearance` or the parts bind, PASS otherwise. A
+press fit fails by design; compare its overlap with the intended one instead. A moving part gets
+a sweep from its placed pose (`--sweep-axis z --sweep-pivot x,y,z --sweep-angles 0:90:2
+--sweep-travel 40`): the angle at which it hits its stop and the free travel before it, the turn
+between two steps followed too. Always give the travel the part needs (`--sweep-travel`, a
+magnitude, also for a clockwise sweep): PASS when it is free through it, FAIL when it hits
+before it; without it a stop is only a WARN and a free sweep is UNVERIFIED. A range that does
+not start at 0 or ends before the travel is UNVERIFIED too. A part that turns in contact (a
+lever lying on its body) is checked every 0.2 mm of its swing, which can take a while on dense
+meshes; a sweep that would need more than 1000 such checks is UNVERIFIED (sweep a shorter range,
+or lighter proxies). Build a small
 proxy of the mating housing from measured numbers when there is no closed mesh of it
 (`references/measure.md`). The report records the sha256 of both STLs; a rebuild of either part
 makes it stale (`--check`, Phase 5). `--min-clearance` is the clearance the model is built with,
