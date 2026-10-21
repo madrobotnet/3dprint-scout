@@ -3,25 +3,32 @@
 calibration.py - the user's own print results, per printer, material and nozzle, kept in the
 project at .3dprint/calibration.json (never in the skill): which fit-test ring fit, which
 mechanism member broke or held and under what load, measured clearances. Read in Phase 2;
-a value measured here beats the official spec and the starting points in design.md.
+a value measured here, under the same conditions, beats the official spec and the starting
+points in design.md.
 
   python3 calibration.py add --file .3dprint/calibration.json --printer x2d --material pla_basic --nozzle 0.4 \\
+      --layer 0.2 --orientation flat --process "0.20mm Standard @BBL X2D" \\
       --feature fit --result fits --value clearance_per_side_mm=0.3 --value profile_w_mm=45.1 \\
       --note "ring 2 of the fit test slid on by hand without rattle"
   python3 calibration.py add --file .3dprint/calibration.json --printer x2d --material pla_pure --nozzle 0.4 \\
-      --feature mechanism --kind latch --result failed --value pin_d_mm=2.6 --value pin_wall_mm=1.3 --value arm_mm=1.2 \\
+      --layer 0.2 --feature mechanism --kind latch --result failed \\
+      --value pin_d_mm=2.6 --value pin_wall_mm=1.3 --value arm_mm=1.2 \\
       --load finger_push --note "print-in-place draw latch: pins, rings and arms broke on first use"
   python3 calibration.py show --file .3dprint/calibration.json
-  python3 calibration.py lookup --file .3dprint/calibration.json --printer x2d --material pla_basic --feature fit
-  python3 calibration.py lookup --file .3dprint/calibration.json --printer x2d --feature mechanism --kind lid_hinge
+  python3 calibration.py lookup --file .3dprint/calibration.json --printer x2d --material pla_basic --nozzle 0.4 --feature fit
+  python3 calibration.py lookup --file .3dprint/calibration.json --printer x2d --material pla_basic --nozzle 0.4 \\
+      --layer 0.2 --orientation flat --feature mechanism --kind lid_hinge
 
 Schema (3dprint.calibration/1): {"schema", "entries": [{"date", "printer", "material", "nozzle_mm",
-"layer_mm"?, "feature": fit | mechanism | clearance | hole | other, "kind"?: a short lowercase id
-(latch, lid_hinge, lever, clamp, snap: the kind of member, so a floor applies to the same kind under
-the same kind of load), "result": fits | tight | loose | worked | failed | measured, "values":
-{name: number}, "load": number N or a strength.py key, "note"}]}. Values are finite numbers under
-10 000 (mm, N, counts). `kind` is optional for every feature and meant for mechanism entries;
-files written without it still load. What the script can recognise
+"layer_mm"?, "orientation"?: a short lowercase id (flat, upright, on_side: how the part lay on the
+bed), "process"?: the slicer process preset as the user calls it ("0.20mm Standard @BBL X2D"; one
+line of text, 80 characters at most), "feature": fit | mechanism | clearance | hole | other,
+"kind"?: a short lowercase id (latch, lid_hinge, lever, clamp, snap: the kind of member, so a floor
+applies to the same kind under the same kind of load), "result": fits | tight | loose | worked |
+failed | measured, "values": {name: number}, "load"?: number N or a strength.py key, "note"}]}.
+Values are finite numbers under 10 000 (mm, N, counts). `kind` is optional for every feature and
+meant for mechanism entries; `layer_mm`, `orientation`, `process` and `load` are optional too;
+files written without them still load. What the script can recognise
 as identifying a person or a machine is refused: value names with id, uid, code, device, mac,
 serial, token, account, mail, ip, user, name, key or secret in them; notes with an IPv4, IPv6 or
 MAC address, an e-mail address, a run of six or more digits or a long mixed letter-digit token
@@ -30,13 +37,28 @@ and materials must be short lowercase ids (x2d, pla_basic; "PLA Basic" is stored
 the strength.py key), never a person's name. It cannot
 recognise a name in a note: the agent never writes one.
 
-`lookup` prints the matching entries newest first (date, then file order) and, per value name,
-"worked": the newest number from an entry that fit, worked or was measured, and "bounds": the
-newest failed, tight and loose numbers, kept apart so a failure is never read as a setting.
+`lookup` matches on every condition the query gives. --printer, --material, --feature and
+--kind select entries; --nozzle, --layer, --load, --orientation and --process are conditions.
+An entry that records each given condition with the same value (numbers within 1e-6, a load key
+as the same key, the process name regardless of case and repeated spaces) is a same-condition
+entry, listed under "entries" newest first (date, then file order). One that differs in a given
+condition, or does not record it, is listed under "reference" with "differs" ({field: [the
+entry's value or "not recorded", the query's value]}): seen, never a recommendation or a floor.
+From the same-condition entries only, per value name: "worked", the newest number from an entry
+that fit, worked or was measured, and "bounds", the newest failed, tight and loose numbers, kept
+apart so a failure is never read as a setting; every number carries its "date" and "entry" (its
+position in the file, from 0). "worked" can take names from different prints: then "combined" is
+true and a warning says those values were never printed together as a set; "worked_set" is the
+newest same-condition entry that fit, worked or was measured, with all its values together (one
+print, one set). Without --nozzle a warning says every nozzle is mixed; without --layer, --load,
+--orientation or --process a warning names any of them the same-condition entries record
+differently. Every listed entry carries "entry".
 With --kind K only entries of that kind set "worked" and "bounds"; matching entries without a
-kind are listed under "unclassified" so they are seen but set no floor for K (a stub pin that
-broke in a hand-operated latch is not the floor for a lid hinge's integral pin). Without --kind
-every matching entry counts, as before, and "kinds" says how many entries each kind has.
+kind are listed under "unclassified" (with "differs" when they differ in a condition) so they are
+seen but set no floor for K (a stub pin that broke in a hand-operated latch is not the floor for
+a lid hinge's integral pin). Without --kind every matching entry counts, as before, and "kinds"
+says how many entries each kind has among those matching printer, material and feature, under
+any conditions.
 Never written without the user's yes (SKILL.md): the agent asks once after a print result, then
 runs `add`. Prints one JSON document; exit 0 on success, 1 on error. Standard library only.
 """
@@ -67,8 +89,16 @@ DIGITS_RE = re.compile(r"\d{6,}")
 MIXED_RE = re.compile(r"\b(?=[0-9a-z]*\d)(?=[0-9a-z]*[a-z])[0-9a-z]{10,}\b", re.I)     # long letter-digit tokens
 EMAIL_RE = re.compile(r"[\w.+-]+@[\w-]+\.[\w.]+")
 ID_RE = re.compile(r"[a-z0-9][a-z0-9._+-]{0,39}")
-KIND_RE = re.compile(r"[a-z][a-z0-9_]{0,23}")           # the kind of member: latch, lid_hinge, lever, clamp, snap
+KIND_RE = re.compile(r"[a-z][a-z0-9_]{0,23}")           # kind and orientation: latch, lid_hinge; flat, on_side
 UNCLASSIFIED = "unclassified"                           # lookup's name for entries without a kind; not a valid kind
+KIND_HINT = ("the kind of member", "latch, lid_hinge, lever, clamp, snap")
+ORIENTATION_HINT = ("how the part lay on the bed", "flat, upright, on_side")
+PROCESS_MAX = 80                                        # characters of a slicer process preset name
+# lookup's conditions, as entry fields, in the order they are reported; the query's option for each.
+CONDITIONS = (("nozzle_mm", "nozzle"), ("layer_mm", "layer"), ("load", "load"), ("orientation", "orientation"),
+              ("process", "process"))
+NOT_RECORDED = "not recorded"
+NUM_TOL = 1e-6
 LOAD_KEYS = ("finger_push", "finger_press", "finger_pull", "pinch_lateral", "pinch_palmar", "grasp")
 MATERIAL_KEYS = re.compile(r"(pla|petg|abs|asa|tpu|pa|pc|pet|pps|peek|ppa|pva|hips)(_[a-z0-9]{1,12}){0,3}")   # pla_basic, petg_hf, pla_cf
 
@@ -113,24 +143,75 @@ def id_tokens(text: str) -> set:
     return set(re.split(r"[^a-z0-9]+|(?<=[a-z])(?=\d)", text))
 
 
-def normalize_kind(value) -> str:
-    """The kind of member an entry is about (latch, lid_hinge, lever, clamp, snap): a short
-    lowercase id through the same identifier checks as a printer (the token split, the private
-    words, digit runs and long letter-digit tokens), in a stricter shape. Not normalised:
-    capitals or spaces are refused by shape, as a person's name would be. `unclassified` is
-    reserved (lookup reports entries without a kind under that name)."""
+def short_id(what: str, value, hint: tuple, reserved: str = "") -> str:
+    """A short lowercase id (a letter, then letters, digits or underscores, 24 at most) through
+    the same identifier checks as a printer (the token split, the private words, digit runs and
+    long letter-digit tokens), in a stricter shape. Not normalised: capitals or spaces are
+    refused by shape, as a person's name would be. `hint` is (what to name, examples)."""
+    meaning, examples = hint
     text = str(value or "").strip()
     if not KIND_RE.fullmatch(text):
-        raise CalibrationError(f"kind must be a short lowercase id (a letter, then letters, digits or underscores, 24 at most: "
-                               f"latch, lid_hinge, lever, clamp, snap), got {value!r}")
-    if text == UNCLASSIFIED:
-        raise CalibrationError(f"kind {text!r} is reserved for entries without a kind; name the kind of member "
-                               "(latch, lid_hinge, lever, clamp, snap)")
+        raise CalibrationError(f"{what} must be a short lowercase id (a letter, then letters, digits or underscores, 24 at most: "
+                               f"{examples}), got {value!r}")
+    if reserved and text == reserved:
+        raise CalibrationError(f"{what} {text!r} is reserved for entries without a {what}; name {meaning} ({examples})")
     if FORBIDDEN_WORDS.search(text) or id_tokens(text) & FORBIDDEN_TOKENS:
-        raise CalibrationError(f"kind {value!r} looks like an identifier of a person or a machine; name the kind of member "
-                               "(latch, lid_hinge, lever, clamp, snap)")
-    check_private(text, "kind")
+        raise CalibrationError(f"{what} {value!r} looks like an identifier of a person or a machine; name {meaning} ({examples})")
+    check_private(text, what)
     return text
+
+
+def normalize_kind(value) -> str:
+    """The kind of member an entry is about (latch, lid_hinge, lever, clamp, snap), a short_id.
+    `unclassified` is reserved (lookup reports entries without a kind under that name)."""
+    return short_id("kind", value, KIND_HINT, reserved=UNCLASSIFIED)
+
+
+def normalize_orientation(value) -> str:
+    """How the part lay on the bed when it was printed (flat, upright, on_side), a short_id like
+    the kind: the layer lines run differently, so a member that held flat may not upright."""
+    return short_id("orientation", value, ORIENTATION_HINT)
+
+
+def normalize_process(value) -> str:
+    """The slicer process preset as the user calls it ("0.20mm Standard @BBL X2D"): one line of
+    free text, trimmed, runs of spaces made one, 80 characters at most, through the note's checks
+    (a preset name is not a place for an address, a serial or an access code)."""
+    if not isinstance(value, str):
+        raise CalibrationError("process is the slicer process preset's name as text, e.g. '0.20mm Standard @BBL X2D'")
+    text = " ".join(value.split())
+    if not text:
+        raise CalibrationError("process is empty; leave it out when the preset is not known")
+    if len(text) > PROCESS_MAX:
+        raise CalibrationError(f"process: {PROCESS_MAX} characters at most (the preset's name as the slicer shows it)")
+    if any(ord(c) < 32 or 127 <= ord(c) < 160 for c in text):
+        raise CalibrationError("process: one line of text without control characters")
+    check_private(text, "process")
+    return text
+
+
+def size_mm(key: str, value) -> float:
+    """A nozzle or layer size in mm: a finite number between 0 and 5."""
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        raise CalibrationError(f"{key} must be a number in mm")
+    if not math.isfinite(v) or not 0 < v < 5:
+        raise CalibrationError(f"{key} {v} is not a plausible size in mm")
+    return v
+
+
+def parse_load(value):
+    """A load: one of strength.py's hand-force keys (finger_push, ...) or a force in N."""
+    if isinstance(value, str) and value.strip().lower() in LOAD_KEYS:
+        return value.strip().lower()
+    try:
+        num = float(value)
+    except (TypeError, ValueError):
+        raise CalibrationError(f"load is a force in N or one of {LOAD_KEYS}")
+    if not math.isfinite(num) or num <= 0 or num >= MAX_VALUE:
+        raise CalibrationError(f"load must be a positive force in N under {MAX_VALUE:g}")
+    return num
 
 
 def forbidden_key(key: str) -> bool:
@@ -178,13 +259,13 @@ def validate_entry(entry: dict) -> dict:
             if key == "nozzle_mm":
                 raise CalibrationError("nozzle_mm is required")
             continue
-        try:
-            v = float(v)
-        except (TypeError, ValueError):
-            raise CalibrationError(f"{key} must be a number in mm")
-        if not math.isfinite(v) or not 0 < v < 5:
-            raise CalibrationError(f"{key} {v} is not a plausible size in mm")
-        out[key] = v
+        out[key] = size_mm(key, v)
+    orientation = entry.get("orientation")
+    if orientation is not None and str(orientation).strip():
+        out["orientation"] = normalize_orientation(orientation)
+    process = entry.get("process")
+    if process is not None and (not isinstance(process, str) or process.strip()):
+        out["process"] = normalize_process(process)
     feature = str(entry.get("feature") or "").strip().lower()
     if feature not in FEATURES:
         raise CalibrationError(f"feature must be one of {FEATURES}")
@@ -220,16 +301,7 @@ def validate_entry(entry: dict) -> dict:
     out["values"] = clean
     load = entry.get("load")
     if load is not None:
-        if isinstance(load, str) and load.strip().lower() in LOAD_KEYS:
-            out["load"] = load.strip().lower()
-        else:
-            try:
-                num = float(load)
-            except (TypeError, ValueError):
-                raise CalibrationError(f"load is a force in N or one of {LOAD_KEYS}")
-            if not math.isfinite(num) or num <= 0 or num >= MAX_VALUE:
-                raise CalibrationError(f"load must be a positive force in N under {MAX_VALUE:g}")
-            out["load"] = num
+        out["load"] = parse_load(load)
     note = str(entry.get("note") or "").strip()
     if len(note) > 500:
         raise CalibrationError("note: 500 characters at most")
@@ -283,6 +355,7 @@ def cmd_add(args) -> dict:
             raise CalibrationError(f"printer '{args.printer}' is not in {args.printers} (known: {', '.join(sorted(known)) or 'none'})")
     entry = validate_entry({"date": args.date or datetime.date.today().isoformat(), "printer": args.printer,
                             "material": args.material, "nozzle_mm": args.nozzle, "layer_mm": args.layer,
+                            "orientation": args.orientation, "process": args.process,
                             "feature": args.feature, "kind": args.kind, "result": args.result,
                             "values": parse_values(args.value), "load": args.load, "note": args.note})
     data["entries"].append(entry)
@@ -295,62 +368,160 @@ def cmd_show(args) -> dict:
     return {"file": args.file, "entries": data["entries"], "count": len(data["entries"])}
 
 
-def matches(entry: dict, args) -> bool:
+def selects(entry: dict, args) -> bool:
+    """Printer, material and feature: what an entry is about. The conditions it was printed under
+    are compared apart (differs), so an entry under other conditions is still seen."""
     def same(a, b):
         return normalize_id("query", a) == normalize_id("query", b)
     if args.printer and not same(entry["printer"], args.printer):
         return False
     if args.material and not same(entry["material"], material_key(args.material)):
         return False
-    if args.nozzle is not None and abs(entry["nozzle_mm"] - args.nozzle) > 1e-6:
-        return False
     if args.feature and entry["feature"] != args.feature.lower():
         return False
     return True
 
 
-def summarize(entries) -> tuple:
-    """(worked, bounds) per value name from entries sorted newest first: the first value seen wins."""
-    worked, bounds = {}, {}
-    for e in entries:
+def query_conditions(args) -> dict:
+    """The conditions the query gives, as entry fields in the entry's spelling and the CONDITIONS
+    order, through the same checks as `add`."""
+    given = {"nozzle_mm": None if args.nozzle is None else size_mm("nozzle_mm", args.nozzle),
+             "layer_mm": None if args.layer is None else size_mm("layer_mm", args.layer),
+             "load": None if args.load is None else parse_load(args.load),
+             "orientation": normalize_orientation(args.orientation) if args.orientation else None,
+             "process": normalize_process(args.process) if args.process and args.process.strip() else None}
+    return {field: given[field] for field, _opt in CONDITIONS if given[field] is not None}
+
+
+def same_condition(field: str, recorded, wanted) -> bool:
+    if field == "process":
+        return recorded.casefold() == wanted.casefold()
+    if isinstance(recorded, str) or isinstance(wanted, str):        # a load key never equals a force in N
+        return recorded == wanted
+    return abs(recorded - wanted) <= NUM_TOL
+
+
+def differs(entry: dict, conditions: dict) -> dict:
+    """{field: [the entry's value or "not recorded", the query's value]} for every condition the
+    query gives that the entry does not record with the same value; {} for a same-condition entry."""
+    out = {}
+    for field, wanted in conditions.items():
+        recorded = entry.get(field)
+        if recorded is None:
+            out[field] = [NOT_RECORDED, wanted]
+        elif not same_condition(field, recorded, wanted):
+            out[field] = [recorded, wanted]
+    return out
+
+
+def listed(i: int, entry: dict, diff: dict = None) -> dict:
+    """An entry as lookup lists it: its position in the file first, then its fields."""
+    out = {"entry": i}
+    out.update(entry)
+    if diff:
+        out["differs"] = diff
+    return out
+
+
+def summarize(hits) -> tuple:
+    """(worked, bounds, worked_set) from (index, entry) pairs sorted newest first. worked and
+    bounds: per value name, the first value seen wins, stamped with its date and entry. worked_set:
+    the newest entry that fit, worked or was measured and has values, all of them together."""
+    worked, bounds, worked_set = {}, {}, None
+    for i, e in hits:
+        good = e["result"] in GOOD_RESULTS
+        if good and worked_set is None and e["values"]:
+            worked_set = listed(i, e)
         for k, v in e["values"].items():
-            stamp = {"value": v, "date": e["date"], "result": e["result"], "feature": e["feature"]}
+            stamp = {"value": v, "date": e["date"], "entry": i, "result": e["result"], "feature": e["feature"]}
             if "kind" in e:
                 stamp["kind"] = e["kind"]
-            if e["result"] in GOOD_RESULTS:
+            if good:
                 worked.setdefault(k, stamp)
             else:
                 bounds.setdefault(k, {}).setdefault(e["result"], stamp)
-    return worked, bounds
+    return worked, bounds, worked_set
+
+
+def shown(value) -> str:
+    return f"{value:g}" if isinstance(value, float) else str(value)
+
+
+def mixed_warnings(selected, same, conditions: dict) -> list:
+    """What the query leaves open: without --nozzle every nozzle is mixed; without --layer, --load,
+    --orientation or --process, any of them the same-condition entries record differently."""
+    warnings = []
+    if "nozzle_mm" not in conditions:
+        nozzles = sorted({e["nozzle_mm"] for _i, e in selected})
+        found = f" (these entries: {', '.join(shown(n) for n in nozzles)} mm)" if nozzles else ""
+        warnings.append(f"no --nozzle: results from every nozzle are mixed{found}; give --nozzle for the nozzle this "
+                        "print uses, so entries from another nozzle are only references")
+    words = {"layer_mm": "layer heights", "load": "loads", "orientation": "orientations", "process": "process presets"}
+    for field, opt in CONDITIONS[1:]:
+        if field in conditions:
+            continue
+        seen = {}
+        for _i, e in same:
+            v = e.get(field)
+            if v is not None:
+                key = v.casefold() if field == "process" else (v if isinstance(v, str) else round(v, 6))
+                seen.setdefault(key, v)
+        if len(seen) > 1:
+            warnings.append(f"no --{opt}: the entries behind 'worked' and 'bounds' record different {words[field]} "
+                            f"({', '.join(shown(v) for v in seen.values())}); give --{opt} for this print, so the "
+                            "others are only references")
+    return warnings
 
 
 def cmd_lookup(args) -> dict:
     data = load_file(args.file)
-    hits = [(i, e) for i, e in enumerate(data["entries"]) if matches(e, args)]
-    hits.sort(key=lambda ie: (ie[1]["date"], ie[0]), reverse=True)      # newest date, then latest in the file
-    entries = [e for _i, e in hits]
-    kinds = {}
-    for e in entries:
-        kinds[e.get("kind", UNCLASSIFIED)] = kinds.get(e.get("kind", UNCLASSIFIED), 0) + 1
-    out = {"file": args.file,
-           "query": {k: getattr(args, k) for k in ("printer", "material", "nozzle", "feature", "kind") if getattr(args, k) is not None}}
     kind = normalize_kind(args.kind) if args.kind else None
+    conditions = query_conditions(args)
+    selected = [(i, e) for i, e in enumerate(data["entries"]) if selects(e, args)]
+    selected.sort(key=lambda ie: (ie[1]["date"], ie[0]), reverse=True)      # newest date, then latest in the file
+    kinds = {}
+    for _i, e in selected:
+        kinds[e.get("kind", UNCLASSIFIED)] = kinds.get(e.get("kind", UNCLASSIFIED), 0) + 1
+    same, reference, unclassified = [], [], []
+    for i, e in selected:
+        diff = differs(e, conditions)
+        if kind and "kind" not in e:
+            unclassified.append(listed(i, e, diff))
+        elif kind and e["kind"] != kind:
+            continue                                                         # another kind of member: counted in kinds
+        elif diff:
+            reference.append(listed(i, e, diff))
+        else:
+            same.append((i, e))
+    worked, bounds, worked_set = summarize(same)
+    sources = sorted({s["entry"] for s in worked.values()})
+    query = {k: getattr(args, k) for k in ("printer", "material", "feature", "kind") if getattr(args, k) is not None}
+    query.update({opt: conditions[field] for field, opt in CONDITIONS if field in conditions})
+    out = {"file": args.file, "query": query,
+           "entries": [listed(i, e) for i, e in same], "count": len(same),
+           "worked": worked, "worked_set": worked_set, "combined": len(sources) > 1, "bounds": bounds,
+           "reference": reference, "kinds": kinds}
     if kind:
-        same = [e for e in entries if e.get("kind") == kind]
-        unclassified = [e for e in entries if "kind" not in e]
-        worked, bounds = summarize(same)
-        out.update({"entries": same, "count": len(same), "worked": worked, "bounds": bounds, "kinds": kinds,
-                    UNCLASSIFIED: {"entries": unclassified, "count": len(unclassified),
-                                   "note": f"entries without a kind: seen, but they set no floor for kind '{kind}' (a member "
-                                           "that broke is a floor for the same kind of member under the same kind of load); "
-                                           "to classify one, ask the user what it was and `add` it again with --kind "
-                                           "(the same values, date and note), the old entry stays as it is"}})
-    else:
-        worked, bounds = summarize(entries)
-        out.update({"entries": entries, "count": len(entries), "worked": worked, "bounds": bounds, "kinds": kinds})
-    out["note"] = ("'worked' is the newest value from a result that fit, worked or was measured: it beats the official spec "
-                   "and design.md starting points (SKILL.md, Phase 2). 'bounds' are the newest failed, tight and loose "
-                   "values: stay above a failure, between tight and loose, for the same kind of member (--kind)")
+        out[UNCLASSIFIED] = {"entries": unclassified, "count": len(unclassified),
+                             "note": f"entries without a kind: seen, but they set no floor for kind '{kind}' (a member "
+                                     "that broke is a floor for the same kind of member under the same kind of load); "
+                                     "to classify one, ask the user what it was and `add` it again with --kind "
+                                     "(the same values, date and note), the old entry stays as it is"}
+    warnings = mixed_warnings(selected, same, conditions)
+    if out["combined"]:
+        warnings.append(f"'worked' takes its values from {len(sources)} different test prints (entries "
+                        f"{', '.join(str(s) for s in sources)}): they were never printed together as a set, so the "
+                        f"combination is not verified; for a combination use 'worked_set' (entry {worked_set['entry']}, "
+                        f"{worked_set['date']}), one print's values together")
+    out["warnings"] = warnings
+    out["note"] = ("'entries' match every condition the query gives (nozzle, layer, load, orientation, process): only they "
+                   "set 'worked', 'worked_set' and 'bounds'. 'worked' is, per value name, the newest value from a result "
+                   "that fit, worked or was measured: it beats the official spec and design.md starting points (SKILL.md, "
+                   "Phase 2); each value names its 'entry' and 'date', and when they come from more than one entry "
+                   "('combined') they were never printed together, so take a combination from 'worked_set'. 'bounds' are "
+                   "the newest failed, tight and loose values: stay above a failure, between tight and loose, for the "
+                   "same kind of member (--kind). 'reference' entries differ in, or do not record, a condition the query "
+                   "gives ('differs': the entry's value, then the query's): references only, never a setting or a floor")
     return out
 
 
@@ -378,18 +549,25 @@ def main(argv=None):
                 p.add_argument("--feature", choices=FEATURES, required=(name == "add"))
                 p.add_argument("--kind", help="kind of member, a short lowercase id: latch, lid_hinge, lever, clamp, snap "
                                               "(add: optional, meant for mechanism entries; lookup: only this kind sets floors)")
+                p.add_argument("--layer", type=float, help="layer height in mm (lookup: a condition)")
+                p.add_argument("--load", help="force in N or a strength.py load key, when a mechanism was loaded "
+                                              "(lookup: a condition)")
+                p.add_argument("--orientation", help="how the part lay on the bed, a short lowercase id: flat, upright, "
+                                                     "on_side (lookup: a condition)")
+                p.add_argument("--process", help="the slicer process preset as the user calls it, e.g. "
+                                                 "'0.20mm Standard @BBL X2D', 80 characters (lookup: a condition)")
             if name == "add":
                 p.add_argument("--printers", help=".3dprint/printers.json: the printer must be one of its ids")
-                p.add_argument("--layer", type=float, help="layer height in mm")
                 p.add_argument("--result", choices=RESULTS, required=True)
                 p.add_argument("--value", action="append", help="name=number, repeatable, e.g. clearance_per_side_mm=0.3")
-                p.add_argument("--load", help="force in N or a strength.py load key, when a mechanism was loaded")
                 p.add_argument("--note", default="", help="free text, 500 characters; no serials, IPs or names")
                 p.add_argument("--date", help="YYYY-MM-DD (default today)")
         args = ap.parse_args(sys.argv[1:] if argv is None else argv)
         if args.cmd is None:
             raise CalibrationError("usage error: choose a subcommand: add, show, lookup")
-        out.update({"add": cmd_add, "show": cmd_show, "lookup": cmd_lookup}[args.cmd](args))
+        result = {"add": cmd_add, "show": cmd_show, "lookup": cmd_lookup}[args.cmd](args)
+        out["warnings"].extend(result.pop("warnings", []))
+        out.update(result)
         out["ran"] = True
     except (CalibrationError, OSError) as exc:
         out["errors"].append(str(exc))

@@ -14,16 +14,46 @@ so the agent never writes one, and values are numbers under 10 000 (mm, N).
 
 ## When to read it (Phase 2)
 
-Before the dimension table:
+Before the dimension table, always with the nozzle this print uses, and with the layer
+height, orientation, process preset and load when they are known:
 
 ```bash
-python3 "$SKILL_DIR/scripts/calibration.py" lookup --file .3dprint/calibration.json --printer x2d --material pla_basic
+python3 "$SKILL_DIR/scripts/calibration.py" lookup --file .3dprint/calibration.json --printer x2d --material pla_basic \
+  --nozzle 0.4
+python3 "$SKILL_DIR/scripts/calibration.py" lookup --file .3dprint/calibration.json --printer x2d --material pla_basic \
+  --nozzle 0.4 --layer 0.2 --orientation flat --process "0.20mm Standard @BBL X2D" --feature mechanism --kind lid_hinge
 ```
 
-`worked` gives, per value name, the newest number from a result that fit, worked or was
-measured; `bounds` gives the newest failed, tight and loose numbers, kept apart so a
-failure is never read as a setting (entries are ordered by date, then by their order in the
-file, newest first). Two priorities, not one: for **how this printer prints** (clearances,
+A result holds for the conditions it was printed under; one good print is not a rule for
+every nozzle, layer height or orientation. So `lookup` sorts what it finds in three:
+
+- **Recommended**: `entries` are the entries that record every condition the query gives
+  (`--nozzle`, `--layer`, `--load`, `--orientation`, `--process`) with the same value
+  (numbers within 1e-6; the process name regardless of case and repeated spaces). Only they
+  set `worked`, `bounds` and `worked_set`. `worked` gives, per value name, the newest number
+  from a result that fit, worked or was measured; `bounds` gives the newest failed, tight and
+  loose numbers, kept apart so a failure is never read as a setting (entries are ordered by
+  date, then by their order in the file, newest first). Every number names its `entry` (its
+  position in the file, from 0) and `date`.
+- **Reference**: `reference` lists entries for the same printer and material (and feature and
+  kind, when given) that differ in, or do not record, a condition the query gives; `differs`
+  names each, the entry's value first: `{"nozzle_mm": [0.6, 0.4], "layer_mm": ["not
+  recorded", 0.2]}`. They show what happened under other conditions and never set `worked` or
+  `bounds`: a reference, not a setting and not a floor. Say so in the table if one is used
+  ("reference: 0.6 mm nozzle, 2026-10-12").
+- **Combined, not verified as a set**: `worked` is per value name, so it can take `pin_d_mm`
+  from one test print and `pin_wall_mm` from another. Then `combined` is `true` and `warnings`
+  says those values were never printed together. For sizes that work together (a pin and the
+  wall around it, a clearance and the profile it was measured on), start from `worked_set`:
+  the newest same-condition entry that fit, worked or was measured, with all its values, one
+  print. A combination taken across entries is not verified: mark it so in the table, or offer
+  a coupon or a fit test (Phase 4).
+
+A condition the query leaves out matches every value. Without `--nozzle` the results of
+every nozzle are mixed and `warnings` says so; without `--layer`, `--load`, `--orientation`
+or `--process`, `warnings` names any of them the counted entries record differently.
+
+Two priorities, not one: for **how this printer prints** (clearances,
 hole sizes, member sizes that held), the user's calibration > the starting points in
 `design.md` and `tolerances.md`; for **the size of the object the part must fit**, the
 user's caliper > the official spec > secondary sources. A clearance that fit on this printer
@@ -32,11 +62,13 @@ same kind of member under the same kind of load**: a stub pin that broke in a ha
 latch does not set the floor for a lid hinge's integral pin. So look a mechanism up by its
 kind (`--feature mechanism --kind lid_hinge`): only entries of that kind set `worked` and
 `bounds`, entries without a kind are listed under `unclassified` (a reserved name, not a
-kind) so they are seen but set no floor, and `kinds` counts what the log holds. To classify
-an old entry, ask the user what it was and `add` it again with `--kind` (the same values,
-date and note); the old entry stays as it is. A 0.3.0 `calibration.py` drops `kind` when it
-rewrites the file, so keep the versions in step. Say in the dimension table which values came
-from the log ("calibration, 2026-10-16, lid_hinge").
+kind; with `differs` when they differ in a condition) so they are seen but set no floor, and
+`kinds` counts what the log holds for the printer, material and feature, under any
+conditions. To classify an old entry, ask the user what it was and `add` it again with
+`--kind` (the same values, date and note); the old entry stays as it is. A 0.3.0
+`calibration.py` drops `kind` when it rewrites the file, and one from 0.5.1 or before drops
+`orientation` and `process`, so keep the versions in step. Say in the dimension table which
+values came from the log ("calibration, 2026-10-16, entry 3, lid_hinge").
 
 ## When to write it (after a print)
 
@@ -48,12 +80,21 @@ as a success.
 
 ```bash
 python3 "$SKILL_DIR/scripts/calibration.py" add --file .3dprint/calibration.json --printer x2d --material pla_basic \
-  --nozzle 0.4 --layer 0.2 --feature fit --result fits --value clearance_per_side_mm=0.3 --value profile_w_mm=45.1 \
+  --nozzle 0.4 --layer 0.2 --orientation flat --process "0.20mm Standard @BBL X2D" \
+  --feature fit --result fits --value clearance_per_side_mm=0.3 --value profile_w_mm=45.1 \
   --note "fit-test ring 2 slid onto the housing by hand without rattle"
 ```
 
+Record the layer height, orientation and process preset whenever they are known (from the
+project, the 3MF or the user): a later lookup that gives them lists an entry that does not
+record them only as a reference. One entry is one print: put the values measured on the same
+print in the same `add`, so they come back together as `worked_set`.
+
 | Field | Values |
 |---|---|
+| `--nozzle`, `--layer` | nozzle diameter (required) and layer height (optional) in mm |
+| `--orientation` | how the part lay on the bed, a short lowercase id: `flat`, `upright`, `on_side`; the same checks as `--kind`. Layer lines follow it, so a member that held printed flat says little about the same member printed upright (`design.md`, "Orientation for strength") |
+| `--process` | the slicer process preset as the user calls it, e.g. `0.20mm Standard @BBL X2D`: one line, trimmed, 80 characters at most, the note's checks. Walls, infill and speeds live there, so a result under another preset is a reference |
 | `feature` | `fit` (fit-test rings and plugs), `clearance` (a measured moving-part gap), `hole` (a measured hole), `mechanism` (a member under load), `other` |
 | `--kind` | the kind of member, a short lowercase id (a letter, then letters, digits or underscores, 24 at most): `latch`, `lid_hinge`, `lever`, `clamp`, `snap`. Optional for every feature, give it for every `mechanism` entry so its floors apply to the same kind; the same identifier checks as a printer id (no capitals, spaces or names) |
 | `result` | `fits`, `tight`, `loose`, `worked`, `failed`, `measured` |
@@ -78,9 +119,13 @@ python3 "$SKILL_DIR/scripts/calibration.py" add --file .3dprint/calibration.json
   --note "print-in-place box latch, 3 walls, 10 % infill: pin on the lever, both ends in 4.25 mm rails, works after many uses"
 ```
 
-A later `lookup --feature mechanism --kind latch` then shows `worked.pin_d_mm` 3.24 and
-`bounds.pin_d_mm.failed` 2.6: the value to start from and the floor to stay above for the
-next latch. A lid hinge's coupon result is its own kind (`--kind lid_hinge`, with
-`pin_d_mm`, `knuckle_d_mm`, `knuckle_len_mm`, `knuckles` and the load it was pulled with); a
-`lookup --kind lid_hinge` leaves the latch entries out, and lists an old entry that has no
-kind under `unclassified`, where it sets no floor.
+A later `lookup --nozzle 0.4 --layer 0.2 --feature mechanism --kind latch` (no `--material`:
+the failed latch was PLA Pure, the working one PLA Basic) then shows `worked.pin_d_mm` 3.24
+and `bounds.pin_d_mm.failed` 2.6: the value to start from and the floor to stay above for
+the next latch, each with its `entry`. `worked_set` is the working latch with all its values
+together. The two entries do not record an orientation, so a lookup that adds
+`--orientation flat` lists them under `reference` (`"orientation": ["not recorded",
+"flat"]`) and recommends nothing. A lid hinge's coupon result is its own kind
+(`--kind lid_hinge`, with `pin_d_mm`, `knuckle_d_mm`, `knuckle_len_mm`, `knuckles` and the
+load it was pulled with); a `lookup --kind lid_hinge` leaves the latch entries out, and lists
+an old entry that has no kind under `unclassified`, where it sets no floor.
