@@ -71,3 +71,36 @@ folder the fit was run in, rehashes the STLs at the recorded paths and prints th
 `return_to: "current"`: run the fit again) or is missing, **UNVERIFIED** when the report has no
 `sha256` (written before fit.py recorded them). It says nothing about the fit itself: read the
 report's own gate, which `F3_fresh.value.report_gate` repeats.
+
+## `finalize.py` output
+
+The final report of Phase 6 (`references/phase-6-deliver.md`), schema `3dprint-scout.finalize/1`:
+
+```json
+{
+  "schema": "3dprint-scout.finalize/1", "ran": true, "build": "out/build.json", "engine": "python",
+  "geometry": "verified | not verified",
+  "shape": {"lid": {"coverage": {"front": "real", "back": "estimated", "...": "..."},
+                    "verified_from": ["front", "top"], "not_verified_from": ["back", "..."]}},
+  "slicing": "unverified", "print": "unverified (test prints passed: hinge coupon; ...)",
+  "parts": [{"name": "lid", "stl": "out/lid.stl", "sha256": "…", "gate": "PASS", "checks": {"R3": "PASS", "...": "..."}}],
+  "objects": [{"name": "box", "gate": "PASS", "parts": ["box", "lid"]}],
+  "joints": [{"name": "lid on box", "report": "out/fit_box_lid.json", "fresh": "PASS", "checks": {"F3": "PASS"}}],
+  "strength": [{"name": "latch arm", "report": "out/strength_latch.json", "gate": "PASS", "case": "pin"}],
+  "test_prints": [{"name": "hinge coupon", "status": "skipped", "note": "…"}],
+  "accepted": [{"check": "body P2", "reason": "…"}],
+  "delivered": [{"name": "lid", "delivered": "deliver/2026-10-21/lid.stl", "same_as_verified": true}],
+  "bundle": ["deliver/2026-10-21/source/REPRODUCE.md", "..."],
+  "open": ["joint 'lid on box': F3_fresh FAIL: STALE: …", "assumption: …"],
+  "summary": ["geometry: …", "shape: …", "slicing: unverified (not sliced here)", "print: …"],
+  "assumptions": ["…"], "unverified_dimensions": ["…"], "warnings": [], "errors": []
+}
+```
+
+`geometry` is `verified` only when every part validates now with R3 PASS and no hard FAIL or
+UNVERIFIED, every object check of the build stands (its STLs unchanged), every declared joint's
+report is fresh and its F3 / F3_sweep PASS against the delivered parts (or a declared proxy),
+every declared member's `strength.py` gate is PASS, no WARN is left unaccepted, the delivered
+copies (with `--deliver`) are the verified files, and `joints` and `strength` were declared at
+all. Paths are relative to the folder it ran in. Exit 0 when it ran, 1 on a usage or file error
+(a missing or wrong `--build`, a bad `_verify`, an existing `--bundle` folder).
