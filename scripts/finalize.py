@@ -205,7 +205,9 @@ def settings_drift(build, settings):
     if bool(b.get("wall_check", True)) != bool(settings.wall_check):
         out.append("wall_check")
     pr = settings.printer
-    if b.get("printer_sha256") and pr and os.path.isfile(pr) and validate.file_sha256(pr) != b["printer_sha256"]:
+    same_file = bool(pr and b.get("printer") and os.path.normcase(os.path.abspath(pr)) ==
+                     os.path.normcase(os.path.abspath(b["printer"])))
+    if same_file and b.get("printer_sha256") and os.path.isfile(pr) and validate.file_sha256(pr) != b["printer_sha256"]:
         out.append(f"{rel(pr)} changed since the build")
     return out
 

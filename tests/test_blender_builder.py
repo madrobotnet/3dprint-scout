@@ -790,6 +790,63 @@ emit(cuts=cuts, sides=sides(strip), raw_sides=sides(raw), outline=len(pts), wors
         self.assertEqual(rep["raw_sides"], rep["outline"])
         self.assertLess(rep["worst"], 1e-4)
 
+    def test_fillet_near_another_round_shared_meshes_and_flat_overlaps(self):
+        """Fourth review of 0.6: a straightened rim corner never lands past another round's
+        tangent line (a hole 2r + 0.05 from the side at r = 3 left a 0.08 mm ridge on the side's
+        round): the surface across that round stays within faceting of the ideal one. A fillet on
+        a mesh shared with a linked duplicate leaves the duplicate as it was, accepted or refused.
+        Faces that overlap in one plane count as crossing (the BVH test alone saw 0)."""
+        rep = run_in_blender("""
+import math, bmesh
+from mathutils.bvhtree import BVHTree
+r, R, TOP = 3.0, 4.0, 8.0
+cx, cy = 40 - (2 * r + 0.05) - R, 15.0
+bb.new_scene_mm()
+o = bb.box([40, 30, TOP], "blk")
+h = bb.cylinder(R, TOP + 2, name="h"); h.location = (cx, cy, -1)
+bb.boolean(o, h, "difference")
+bb.fillet(o, r, bb.edges(o, inside=((-1, -1, TOP - 0.1), (41, 31, TOP + 0.1))))
+bm = bmesh.new(); bm.from_mesh(o.data); tree = BVHTree.FromBMesh(bm)
+def ideal(x):
+    tl = 40 - r
+    return TOP if x <= tl else TOP - r + math.sqrt(max(r * r - (x - tl) ** 2, 0.0))
+worst = 0.0
+for y in (cy - 1.5, cy, cy + 1.5):
+    for k in range(60):
+        x = 40 - r + 0.05 * k
+        hit = tree.ray_cast((x, y, TOP + 5), (0, 0, -1))
+        if hit[0] is not None and x < 39.9:
+            worst = max(worst, hit[0].z - ideal(x))
+bm.free()
+clean = [bb.nonmanifold_edges(o), bb.degenerate_triangles(o.data), bb.self_intersections(o)]
+twins = {}
+for case, rad in (("ok", 1.0), ("refused", 6.0)):
+    bb.new_scene_mm()
+    a = bb.box([30, 30, 10], "a"); hh = bb.cylinder(4, 12, name="hh"); hh.location = (15, 15, -1)
+    bb.boolean(a, hh, "difference")
+    b = a.copy(); bpy.context.scene.collection.objects.link(b)
+    n = len(b.data.vertices)
+    try:
+        bb.fillet(a, rad, bb.edges(a, inside=((-1, -1, 9.9), (31, 31, 10.1))))
+    except ValueError:
+        pass
+    twins[case] = [n, len(b.data.vertices), "bevel_weight_edge" in b.data.attributes]
+bb.new_scene_mm()
+bm = bmesh.new()
+for lo in ((0, 0, 0), (5, 5, 10)):                       # two blocks stacked: the faces at z = 10 overlap flat
+    vs = bmesh.ops.create_cube(bm, size=1.0)["verts"]
+    bmesh.ops.scale(bm, vec=(10, 10, 10), verts=vs)
+    bmesh.ops.translate(bm, vec=(lo[0] + 5, lo[1] + 5, lo[2] + 5), verts=vs)
+stack = bb.mesh_object("stack", bm)
+emit(worst=worst, clean=clean, twins=twins, flat=bb.self_intersections(stack))
+""")
+        self.assertEqual(rep["clean"], [0, 0, 0])
+        self.assertLess(rep["worst"], 0.02)                                    # above the ideal round: no ridge
+        for case in ("ok", "refused"):
+            n, after, weight = rep["twins"][case]
+            self.assertEqual((after, weight), (n, False), case)
+        self.assertGreater(rep["flat"], 0)
+
     def test_boolean_welds_only_degenerate_corners(self):
         """Third review of 0.6: a boolean that leaves corners a hair apart merges only those
         corners (as the export would) and counts again; two shells 0.07 um apart elsewhere stay

@@ -26,9 +26,10 @@ for new features.
     the way out: the profile, or a smaller radius. A cut leaves its flat faces split along edges
     from a hole's rim; those at a rounded corner are turned onto the corner's miter first (the
     bevel ran along them: a slit from the rim to the far corner), so a hole's rim gets a true
-    round. After the bevel every result is checked for zero-area triangles, non-manifold edges
-    and faces that cross each other (`bb.self_intersections`, which validate.py does not look
-    for); any of them puts the object back as it was and raises. Known limit: a face cut by many
+    round, and never past another round's tangent line. After the bevel every result is checked
+    for zero-area triangles, non-manifold edges and faces that cross each other or overlap in one
+    plane (`bb.self_intersections`, which validate.py does not look for); any of them puts the
+    object back as it was and raises. A mesh shared with a linked duplicate is copied first. Known limit: a face cut by many
     holes can still be refused there (a split edge passing near another hole); a hole's
     chamfer or round then belongs in the cut's own tool.
   - `bb.arc`, `bb.outline`, `bb.round_profile`: 2D profiles from lines and true arcs, corners
@@ -83,8 +84,10 @@ for new features.
   mesh check passed, a weld that hid an overlap, a gentle curve folded flat, a round's end that
   met another round, and an object judged on one printer reported as verified for another; all
   are fixed or refused, with tests. Codex's review found the bundle flattening sources into one
-  folder and a malformed 3MF manifest giving a traceback; both fixed.
-- **Tests**: 289 → 327, with Python 3.13 + Blender 5.2.2 and without Blender.
+  folder and a malformed 3MF manifest giving a traceback; both fixed. A fourth pass found a
+  straightened corner that could leave a 0.08 mm ridge on a neighbouring round, flat overlaps
+  the crossing check missed, and a linked duplicate changed along; fixed, with tests.
+- **Tests**: 289 → 328, with Python 3.13 + Blender 5.2.2 and without Blender.
 
 ## 0.5.1 — 2026-10-21
 

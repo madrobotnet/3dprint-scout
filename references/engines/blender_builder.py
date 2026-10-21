@@ -1623,21 +1623,48 @@ def _thin_fans(bm, regions, offsets):
     return len(kill)
 
 
-def _straighten_bridges(bm, regions, offset_of, reach=1.25):
+def _seg_point_dist(p, a, b):
+    ax_, ay_ = b[0] - a[0], b[1] - a[1]
+    L2 = ax_ * ax_ + ay_ * ay_
+    t = 0.0 if L2 == 0 else max(0.0, min(1.0, ((p[0] - a[0]) * ax_ + (p[1] - a[1]) * ay_) / L2))
+    return math.hypot(p[0] - a[0] - ax_ * t, p[1] - a[1] - ay_ * t)
+
+
+def _straighten_bridges(bm, regions, offset_of, reaches=(1.25, 1.1, 1.03, 1.01)):
     """A face with a hole is split by the cut into faces joined along edges from the hole's rim
     to the outline. Where such an edge leaves a corner between two chosen edges at a shallow
     angle, the bevel slides the corner along it far past the round (a slit across the face).
     The edges inside the face at such a corner are cut near it and their new ends welded into
-    one point on the corner's miter line, `reach` x as far as the round goes, joined to the
-    corner by one edge: the bevel then slides along the miter, as on a clean ring. A corner
-    whose faces would cross themselves is left alone (the check after the bevel decides).
-    Returns how many corners were straightened."""
+    one point on the corner's miter line, a little farther than the round goes (the first of
+    `reaches` x that stays clear of every other round's strip, so the point never lands past
+    another round's tangent line), joined to the corner by one edge: the bevel then slides along
+    the miter, as on a clean ring. A corner with no clear point, or whose faces would cross
+    themselves, is left alone (the check after the bevel decides). Returns how many corners
+    were straightened."""
     done = 0
     for f0, loops, _ in regions:
         n = f0.normal.normalized()
         ax = n.orthogonal().normalized()
         ay = n.cross(ax)
         p0 = f0.verts[0].co.copy()
+
+        def to2(co, ax=ax, ay=ay):
+            return (co.dot(ax), co.dot(ay))
+        strips = [(to2(sg[1].co), to2(sg[2].co), offset_of(sg[0]), sg[1], sg[2])
+                  for lp in loops for sg in lp if offset_of(sg[0]) > 0]
+        cell = max((st[2] for st in strips), default=1.0) * 3 or 1.0
+        grid = {}
+        for j, (a2, b2, _, _, _) in enumerate(strips):
+            for gx in range(int(math.floor(min(a2[0], b2[0]) / cell)), int(math.floor(max(a2[0], b2[0]) / cell)) + 1):
+                for gy in range(int(math.floor(min(a2[1], b2[1]) / cell)), int(math.floor(max(a2[1], b2[1]) / cell)) + 1):
+                    grid.setdefault((gx, gy), []).append(j)
+
+        def clear(q, v, strips=strips, grid=grid, cell=cell):
+            q2 = to2(q)
+            gx, gy = int(math.floor(q2[0] / cell)), int(math.floor(q2[1] / cell))
+            near = {j for dx in (-1, 0, 1) for dy in (-1, 0, 1) for j in grid.get((gx + dx, gy + dy), ())}
+            return all(_seg_point_dist(q2, strips[j][0], strips[j][1]) >= strips[j][2] * 0.999
+                       for j in near if v not in (strips[j][3], strips[j][4]))
 
         def region(f, n=n, p0=p0):                       # the region by its plane: cuts below add faces
             return f.is_valid and f.normal.dot(n) > FLAT_COS and abs((f.verts[0].co - p0).dot(n)) < 1e-4
@@ -1657,7 +1684,9 @@ def _straighten_bridges(bm, regions, offset_of, reach=1.25):
                 m = _miter_point(v, prev[1], nxt[2], n, t_prev, t_next)
                 if m is None:
                     continue
-                target = v.co + (m - v.co) * reach
+                target = next((v.co + (m - v.co) * r for r in reaches if clear(v.co + (m - v.co) * r, v)), None)
+                if target is None:
+                    continue
                 d = (target - v.co).length
                 if any(e.calc_length() <= d * 1.01 for e in inner):
                     continue
@@ -1684,9 +1713,27 @@ def _straighten_bridges(bm, regions, offset_of, reach=1.25):
     return done
 
 
+def _tri2_overlap(t1, t2, eps=1e-6):
+    """True when two 2D triangles share more than an edge or a point (separating axis test)."""
+    for tri in (t1, t2):
+        for i in range(3):
+            (x1, y1), (x2, y2) = tri[i], tri[(i + 1) % 3]
+            nx, ny = y2 - y1, x1 - x2
+            L = math.hypot(nx, ny)
+            if L == 0:
+                continue
+            nx, ny = nx / L, ny / L
+            p1 = [x * nx + y * ny for x, y in t1]
+            p2 = [x * nx + y * ny for x, y in t2]
+            if max(p1) <= min(p2) + eps or max(p2) <= min(p1) + eps:
+                return False
+    return True
+
+
 def self_intersections(obj):
-    """How many pairs of the mesh's triangles cross each other (pairs that share a corner are
-    not counted): 0 for a sound solid. validate.py does not look for this."""
+    """How many pairs of the mesh's triangles cross each other, or overlap in one plane (a flap
+    folded flat onto its neighbour); pairs that share a corner are not counted: 0 for a sound
+    solid. validate.py does not look for this."""
     from mathutils.bvhtree import BVHTree
     bm = bmesh.new()
     bm.from_mesh(obj.data)
@@ -1697,6 +1744,38 @@ def self_intersections(obj):
     for a, b in tree.overlap(tree):
         if a < b and not (set(bm.faces[a].verts) & set(bm.faces[b].verts)):
             n += 1
+    planes = {}                                            # coplanar overlaps: the BVH test misses them
+    for f in bm.faces:
+        a, b, c = (v.co for v in f.verts)
+        nrm = (b - a).cross(c - a)
+        if nrm.length < 1e-12:
+            continue
+        nrm.normalize()
+        if nrm.x < 0 or (nrm.x == 0 and (nrm.y < 0 or (nrm.y == 0 and nrm.z < 0))):
+            nrm = -nrm
+        key = (round(nrm.x, 4), round(nrm.y, 4), round(nrm.z, 4), round(nrm.dot(a), 3))
+        planes.setdefault(key, []).append(f)
+    for fs in planes.values():
+        if len(fs) < 2:
+            continue
+        nrm = fs[0].normal.normalized()
+        ax = nrm.orthogonal().normalized()
+        ay = nrm.cross(ax)
+        items = []
+        for f in fs:
+            t2 = [(v.co.dot(ax), v.co.dot(ay)) for v in f.verts]
+            items.append((min(p[0] for p in t2), max(p[0] for p in t2), t2, f))
+        items.sort(key=lambda it: it[0])
+        for i in range(len(items)):
+            lo, hi, t1, f1 = items[i]
+            for j in range(i + 1, len(items)):
+                lo2, _, t2, f2 = items[j]
+                if lo2 >= hi:
+                    break
+                if set(f1.verts) & set(f2.verts):
+                    continue
+                if _tri2_overlap(t1, t2):
+                    n += 1
     bm.free()
     return n
 
@@ -1802,7 +1881,14 @@ def fillet(obj, radius, edges=None, segments=None, apply=True):
         offsets = [e[layer] * widest for e in bm.edges]
         regions = _flat_regions(bm, offsets)
     straightened = _straighten_bridges(bm, regions, lambda e: e[layer] * widest)
-    backup = me.copy()                                     # a refusal after the bevel puts this back
+    shared = me if me.users > 1 else None                 # a linked duplicate keeps its mesh as it is
+    if shared:
+        me = shared.copy()
+        me[TAG] = True
+        obj.data = me
+        backup = None
+    else:
+        backup = me.copy()                                 # a refusal after the bevel puts this back
     bm.to_mesh(me)
     bm.free()
     me.update()
@@ -1823,8 +1909,11 @@ def fillet(obj, radius, edges=None, segments=None, apply=True):
         bad, nm = fix_slivers(me), nonmanifold_edges(obj)
         cross = 0 if bad or nm else self_intersections(obj)    # the deciding check: a weld cannot hide it
         if bad or nm or cross:
-            obj.data = backup                              # refused: the object is as it was
+            name = me.name                                 # refused: the object is as it was
+            obj.data = shared or backup
             bpy.data.meshes.remove(me)
+            if backup:
+                backup.name = name
             what = (f"{cross} pairs of faces that cross each other" if cross else
                     f"{bad} zero-area triangles and {nm} non-manifold edges")
             raise ValueError(f"fillet of {radius} mm on '{obj.name}' left {what}: two fillets (or a fillet and a "
@@ -1832,7 +1921,8 @@ def fillet(obj, radius, edges=None, segments=None, apply=True):
                              "Reduce the radius, fillet before the cut that is in its way, or put the round into the "
                              "cut's own tool (a profile with the round, round_profile, or a parts.py tool through "
                              "from_manifold)")
-    bpy.data.meshes.remove(backup)
+    if backup:
+        bpy.data.meshes.remove(backup)
     LOG.append(f"fillet '{obj.name}': radius {radius} mm on {sum(1 for o in offsets if o)} edges, {segments} segments"
                + (f", {straightened} rim corners straightened" if straightened else ""))
     return obj
