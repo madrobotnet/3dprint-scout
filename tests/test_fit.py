@@ -508,6 +508,19 @@ class FollowsThePath(unittest.TestCase):
                             "--sweep-travel", "-40")
         f3 = out["checks"]["F3_sweep"]
         self.assertEqual((f3["state"], f3["value"]["required_travel_deg"]), ("FAIL", 40.0), f3)
+        # Codex (PR #11): a stop that starts just short of the required travel, between the last
+        # free check (15.5) and the next one (16), passed because that next check landed past the
+        # travel. The required angle is checked as an angle of its own.
+        for need, state in (("15", "PASS"), ("15.95", "FAIL"), ("16", "FAIL")):
+            code, out = run_fit(a, b, "--play", "none", "--sweep-angles", "0:90:2", "--sweep-travel", need)
+            f3, sw = out["checks"]["F3_sweep"], out["metrics"]["sweep"]
+            self.assertEqual(f3["state"], state, (need, f3))
+            if state == "FAIL":
+                self.assertLessEqual(sw["first_overlap_deg"], float(need))
+                self.assertTrue(any(r.get("required_travel") for r in sw["table"]) or float(need) in
+                                [r["angle_deg"] for r in sw["table"]])
+            else:
+                self.assertGreaterEqual(sw["free_until_deg"], float(need))
         # Nothing hit and no travel given: nothing to decide.
         code, out = run_fit(a, b, "--play", "none", "--sweep-angles", "-40:0:2")
         self.assertEqual(out["checks"]["F3_sweep"]["state"], "UNVERIFIED")

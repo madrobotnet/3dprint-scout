@@ -18,6 +18,9 @@ that fails on 0.5.0, and an independent review of the fixes found two more of th
     needs decides, so give it (a stop without it stays a WARN).
   - `--sweep-travel` is a magnitude: `-40` for a clockwise sweep was always met (a false PASS
     with a stop at −16°); it now means 40.
+  - The required travel is checked as an angle of its own (Codex on #11): a stop that starts
+    just short of it, between two checks, passed when the next check landed past it. A hit at
+    the required angle itself is a FAIL.
   - The turn between two steps is followed too, wherever the gaps at the steps do not cover it,
     until no point of the part moves more than 0.2 mm between two checked angles: a thin stop
     between steps is found (a 0.6 mm post at 5° passed with 10° steps). A part turning in

@@ -26,9 +26,9 @@ away from its placed pose, and reports the interference and gap at each step, th
 which B first hits A (its stop) and the free travel before it. Angles are travel from the
 placed pose in one direction: 0:90:2 turns counter-clockwise about the axis, -40:0:2 (or
 0:-40:2) clockwise; a range on both sides of 0 is two sweeps, run them separately. The
-verdict F3_sweep needs --sweep-travel DEG, the travel the part must have (a magnitude): PASS
-when the part is free through it (a stop beyond it is reported); FAIL when it hits before
-it; WARN when it hits and no travel was given (then say what the part must do);
+verdict F3_sweep needs --sweep-travel DEG, the travel the part must have (a magnitude, and
+checked as an angle of its own): PASS when the part is free through it (a stop beyond it is
+reported); FAIL when it hits within it; WARN when it hits and no travel was given (then say what the part must do);
 UNVERIFIED when nothing is hit but no travel was given, when the range does not start at 0
 or ends before the travel, or when the turn between steps needed more checks than a sweep
 allows. Between two steps the turn is followed too, wherever the gaps at the steps do not
@@ -571,14 +571,25 @@ def check(args) -> dict:
 
     if args.sweep_angles:
         angles = args.sweep_angles
-        rows, first, radius, checked, finished = sweep(a, b, args.sweep_axis, args.sweep_pivot, angles,
+        start, end = abs(angles[0]), abs(angles[-1])
+        need = abs(args.sweep_travel) if args.sweep_travel is not None else None     # a travel, either way round
+        # The required travel is checked as an angle of its own: a stop that starts just short of
+        # it, between two checked angles, must not pass because the next check lands past it.
+        probe = list(angles)
+        at_need = None
+        if need is not None and start - 1e-9 <= need <= end + 1e-9:
+            at_need = round((-1.0 if angles[-1] < 0 else 1.0) * need, 6)
+            if all(abs(x - at_need) > 1e-9 for x in probe):
+                probe = sorted(probe + [at_need], key=abs)
+        rows, first, radius, checked, finished = sweep(a, b, args.sweep_axis, args.sweep_pivot, probe,
                                                        args.max_interference, args.search)
+        for r in rows:
+            if at_need is not None and abs(r["angle_deg"] - at_need) <= 1e-9:
+                r["required_travel"] = True
         before = rows if first is None else rows[: [r["angle_deg"] for r in rows].index(first)]
         free = [r["angle_deg"] for r in before if r["interference_mm3"] <= args.max_interference]
         closest = min(rows, key=lambda r: r["min_gap_mm"]) if rows else None
         direction = "counter-clockwise" if angles[-1] >= 0 else "clockwise"
-        start, end = abs(angles[0]), abs(angles[-1])
-        need = abs(args.sweep_travel) if args.sweep_travel is not None else None     # a travel, either way round
         from_pose = start <= 1e-9
         until = free[-1] if free and from_pose else None
         # The table keeps the steps, and of the turns checked between them only the two that
@@ -598,9 +609,10 @@ def check(args) -> dict:
                         f"(at most {SWEEP_BUDGET}); the first overlap is the stop"}
         out["metrics"]["sweep"] = sw
         span = f"{angles[0]}..{angles[-1]} deg ({direction})"
-        if first is not None and need is not None and abs(first) < need - 1e-9:
-            # A hit inside the needed travel decides on its own, wherever the sweep started.
-            st, note = "FAIL", (f"hits at {first} deg, before the required {need:g} deg of travel"
+        if first is not None and need is not None and abs(first) <= need + 1e-9:
+            # A hit within the needed travel (at its end too: it overlaps there, so it met the stop
+            # before) decides on its own, wherever the sweep started.
+            st, note = "FAIL", (f"hits at {first} deg, within the required {need:g} deg of travel"
                                 + (f" (free through {until} deg)" if until is not None else
                                    " (not free from the placed pose)" if from_pose else ""))
         elif not from_pose:
@@ -622,8 +634,11 @@ def check(args) -> dict:
         elif first is None:
             st, note = "PASS", (f"free through the required {need:g} deg: no overlap over {span}; closest approach "
                                 f"{closest['min_gap_mm']} mm at {closest['angle_deg']} deg")
-        elif need is not None:
+        elif need is not None and until is not None and abs(until) + 1e-9 >= need:
             st, note = "PASS", f"free through the required {need:g} deg (last free check {until} deg); stops at {first} deg"
+        elif need is not None:
+            st, note = "UNVERIFIED", (f"the stop at {first} deg is past the required {need:g} deg, but the last free check "
+                                      f"is {until} deg: the travel between them is not decided")
         else:
             st, note = "WARN", (f"hits at {first} deg over {span}, free through {until} deg; pass --sweep-travel DEG "
                                 "with the travel the part needs to decide PASS or FAIL" if until is not None else
