@@ -60,6 +60,13 @@ import tempfile
 import time
 import unicodedata
 
+# The skill's own Python libraries (parts.py, sdf.py) are importable from a Blender generator,
+# after the generator's own folder: parts.py's mechanical helpers reach Blender through
+# from_manifold wherever manifold3d is installed in the Python that runs Blender.
+SKILL_SCRIPTS = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "scripts")
+if os.path.isfile(os.path.join(SKILL_SCRIPTS, "parts.py")) and SKILL_SCRIPTS not in sys.path:
+    sys.path.append(SKILL_SCRIPTS)
+
 try:
     import bpy
     import bmesh
@@ -559,8 +566,10 @@ def _deselect_all():
 # Meshes
 # --------------------------------------------------------------------------- #
 def mesh_object(name, bm, collection=None):
-    """An object from a bmesh (consumed), linked into the build scene and tagged."""
+    """An object from a bmesh (consumed), linked into the build scene and tagged; its faces
+    point outward."""
     require_blender()
+    bm.normal_update()                      # recalc_face_normals starts from the current normals
     bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
     me = bpy.data.meshes.new(name)
     bm.to_mesh(me)
@@ -600,6 +609,76 @@ def degenerate_triangles(me, area=1e-9):
     short = np.minimum(np.minimum(np.linalg.norm(a - b, axis=1), np.linalg.norm(b - c, axis=1)),
                        np.linalg.norm(a - c, axis=1))
     return int(np.count_nonzero((areas < area) | (short < WELD)))
+
+
+def weld_degenerate(me):
+    """Merge, within WELD, only the corners of triangles that have an edge shorter than WELD (a
+    cut or a bevel can leave two corners a hair apart, which the export would weld as well).
+    Returns how many vertices were merged; the caller counts degenerate and non-manifold edges
+    again."""
+    import numpy as np
+    me.calc_loop_triangles()
+    if not len(me.loop_triangles):
+        return 0
+    co = np.empty(len(me.vertices) * 3, dtype=np.float64)
+    me.vertices.foreach_get("co", co)
+    co = co.reshape(-1, 3)
+    idx = np.empty(len(me.loop_triangles) * 3, dtype=np.int64)
+    me.loop_triangles.foreach_get("vertices", idx)
+    tri = idx.reshape(-1, 3)
+    a, b, c = (co[tri[:, k]] for k in range(3))
+    short = np.minimum(np.minimum(np.linalg.norm(a - b, axis=1), np.linalg.norm(b - c, axis=1)), np.linalg.norm(a - c, axis=1))
+    pick = set(tri[short < WELD].ravel().tolist())
+    if not pick:
+        return 0
+    n = len(me.vertices)
+    bm = bmesh.new()
+    bm.from_mesh(me)
+    bm.verts.ensure_lookup_table()
+    bmesh.ops.remove_doubles(bm, verts=[bm.verts[i] for i in pick], dist=WELD)
+    bm.to_mesh(me)
+    bm.free()
+    me.update()
+    return n - len(me.vertices)
+
+
+def fix_slivers(me, area=1e-9):
+    """Remove the zero-area triangles a flat face's triangulation makes where three of its
+    corners lie almost in line (a cut through faceted geometry leaves such corners): the faces
+    holding them are triangulated and the long edge of each sliver, a diagonal inside the flat
+    face, is turned to the opposite corner, which gives two proper triangles in the same plane.
+    Returns how many slivers remain (0 when all are gone); the shape is unchanged."""
+    import numpy as np
+    for _ in range(8):
+        me.calc_loop_triangles()
+        if not len(me.loop_triangles):
+            return 0
+        co = np.empty(len(me.vertices) * 3, dtype=np.float64)
+        me.vertices.foreach_get("co", co)
+        co = co.reshape(-1, 3)
+        bad = {t.polygon_index for t in me.loop_triangles
+               if np.linalg.norm(np.cross(co[t.vertices[1]] - co[t.vertices[0]], co[t.vertices[2]] - co[t.vertices[0]])) / 2 < area}
+        if not bad:
+            return degenerate_triangles(me, area)
+        bm = bmesh.new()
+        bm.from_mesh(me)
+        bm.faces.ensure_lookup_table()
+        res = bmesh.ops.triangulate(bm, faces=[bm.faces[i] for i in bad], quad_method="BEAUTY", ngon_method="BEAUTY")
+        turn = []
+        for f in res["faces"]:
+            a, b, c = (v.co for v in f.verts)
+            if (b - a).cross(c - a).length / 2 < area:
+                e = max(f.edges, key=lambda e: e.calc_length())
+                if len(e.link_faces) == 2 and e not in turn:
+                    turn.append(e)
+        if turn:
+            bmesh.ops.rotate_edges(bm, edges=turn, use_ccw=False)
+        bm.to_mesh(me)
+        bm.free()
+        me.update()
+        if not turn:
+            break
+    return degenerate_triangles(me, area)
 
 
 def evaluated_mesh(obj):
@@ -647,10 +726,36 @@ def cylinder(r, h, segments=None, name="cylinder", collection=None):
     return mesh_object(name, bm, collection)
 
 
-def prism(outline, height, name="prism", collection=None, z0=0.0):
-    """A closed 2D outline [(x, y), ...] in mm extruded from z0 to z0 + height (caps are
-    n-gons; the exporter triangulates them)."""
+def cone(r_bottom, r_top, h, segments=None, name="cone", collection=None, z0=0.0):
+    """A cone or frustum on the Z axis from z0 to z0 + h, radius r_bottom at the bottom and
+    r_top at the top (either may be 0 for a point; not both). A countersink is
+    `cone(shank_r, head_r + overshoot, head_r - shank_r + overshoot)` placed with its top
+    `overshoot` above the face (90 degrees: the radius grows as fast as the height)."""
     require_blender()
+    if h <= 0 or r_bottom < 0 or r_top < 0 or (r_bottom == 0 and r_top == 0):
+        raise ValueError("cone needs h > 0 and radii >= 0, not both 0")
+    bm = bmesh.new()
+    bmesh.ops.create_cone(bm, cap_ends=True, cap_tris=False, segments=segments or circle_segments(max(r_bottom, r_top)),
+                          radius1=r_bottom, radius2=r_top, depth=h)
+    bmesh.ops.translate(bm, vec=(0, 0, z0 + h / 2), verts=bm.verts)
+    bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=WELD)          # a zero radius collapses to the tip
+    return mesh_object(name, bm, collection)
+
+
+PLANES = {"XY": lambda u, v, w: (u, v, w),            # outline (x, y), extruded along +Z
+          "XZ": lambda u, v, w: (u, w, v),            # outline (x, z), extruded along +Y
+          "YZ": lambda u, v, w: (w, u, v)}            # outline (y, z), extruded along +X
+
+
+def prism(outline, height, name="prism", collection=None, z0=0.0, plane="XY"):
+    """A closed 2D outline [(u, v), ...] in mm extruded by `height` from z0 (caps are n-gons;
+    the exporter triangulates them). `plane` says what the outline's two coordinates are and
+    which way it is extruded: "XY" (x, y; along +Z, the default), "XZ" (x, z; along +Y: a
+    profile drawn as seen from the front) or "YZ" (y, z; along +X). z0 is the start on the
+    extrusion axis. Build a profile with `arc` and `round_profile`."""
+    require_blender()
+    if plane not in PLANES:
+        raise ValueError(f"plane must be one of {sorted(PLANES)}; got {plane!r}")
     pts = [tuple(map(float, p[:2])) for p in outline]
     if len(pts) >= 2 and pts[0] == pts[-1]:
         pts.pop()
@@ -664,7 +769,11 @@ def prism(outline, height, name="prism", collection=None, z0=0.0):
     res = bmesh.ops.extrude_face_region(bm, geom=[face])
     top = [g for g in res["geom"] if isinstance(g, bmesh.types.BMVert)]
     bmesh.ops.translate(bm, vec=(0, 0, height), verts=top)
-    return mesh_object(name, bm, collection)
+    if plane != "XY":
+        to = PLANES[plane]
+        for v in bm.verts:
+            v.co = to(v.co.x, v.co.y, v.co.z)
+    return mesh_object(name, bm, collection)                  # normals are recalculated there
 
 
 def ring(r_in, r_out, h, segments=None, name="ring", collection=None, z0=0.0):
@@ -682,6 +791,477 @@ def ring(r_in, r_out, h, segments=None, name="ring", collection=None, z0=0.0):
     bmesh.ops.translate(bm, vec=(0, 0, h), verts=top)
     bmesh.ops.translate(bm, vec=(0, 0, z0), verts=bm.verts)
     return mesh_object(name, bm, collection)
+
+
+class Arc(list):
+    """The points of a circular arc (a list, usable wherever points are), remembering the circle
+    it lies on, so `round_profile` can round a corner against the true circle, not its facets."""
+
+    def __init__(self, center, r, start_deg, end_deg, segments=None):
+        if r <= 0:
+            raise ValueError("arc radius must be positive")
+        if abs(end_deg - start_deg) < 1e-9:
+            raise ValueError("an arc needs two different angles")
+        self.center = (float(center[0]), float(center[1]))
+        self.r = float(r)
+        self.start_deg, self.end_deg = float(start_deg), float(end_deg)
+        n = segments or circle_segments(r)
+        span = math.radians(end_deg - start_deg)
+        k = max(1, math.ceil(abs(span) / (2 * math.pi / n)))
+        a0 = math.radians(start_deg)
+        super().__init__((self.center[0] + r * math.cos(a0 + span * i / k), self.center[1] + r * math.sin(a0 + span * i / k))
+                         for i in range(k + 1))
+
+
+def arc(center, r, start_deg, end_deg, segments=None):
+    """A circular arc for a 2D profile: centre (u, v), radius r in mm, from start_deg to end_deg
+    (degrees; counter-clockwise when end > start), both ends included, at the circle rule's
+    spacing (`circle_segments(r)` per full turn). A list of points that also remembers its
+    circle: join arcs and points with `outline`, round the corners with `round_profile`."""
+    return Arc(center, r, start_deg, end_deg, segments)
+
+
+def _pieces(items):
+    """Pieces of an outline in order: a single (u, v) point, or a list of points (an Arc keeps
+    its circle)."""
+    out = []
+    for piece in items:
+        if piece and isinstance(piece[0], (int, float)):
+            out.append([tuple(map(float, piece[:2]))])
+        else:
+            out.append(piece)
+    return out
+
+
+def outline(*pieces):
+    """One closed 2D outline (a list of (u, v) points) from pieces: single points, lists of
+    points and `arc`s, dropping a point that repeats the one before it (or closes onto the
+    first). For rounded corners pass the same pieces to `round_profile` instead."""
+    pts = []
+    for piece in _pieces(pieces):
+        for q in piece:
+            q = (float(q[0]), float(q[1]))
+            if not pts or math.dist(q, pts[-1]) > 1e-6:
+                pts.append(q)
+    if len(pts) > 1 and math.dist(pts[0], pts[-1]) <= 1e-6:
+        pts.pop()
+    return pts
+
+
+def _signed_area(pts):
+    return sum(pts[i - 1][0] * pts[i][1] - pts[i][0] * pts[i - 1][1] for i in range(len(pts))) / 2
+
+
+def _edges_2d(pieces):
+    """Nodes and edges of an outline: every point is a node except the inside points of an arc;
+    edge i runs from node i to node i + 1 and is ("line",) or ("arc", centre, r, ccw)."""
+    nodes, kinds = [], []
+    for piece in _pieces(pieces):
+        if isinstance(piece, Arc):
+            a, b = piece[0], piece[-1]
+            if nodes and math.dist(a, nodes[-1]) <= 1e-6:
+                kinds[-1] = None                       # the arc starts where the last piece ended
+            else:
+                nodes.append(a)
+                kinds.append(None)
+            kinds[-1] = ("arc", piece.center, piece.r, piece.end_deg > piece.start_deg)
+            nodes.append(b)
+            kinds.append(("line",))
+        else:
+            for q in piece:
+                q = (float(q[0]), float(q[1]))
+                if nodes and math.dist(q, nodes[-1]) <= 1e-6:
+                    continue
+                nodes.append(q)
+                kinds.append(("line",))
+    if len(nodes) > 1 and math.dist(nodes[0], nodes[-1]) <= 1e-6:
+        nodes.pop()                                        # closes onto the first: its edge now wraps round
+        kinds.pop()
+    return nodes, kinds
+
+
+def _tangent(kind, p, q, at_start):
+    """Unit direction of travel along edge p -> q at its start (or end)."""
+    if kind[0] == "line":
+        d = (q[0] - p[0], q[1] - p[1])
+    else:
+        c, ccw = kind[1], kind[3]
+        x = p if at_start else q
+        rx, ry = x[0] - c[0], x[1] - c[1]
+        d = (-ry, rx) if ccw else (ry, -rx)
+    n = math.hypot(*d)
+    return (d[0] / n, d[1] / n)
+
+
+def _dir_at(kind, p, q, x):
+    """Unit direction of travel along edge p -> q at its point x."""
+    if kind[0] == "line":
+        d = (q[0] - p[0], q[1] - p[1])
+    else:
+        c, ccw = kind[1], kind[3]
+        rx, ry = x[0] - c[0], x[1] - c[1]
+        d = (-ry, rx) if ccw else (ry, -rx)
+    n = math.hypot(*d)
+    return (d[0] / n, d[1] / n)
+
+
+def _carrier_offsets(kind, p, q, r):
+    """The curves a fillet centre may lie on next to this edge: lines parallel to it at r, or
+    circles concentric with it at R - r and R + r."""
+    if kind[0] == "line":
+        d = (q[0] - p[0], q[1] - p[1])
+        n = math.hypot(*d)
+        nx, ny = -d[1] / n, d[0] / n
+        return [("line", (p[0] + s * r * nx, p[1] + s * r * ny), (d[0] / n, d[1] / n)) for s in (1, -1)]
+    c, R = kind[1], kind[2]
+    return [("circle", c, rr) for rr in (R - r, R + r) if rr > 1e-9]
+
+
+def _intersect(a, b):
+    """Intersections of two carriers (line: point + unit direction; circle: centre + radius)."""
+    if a[0] == "circle" and b[0] == "line":
+        a, b = b, a
+    if a[0] == "line" and b[0] == "line":
+        (p, d), (q, e) = a[1:], b[1:]
+        den = d[0] * e[1] - d[1] * e[0]
+        if abs(den) < 1e-12:
+            return []
+        t = ((q[0] - p[0]) * e[1] - (q[1] - p[1]) * e[0]) / den
+        return [(p[0] + t * d[0], p[1] + t * d[1])]
+    if a[0] == "line":
+        (p, d), (c, R) = a[1:], b[1:]
+        fx, fy = p[0] - c[0], p[1] - c[1]
+        bq = fx * d[0] + fy * d[1]
+        disc = bq * bq - (fx * fx + fy * fy - R * R)
+        if disc < 0:
+            return []
+        s = math.sqrt(disc)
+        return [(p[0] + t * d[0], p[1] + t * d[1]) for t in (-bq - s, -bq + s)]
+    (c1, r1), (c2, r2) = a[1:], b[1:]
+    dx, dy = c2[0] - c1[0], c2[1] - c1[1]
+    dist = math.hypot(dx, dy)
+    if dist < 1e-12 or dist > r1 + r2 or dist < abs(r1 - r2):
+        return []
+    a_ = (r1 * r1 - r2 * r2 + dist * dist) / (2 * dist)
+    h = math.sqrt(max(r1 * r1 - a_ * a_, 0.0))
+    mx, my = c1[0] + a_ * dx / dist, c1[1] + a_ * dy / dist
+    return [(mx + h * -dy / dist, my + h * dx / dist), (mx - h * -dy / dist, my - h * dx / dist)]
+
+
+def _foot(kind, p, q, c):
+    """Where a circle centred at c touches the edge's carrier, and that point's position along
+    the edge (0 at p, 1 at q; outside 0..1 means beyond the edge)."""
+    if kind[0] == "line":
+        d = (q[0] - p[0], q[1] - p[1])
+        L2 = d[0] * d[0] + d[1] * d[1]
+        t = ((c[0] - p[0]) * d[0] + (c[1] - p[1]) * d[1]) / L2
+        return (p[0] + t * d[0], p[1] + t * d[1]), t
+    ctr, R, ccw = kind[1], kind[2], kind[3]
+    ang = math.atan2(c[1] - ctr[1], c[0] - ctr[0])
+    x = (ctr[0] + R * math.cos(ang), ctr[1] + R * math.sin(ang))
+    a0 = math.atan2(p[1] - ctr[1], p[0] - ctr[0])
+    a1 = math.atan2(q[1] - ctr[1], q[0] - ctr[0])
+    span = (a1 - a0) % (2 * math.pi) if ccw else (a0 - a1) % (2 * math.pi)
+    span = span or 2 * math.pi
+    at = (ang - a0) % (2 * math.pi) if ccw else (a0 - ang) % (2 * math.pi)
+    if at > span + (2 * math.pi - span) / 2:
+        at -= 2 * math.pi                                 # just before the start, not far past the end
+    return x, at / span
+
+
+def round_profile(pieces, radius, corners=None, angle=20.0, segments=None):
+    """A 2D outline with corners rounded to `radius` (mm), for `prism`: the round runs the full
+    length of the extrusion, which a mesh fillet along a curved face's facets cannot do.
+    `pieces` are what `outline` takes (points, lists of points, `arc`s); the corners are the
+    points where two pieces or two straight segments meet, never the inside points of an arc.
+    `corners`: their indices (default: every corner turning `angle` degrees or more, convex
+    and concave). Each round is a true circle tangent to the two edges at the corner, straight
+    or arc (a lip where a straight opening meets a ring is rounded against the ring's circle),
+    and is refused with a message when it does not fit on both edges (a radius too big, or two
+    rounds that would overlap)."""
+    if radius <= 0:
+        raise ValueError("round_profile radius must be positive")
+    items = list(pieces) if not (pieces and isinstance(pieces[0], (int, float))) else [pieces]
+    nodes, kinds = _edges_2d(items)
+    n = len(nodes)
+    sampled = outline(*items)
+    if n < 2 or len(sampled) < 3:
+        raise ValueError("an outline needs at least three points (an arc counts with its own)")
+    lim = math.radians(angle)
+    fillets = {}
+    for i in range(n):
+        if corners is not None and i not in {int(c) % n for c in corners}:
+            continue
+        p, k_in = nodes[i], kinds[i - 1]
+        prev, nxt, k_out = nodes[i - 1], nodes[(i + 1) % n], kinds[i]
+        t_in = _tangent(k_in, prev, p, at_start=False)
+        t_out = _tangent(k_out, p, nxt, at_start=True)
+        turn = math.atan2(t_in[0] * t_out[1] - t_in[1] * t_out[0], t_in[0] * t_out[0] + t_in[1] * t_out[1])
+        if abs(turn) < (lim if corners is None else 1e-6):
+            continue
+        left = turn > 0                                     # the round's centre is on the inside of the turn
+        best = None
+        for ca in _carrier_offsets(k_in, prev, p, radius):
+            for cb in _carrier_offsets(k_out, p, nxt, radius):
+                for c in _intersect(ca, cb):
+                    x1, s1 = _foot(k_in, prev, p, c)
+                    x2, s2 = _foot(k_out, p, nxt, c)
+                    if not (-1e-9 <= s1 <= 1 + 1e-9 and -1e-9 <= s2 <= 1 + 1e-9):
+                        continue
+                    d1, d2 = _dir_at(k_in, prev, p, x1), _dir_at(k_out, p, nxt, x2)
+                    side1 = d1[0] * (c[1] - x1[1]) - d1[1] * (c[0] - x1[0])
+                    side2 = d2[0] * (c[1] - x2[1]) - d2[1] * (c[0] - x2[0])
+                    if (side1 > 0) != left or (side2 > 0) != left:
+                        continue                            # tangent from the wrong side: not this corner's round
+                    w = (c[0] - p[0], c[1] - p[1])
+                    d = math.hypot(*w)
+                    if best is None or d < best[0]:
+                        best = (d, c, x1, s1, x2, s2)
+        if best is None:
+            raise ValueError(f"round_profile: no {radius} mm round fits at corner {i} {tuple(round(c, 3) for c in p)}: "
+                             "the edges next to it are too short for it (or it turns the other way); use a smaller "
+                             "radius, or give that corner more room")
+        fillets[i] = best[1:]
+    for i, f in fillets.items():                           # two rounds on one edge must not overlap
+        j = (i + 1) % n
+        if j in fillets and f[4] > fillets[j][2] + 1e-9:
+            raise ValueError(f"round_profile: the {radius} mm rounds at corners {i} and {j} overlap on the edge "
+                             "between them; use a smaller radius")
+    out = []
+    for i in range(n):
+        p, q, k = nodes[i], nodes[(i + 1) % n], kinds[i]
+        if i in fillets:
+            c, x1, _, x2, _ = fillets[i]
+            a1 = math.degrees(math.atan2(x1[1] - c[1], x1[0] - c[0]))
+            a2 = math.degrees(math.atan2(x2[1] - c[1], x2[0] - c[0]))
+            out.extend(Arc(c, radius, a1, a1 + ((a2 - a1 + 540.0) % 360.0 - 180.0), segments))
+            start = x2
+        else:
+            start = p
+        j = (i + 1) % n
+        end = fillets[j][1] if j in fillets else q
+        if k[0] == "arc":
+            ctr, R, ccw = k[1], k[2], k[3]
+            a0 = math.degrees(math.atan2(start[1] - ctr[1], start[0] - ctr[0]))
+            a1 = math.degrees(math.atan2(end[1] - ctr[1], end[0] - ctr[0]))
+            span = (a1 - a0) % 360.0 if ccw else -((a0 - a1) % 360.0)
+            if abs(span) > 1e-9:
+                out.extend(Arc(ctr, R, a0, a0 + span, segments))
+            else:
+                out.append(start)
+        else:
+            out.append(start)
+    rounded = outline(out)
+    if (_signed_area(rounded) > 0) != (_signed_area(sampled) > 0):
+        raise ValueError("round_profile: the rounded outline turned inside out (a radius too big for the shape)")
+    return rounded
+
+
+FLAT_TOL_GROUP = 1e-3        # mm: a face group (manifold3d's face_id) merged back only when this flat
+
+
+def _plane(points):
+    """(unit normal, a point) of the best plane through `points` (area-weighted Newell normal of
+    the polygon soup, in double precision), or None when they span no area."""
+    nx = ny = nz = 0.0
+    for poly in points:
+        for (x1, y1, z1), (x2, y2, z2) in zip(poly, poly[1:] + poly[:1]):
+            nx += (y1 - y2) * (z1 + z2)
+            ny += (z1 - z2) * (x1 + x2)
+            nz += (x1 - x2) * (y1 + y2)
+    L = math.sqrt(nx * nx + ny * ny + nz * nz)
+    if L == 0:
+        return None
+    pts = [p for poly in points for p in poly]
+    c = tuple(sum(p[i] for p in pts) / len(pts) for i in range(3))
+    return (nx / L, ny / L, nz / L), c
+
+
+def _off_plane(plane, pts):
+    (nx, ny, nz), (ox, oy, oz) = plane
+    return max(abs((x - ox) * nx + (y - oy) * ny + (z - oz) * nz) for x, y, z in pts)
+
+
+def from_mesh(verts, faces, name="mesh", collection=None, groups=None):
+    """An object from vertices [(x, y, z), ...] in mm and faces [(i, j, k, ...), ...]: the
+    bridge for geometry made outside Blender (`from_manifold`, `import_stl`). Vertices closer
+    than WELD are merged and the normals made consistent; a mesh that is not closed (open or
+    non-manifold edges) is refused, as a boolean or the validator would refuse it.
+    Triangles of one flat face become one face again (a cylinder's facets from manifold3d or an
+    STL are split along a diagonal): a cut through such a facet would add a vertex on the
+    diagonal, in line with the facet's edges, and leave zero-area triangles. `groups` (one id
+    per face, manifold3d's face_id) says which triangles were one face: a group is merged when
+    its corners are within 0.001 mm of one plane (a warped face keeps its id but is curved, and
+    an id can span several faces). Every other face is grown from a seed only while every
+    corner stays within WELD / 2 of the seed's plane, so a gentle curve's facets are never
+    folded into one bent face."""
+    require_blender()
+    me = bpy.data.meshes.new(name)
+    me.from_pydata([tuple(map(float, v[:3])) for v in verts], [], [tuple(int(i) for i in f) for f in faces])
+    me.validate(clean_customdata=False)
+    if groups is not None and len(me.polygons) != len(faces):
+        groups = None                          # validate dropped a face: the ids no longer line up
+    bm = bmesh.new()
+    bm.from_mesh(me)
+    bpy.data.meshes.remove(me)
+    gl = None
+    if groups is not None:
+        gl = bm.faces.layers.int.new("group")
+        for f, g in zip(bm.faces, groups):
+            f[gl] = int(g)
+    bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=WELD)
+    open_edges = sum(1 for e in bm.edges if not e.is_manifold)
+    if not bm.faces or open_edges:
+        bm.free()
+        raise ValueError(f"'{name}': {open_edges} open or non-manifold edges; a part brought into Blender must be a "
+                         "closed mesh (run validate.py on it first)")
+    bm.normal_update()
+    flat, seen = set(), set()
+    if gl is not None:
+        by = {}
+        for f in bm.faces:
+            by.setdefault(f[gl], []).append(f)
+        for fs in by.values():
+            if len(fs) < 2:
+                continue
+            polys = [[tuple(v.co) for v in f.verts] for f in fs]
+            pl = _plane(polys)
+            if pl is None or _off_plane(pl, [p for poly in polys for p in poly]) > FLAT_TOL_GROUP:
+                continue                       # not one flat face after all: grown below instead
+            members = set(fs)
+            seen.update(fs)
+            flat.update(e for f in fs for e in f.edges
+                        if len(e.link_faces) == 2 and all(g in members for g in e.link_faces))
+    for f0 in bm.faces:
+        if f0 in seen:
+            continue
+        seen.add(f0)
+        pl = _plane([[tuple(v.co) for v in f0.verts]])
+        if pl is None:
+            continue
+        region, todo = {f0}, [f0]
+        while todo:
+            f = todo.pop()
+            for e in f.edges:
+                if len(e.link_faces) != 2 or e.calc_face_angle(0.0) > math.radians(0.05):
+                    continue
+                g = e.link_faces[0] if e.link_faces[1] == f else e.link_faces[1]
+                if g in seen or _off_plane(pl, [tuple(v.co) for v in g.verts]) > WELD / 2:
+                    continue
+                seen.add(g)
+                region.add(g)
+                todo.append(g)
+        flat.update(e for f in region for e in f.edges
+                    if len(e.link_faces) == 2 and all(g in region for g in e.link_faces))
+    if flat:
+        bmesh.ops.dissolve_edges(bm, edges=list(flat), use_verts=False, use_face_split=False)
+    if gl is not None:
+        bm.faces.layers.int.remove(gl)
+    return mesh_object(name, bm, collection)
+
+
+def from_manifold(man, name="manifold", collection=None):
+    """An object from a manifold3d solid: a part, or a feature to boolean, built with parts.py's
+    mechanical helpers (screw holes, countersinks, teardrops, snaps, hinges, threads, rounded
+    profiles from CrossSection offsets) and finished in Blender (fillets, text, renders).
+    Needs manifold3d in the Python that runs Blender: the bpy module's own environment, or
+    Blender's bundled Python with manifold3d installed (ask the user before installing).
+    `build.py detect` says whether it is there (`blender.*.manifold3d`)."""
+    if not hasattr(man, "to_mesh"):
+        raise TypeError("from_manifold needs a manifold3d Manifold (it has no to_mesh())")
+    if man.is_empty():
+        raise ValueError(f"'{name}': the manifold is empty")
+    mesh = man.to_mesh()
+    verts = [tuple(v[:3]) for v in mesh.vert_properties.tolist()]
+    tris = mesh.tri_verts.tolist()
+    ids = getattr(mesh, "face_id", None)                 # which triangles were one face (manifold3d 3.x)
+    ids = [int(i) for i in ids] if ids is not None and len(ids) == len(tris) else None
+    return from_mesh(verts, tris, name=name, collection=collection, groups=ids)
+
+
+def _read_stl(path):
+    """Triangles [((x, y, z), (x, y, z), (x, y, z)), ...] of a binary or ASCII STL."""
+    import struct
+    with open(path, "rb") as f:
+        data = f.read()
+    if len(data) >= 84:
+        n = struct.unpack("<I", data[80:84])[0]
+        if 84 + 50 * n == len(data):
+            out = []
+            for i in range(n):
+                v = struct.unpack("<12f", data[84 + 50 * i: 84 + 50 * i + 48])
+                out.append((v[3:6], v[6:9], v[9:12]))
+            return out
+    text = data.decode("ascii", errors="replace")
+    pts = [tuple(float(x) for x in m.groups()) for m in re.finditer(r"vertex\s+(\S+)\s+(\S+)\s+(\S+)", text)]
+    if not pts or len(pts) % 3:
+        raise ValueError(f"{os.path.basename(path)}: not a binary or ASCII STL")
+    return [tuple(pts[i:i + 3]) for i in range(0, len(pts), 3)]
+
+
+_IMPORTED = []       # files import_stl read: hashed into the manifest like the generator's sources
+
+
+def import_stl(path, name=None, collection=None):
+    """An object from an STL (binary or ASCII, mm): a part another engine built (a Python
+    generator's body) brought in to be finished in Blender. Welded and checked as `from_mesh`.
+    The STL is one of this build's sources (its sha256 goes into the manifest, so a changed
+    STL makes the Blender part stale)."""
+    tris = _read_stl(path)
+    if os.path.abspath(path) not in _IMPORTED:
+        _IMPORTED.append(os.path.abspath(path))
+    index, verts, faces = {}, [], []
+    for t in tris:
+        face = []
+        for v in t:
+            key = tuple(round(c / WELD) for c in v)
+            if key not in index:
+                index[key] = len(verts)
+                verts.append(v)
+            face.append(index[key])
+        if len(set(face)) == 3:
+            faces.append(face)
+    return from_mesh(verts, faces, name=name or os.path.splitext(os.path.basename(path))[0], collection=collection)
+
+
+def _world(obj):
+    """The object's world matrix as it is now: Blender recomputes matrix_world only when the
+    scene is evaluated, so a location or rotation set a moment ago is not in it yet."""
+    _view_layer().update()
+    return obj.matrix_world.copy()
+
+
+def apply_transform(obj):
+    """Bake the object's location, rotation and scale into its mesh (modifiers applied first),
+    leaving it at the identity: helpers that read coordinates (bed_chamfer, fillet's `inside`)
+    then see what the STL will hold. A mirrored transform keeps its faces pointing out."""
+    require_blender()
+    if obj.modifiers:
+        apply_modifiers(obj)
+    mw = _world(obj)
+    if mw == mw.Identity(4):
+        return obj
+    children = {c: _world(c) for c in obj.children}
+    if obj.data.users > 1:                 # a mesh shared with a linked copy: bake a copy of it only
+        own = obj.data.copy()
+        own[TAG] = True
+        obj.data = own
+    me = obj.data
+    me.transform(mw)
+    if mw.determinant() < 0:
+        me.flip_normals()
+    obj.parent = None
+    obj.location, obj.scale = (0.0, 0.0, 0.0), (1.0, 1.0, 1.0)
+    obj.rotation_mode = "XYZ"
+    obj.rotation_euler = (0.0, 0.0, 0.0)
+    obj.matrix_world = mw.Identity(4)
+    me.update()
+    _view_layer().update()                 # matrix_world is read again right away (export, edges)
+    for c, cw in children.items():         # children stay where they were in the world
+        c.matrix_world = cw
+    if children:
+        _view_layer().update()
+    return obj
 
 
 # --------------------------------------------------------------------------- #
@@ -715,7 +1295,15 @@ def boolean(target, tool, operation="DIFFERENCE", apply=True, solver=None):
         if n:
             raise ValueError(f"boolean {ops[operation].lower()} with solver {solver} left {n} non-manifold edges on "
                              f"'{target.name}': the tool probably touches the target on a face; overshoot it by 0.01-0.1 mm")
-        d = degenerate_triangles(target.data)
+        d = 0
+        if degenerate_triangles(target.data):
+            weld_degenerate(target.data)                       # corners a hair apart, as the export welds
+            d = fix_slivers(target.data)
+            n = nonmanifold_edges(target)
+            if n:
+                raise ValueError(f"boolean {ops[operation].lower()} with solver {solver} left {n} non-manifold edges "
+                                 f"on '{target.name}' once its corners closer than {WELD} mm were merged: two "
+                                 "surfaces nearly touch; move the tool off them by 0.01-0.1 mm")
         if d:
             raise ValueError(f"boolean {ops[operation].lower()} with solver {solver} left {d} zero-area triangles on "
                              f"'{target.name}' (the STL would fail M3, and M1 once they are dropped): the cut crosses a "
@@ -789,6 +1377,579 @@ def bevel(obj, width, segments=None, angle=30.0, bed=False, profile=0.5, apply=T
     return obj
 
 
+def _axis_vector(axis):
+    if axis is None:
+        return None
+    named = {"x": (1.0, 0.0, 0.0), "y": (0.0, 1.0, 0.0), "z": (0.0, 0.0, 1.0)}
+    v = named.get(str(axis).lower()) if isinstance(axis, str) else tuple(float(c) for c in axis)
+    if v is None or len(v) != 3:
+        raise ValueError(f"axis must be 'x', 'y', 'z' or a vector; got {axis!r}")
+    n = math.sqrt(sum(c * c for c in v))
+    if n == 0:
+        raise ValueError("axis must not be a zero vector")
+    return mathutils.Vector(v) / n
+
+
+def edges(obj, angle=30.0, axis=None, inside=None, bed=False):
+    """Indices of the object's sharp edges (faces meeting at `angle` degrees or more), the
+    ones `fillet` should round: only those parallel to `axis` ("x", "y", "z" or a vector,
+    within 1 degree) when given, only those with both ends inside the box `inside` =
+    ((x0, y0, z0), (x1, y1, z1)) in world mm when given, and never an edge on the bed unless
+    bed=True (the bed edge gets bed_chamfer). Modifiers are applied first."""
+    require_blender()
+    if obj.modifiers:
+        apply_modifiers(obj)
+    mw = _world(obj)
+    rot = mw.to_3x3()
+    ax = _axis_vector(axis)
+    lim = math.radians(angle)
+    bm = bmesh.new()
+    bm.from_mesh(obj.data)
+    world = {v.index: mw @ v.co for v in bm.verts}
+    zmin = min((c.z for c in world.values()), default=0.0)
+    out = []
+    for e in bm.edges:
+        if len(e.link_faces) != 2 or e.calc_face_angle(0.0) < lim:
+            continue
+        a, b = (world[v.index] for v in e.verts)
+        if not bed and abs(a.z - zmin) < 1e-5 and abs(b.z - zmin) < 1e-5:
+            continue
+        if ax is not None:
+            d = rot @ (e.verts[1].co - e.verts[0].co)
+            if d.length == 0 or abs(d.normalized().dot(ax)) < math.cos(math.radians(1.0)):
+                continue
+        if inside is not None:
+            lo, hi = inside
+            if not all(lo[i] - 1e-6 <= p[i] <= hi[i] + 1e-6 for p in (a, b) for i in range(3)):
+                continue
+        out.append(e.index)
+    bm.free()
+    return out
+
+
+_edges = edges                                      # fillet's `edges` argument shadows the function
+
+
+FLAT_COS = math.cos(math.radians(0.1))     # faces this close to parallel are one flat region (float32 normals)
+
+
+def _flat_regions(bm, offsets):
+    """The flat regions that hold a chosen edge: faces joined across flat edges (a boolean
+    splits a top with a hole into faces along such edges), each as (a face, its boundary loops,
+    its faces). A loop is a list of (edge, start vertex, end vertex, offset), walked with the
+    faces' winding (left of travel, seen from the normal, is inside, for the outline and for a
+    hole alike). Where a round ends at a corner of a face it does not run along (its end cap),
+    the check after the bevel decides."""
+    seen, regions = set(), []
+    for f0 in bm.faces:
+        if f0.index in seen or not any(offsets[e.index] > 0 for e in f0.edges):
+            continue
+        region, todo = {f0}, [f0]
+        seen.add(f0.index)
+        while todo:
+            f = todo.pop()
+            for e in f.edges:
+                if offsets[e.index] > 0 or len(e.link_faces) != 2:
+                    continue
+                g = e.link_faces[0] if e.link_faces[1] == f else e.link_faces[1]
+                if g.index not in seen and g.normal.dot(f0.normal) > FLAT_COS:
+                    seen.add(g.index)
+                    region.add(g)
+                    todo.append(g)
+        segs = {}
+        for f in region:
+            for l in f.loops:
+                e = l.edge
+                if sum(1 for g in e.link_faces if g in region) == 1:
+                    a_, b_ = l.vert, l.link_loop_next.vert
+                    segs.setdefault(a_.index, []).append((e, a_, b_, offsets[e.index]))
+        loops, used = [], set()
+        for start in list(segs):
+            for first in segs[start]:
+                if first[0].index in used:
+                    continue
+                loop, cur = [], first
+                while cur and cur[0].index not in used:
+                    used.add(cur[0].index)
+                    loop.append(cur)
+                    cur = next((c for c in segs.get(cur[2].index, []) if c[0].index not in used), None)
+                loops.append(loop)
+        regions.append((f0, loops, region))
+    return regions
+
+
+def _inset_fault(normal, loops):
+    """None when the region's outline, each edge moved inward by its offset, is still a
+    proper outline; else what goes wrong (an edge turned round, two edges crossing, a hole's
+    rim meeting the outline)."""
+    n = normal.normalized()
+    ax = n.orthogonal().normalized()
+    ay = n.cross(ax)
+    o = loops[0][0][1].co
+    def flat(v):
+        d = v - o
+        return (d.dot(ax), d.dot(ay))
+    old_loops, new_loops, moved, names = [], [], [], []
+    for loop in loops:
+        k = len(loop)
+        pts = [flat(s[1].co) for s in loop]
+        off = [s[3] for s in loop]
+        nm = [f"edge {s[0].index}" for s in loop]
+        dirs, inward = [], []
+        for i in range(k):
+            a, b = pts[i], pts[(i + 1) % k]
+            dx, dy = b[0] - a[0], b[1] - a[1]
+            L = math.hypot(dx, dy) or 1e-12
+            dirs.append((dx / L, dy / L))
+            inward.append((-dy / L, dx / L))
+        new = []
+        for i in range(k):
+            j = i - 1                                            # segment j ends where segment i starts
+            p = pts[i]
+            a = (p[0] + inward[j][0] * off[j], p[1] + inward[j][1] * off[j])
+            b = (p[0] + inward[i][0] * off[i], p[1] + inward[i][1] * off[i])
+            den = dirs[j][0] * dirs[i][1] - dirs[j][1] * dirs[i][0]
+            if abs(den) < 1e-3:                                  # in line (a split edge; float32 noise)
+                new.append(b if off[i] >= off[j] else a)         # the deeper offset
+                continue
+            t = ((b[0] - a[0]) * dirs[i][1] - (b[1] - a[1]) * dirs[i][0]) / den
+            new.append((a[0] + dirs[j][0] * t, a[1] + dirs[j][1] * t))
+        mv = [off[i] > 0 or off[i - 1] > 0 or off[(i + 1) % k] > 0 for i in range(k)]
+        for i in range(k):
+            a, b = new[i], new[(i + 1) % k]
+            if mv[i] and (b[0] - a[0]) * dirs[i][0] + (b[1] - a[1]) * dirs[i][1] < -1e-6:
+                return f"{nm[i]} would turn round"
+        old_loops.append(pts)
+        new_loops.append(new)
+        moved.append(mv)
+        names.append(nm)
+
+    def cross(o_, a, b):
+        return (a[0] - o_[0]) * (b[1] - o_[1]) - (a[1] - o_[1]) * (b[0] - o_[0])
+
+    segs = []                                                    # (min x, max x, loop, i, a, b, moved)
+    for li, new in enumerate(new_loops):
+        k = len(new)
+        for i in range(k):
+            a, b = new[i], new[(i + 1) % k]
+            segs.append((min(a[0], b[0]), max(a[0], b[0]), li, i, a, b, moved[li][i]))
+    segs.sort(key=lambda s_: s_[0])                              # sweep along x: only overlapping spans meet
+    for x in range(len(segs)):
+        _, hi, l1, i1, a, b, m1 = segs[x]
+        for y in range(x + 1, len(segs)):
+            lo2, _, l2, i2, c, d, m2 = segs[y]
+            if lo2 > hi:
+                break
+            if not (m1 or m2):
+                continue
+            if l1 == l2:
+                k = len(new_loops[l1])
+                if (i2 - i1) % k in (1, k - 1):
+                    continue
+            if max(a[1], b[1]) < min(c[1], d[1]) or max(c[1], d[1]) < min(a[1], b[1]):
+                continue
+            if cross(a, b, c) * cross(a, b, d) < -1e-12 and cross(c, d, a) * cross(c, d, b) < -1e-12:
+                return f"{names[l1][i1]} and {names[l2][i2]} would cross"
+
+    def inside(p, poly):
+        hit = False
+        for i in range(len(poly)):
+            (x1, y1), (x2, y2) = poly[i], poly[(i + 1) % len(poly)]
+            if (y1 > p[1]) != (y2 > p[1]) and p[0] < x1 + (p[1] - y1) * (x2 - x1) / (y2 - y1):
+                hit = not hit
+        return hit
+    for la in range(len(loops)):                                 # a hole grown past the outline
+        for lb in range(len(loops)):
+            if la != lb and inside(old_loops[la][0], old_loops[lb]) != inside(new_loops[la][0], new_loops[lb]):
+                return f"the loop of {names[la][0]} would meet the loop of {names[lb][0]}"
+    return None
+
+
+def _miter_point(v, e_prev_start, e_next_end, n, t_prev, t_next):
+    """Where the inward offset lines of the two loop edges at corner `v` meet (in the plane with
+    normal `n`): the point the bevel slides the corner to."""
+    d1 = (v.co - e_prev_start.co)
+    d2 = (e_next_end.co - v.co)
+    if d1.length == 0 or d2.length == 0:
+        return None
+    d1, d2 = d1.normalized(), d2.normalized()
+    i1, i2 = n.cross(d1).normalized(), n.cross(d2).normalized()     # left of travel: inside
+    p1, p2 = v.co + i1 * t_prev, v.co + i2 * t_next
+    c = d1.cross(d2).dot(n)
+    if abs(c) < 1e-3:                                                # in line
+        return v.co + (i1 + i2).normalized() * max(t_prev, t_next)
+    s_ = (p2 - p1).cross(d2).dot(n) / c
+    return p1 + d1 * s_
+
+
+def _simple_polygon(pts):
+    """True when the 2D polygon does not cross itself (O(n^2), faces are small)."""
+    k = len(pts)
+
+    def cross(o, a, b):
+        return (a[0] - o[0]) * (b[1] - o[1]) - (a[1] - o[1]) * (b[0] - o[0])
+    for i in range(k):
+        a, b = pts[i], pts[(i + 1) % k]
+        for j in range(i + 2, k):
+            if i == 0 and j == k - 1:
+                continue
+            c, d = pts[j], pts[(j + 1) % k]
+            if cross(a, b, c) * cross(a, b, d) < -1e-12 and cross(c, d, a) * cross(c, d, b) < -1e-12:
+                return False
+    return True
+
+
+def _inner_edges(v, region):
+    """The edges at `v` with a face of the region (a set, or a test) on both sides."""
+    inside = region if callable(region) else region.__contains__
+    return [e for e in v.link_edges if len(e.link_faces) == 2 and all(inside(f) for f in e.link_faces)]
+
+
+def _thin_fans(bm, regions, offsets):
+    """Dissolve the flat edges inside a face that fan out from a corner between two chosen
+    edges, where more than one leaves it (bmesh keeps those a face with a hole needs).
+    Returns how many were asked to go."""
+    kill = set()
+    for _, loops, region in regions:
+        for loop in loops:
+            for i in range(len(loop)):
+                prev, nxt = loop[i - 1], loop[i]
+                if offsets[prev[0].index] > 0 and offsets[nxt[0].index] > 0:
+                    inner = _inner_edges(nxt[1], region)
+                    if len(inner) > 1:
+                        kill.update(inner)
+    if kill:
+        bmesh.ops.dissolve_edges(bm, edges=list(kill), use_verts=False, use_face_split=False)
+    return len(kill)
+
+
+def _seg_point_dist(p, a, b):
+    ax_, ay_ = b[0] - a[0], b[1] - a[1]
+    L2 = ax_ * ax_ + ay_ * ay_
+    t = 0.0 if L2 == 0 else max(0.0, min(1.0, ((p[0] - a[0]) * ax_ + (p[1] - a[1]) * ay_) / L2))
+    return math.hypot(p[0] - a[0] - ax_ * t, p[1] - a[1] - ay_ * t)
+
+
+def _straighten_bridges(bm, regions, offset_of, reaches=(1.25, 1.1, 1.03, 1.01)):
+    """A face with a hole is split by the cut into faces joined along edges from the hole's rim
+    to the outline. Where such an edge leaves a corner between two chosen edges at a shallow
+    angle, the bevel slides the corner along it far past the round (a slit across the face).
+    The edges inside the face at such a corner are cut near it and their new ends welded into
+    one point on the corner's miter line, a little farther than the round goes (the first of
+    `reaches` x that stays clear of every other round's strip, so the point never lands past
+    another round's tangent line), joined to the corner by one edge: the bevel then slides along
+    the miter, as on a clean ring. A corner with no clear point, or whose faces would cross
+    themselves, is left alone (the check after the bevel decides). Returns how many corners
+    were straightened."""
+    done = 0
+    for f0, loops, _ in regions:
+        n = f0.normal.normalized()
+        ax = n.orthogonal().normalized()
+        ay = n.cross(ax)
+        p0 = f0.verts[0].co.copy()
+
+        def to2(co, ax=ax, ay=ay):
+            return (co.dot(ax), co.dot(ay))
+        strips = [(to2(sg[1].co), to2(sg[2].co), offset_of(sg[0]), sg[1], sg[2])
+                  for lp in loops for sg in lp if offset_of(sg[0]) > 0]
+        cell = max((st[2] for st in strips), default=1.0) * 3 or 1.0
+        grid = {}
+        for j, (a2, b2, _, _, _) in enumerate(strips):
+            for gx in range(int(math.floor(min(a2[0], b2[0]) / cell)), int(math.floor(max(a2[0], b2[0]) / cell)) + 1):
+                for gy in range(int(math.floor(min(a2[1], b2[1]) / cell)), int(math.floor(max(a2[1], b2[1]) / cell)) + 1):
+                    grid.setdefault((gx, gy), []).append(j)
+
+        def clear(q, v, strips=strips, grid=grid, cell=cell):
+            q2 = to2(q)
+            gx, gy = int(math.floor(q2[0] / cell)), int(math.floor(q2[1] / cell))
+            near = {j for dx in (-1, 0, 1) for dy in (-1, 0, 1) for j in grid.get((gx + dx, gy + dy), ())}
+            return all(_seg_point_dist(q2, strips[j][0], strips[j][1]) >= strips[j][2] * 0.999
+                       for j in near if v not in (strips[j][3], strips[j][4]))
+
+        def region(f, n=n, p0=p0):                       # the region by its plane: cuts below add faces
+            return f.is_valid and f.normal.dot(n) > FLAT_COS and abs((f.verts[0].co - p0).dot(n)) < 1e-4
+        for loop in loops:
+            k = len(loop)
+            for i in range(k):
+                prev, nxt = loop[i - 1], loop[i]
+                v = nxt[1]
+                if not (prev[0].is_valid and nxt[0].is_valid and v.is_valid):
+                    continue
+                t_prev, t_next = offset_of(prev[0]), offset_of(nxt[0])
+                if t_prev <= 0 or t_next <= 0:
+                    continue
+                inner = _inner_edges(v, region)
+                if not inner:
+                    continue
+                m = _miter_point(v, prev[1], nxt[2], n, t_prev, t_next)
+                if m is None:
+                    continue
+                target = next((v.co + (m - v.co) * r for r in reaches if clear(v.co + (m - v.co) * r, v)), None)
+                if target is None:
+                    continue
+                d = (target - v.co).length
+                if any(e.calc_length() <= d * 1.01 for e in inner):
+                    continue
+                def flat(f):
+                    return [((w.co - target).dot(ax), (w.co - target).dot(ay)) for w in f.verts]
+                ends = []
+                for e in inner:
+                    _, nv = bmesh.utils.edge_split(e, v, min(0.5, d / e.calc_length()))
+                    ends.append(nv)
+                for f in list(v.link_faces):                     # a face between two cut edges: cut off its corner
+                    mine = [w for w in f.verts if w in ends]
+                    if len(mine) == 2 and region(f):
+                        bmesh.utils.face_split(f, mine[0], mine[1])
+                ends[0].co = target
+                if len(ends) > 1:
+                    bmesh.ops.weld_verts(bm, targetmap={w: ends[0] for w in ends[1:]})
+                q = ends[0]
+                faces = [f for f in q.link_faces if f.normal.dot(n) > FLAT_COS]
+                for f in faces:
+                    f.normal_update()
+                if all(len(set(f.verts)) == len(f.verts) >= 3 and _simple_polygon(flat(f)) and f.normal.dot(n) > 0
+                       for f in faces) and all(e.is_manifold for e in q.link_edges):
+                    done += 1
+    return done
+
+
+def _tri2_overlap(t1, t2, eps=1e-6):
+    """True when two 2D triangles share more than an edge or a point (separating axis test)."""
+    for tri in (t1, t2):
+        for i in range(3):
+            (x1, y1), (x2, y2) = tri[i], tri[(i + 1) % 3]
+            nx, ny = y2 - y1, x1 - x2
+            L = math.hypot(nx, ny)
+            if L == 0:
+                continue
+            nx, ny = nx / L, ny / L
+            p1 = [x * nx + y * ny for x, y in t1]
+            p2 = [x * nx + y * ny for x, y in t2]
+            if max(p1) <= min(p2) + eps or max(p2) <= min(p1) + eps:
+                return False
+    return True
+
+
+def self_intersections(obj):
+    """How many pairs of the mesh's triangles cross each other, or overlap in one plane (a flap
+    folded flat onto its neighbour); pairs that share a corner are not counted: 0 for a sound
+    solid. validate.py does not look for this."""
+    from mathutils.bvhtree import BVHTree
+    bm = bmesh.new()
+    bm.from_mesh(obj.data)
+    bmesh.ops.triangulate(bm, faces=bm.faces[:])
+    bm.faces.ensure_lookup_table()
+    tree = BVHTree.FromBMesh(bm, epsilon=0.0)
+    n = 0
+    for a, b in tree.overlap(tree):
+        if a < b and not (set(bm.faces[a].verts) & set(bm.faces[b].verts)):
+            n += 1
+    planes = {}                                            # coplanar overlaps: the BVH test misses them
+    for f in bm.faces:
+        a, b, c = (v.co for v in f.verts)
+        nrm = (b - a).cross(c - a)
+        if nrm.length < 1e-12:
+            continue
+        nrm.normalize()
+        if nrm.x < 0 or (nrm.x == 0 and (nrm.y < 0 or (nrm.y == 0 and nrm.z < 0))):
+            nrm = -nrm
+        key = (round(nrm.x, 4), round(nrm.y, 4), round(nrm.z, 4), round(nrm.dot(a), 3))
+        planes.setdefault(key, []).append(f)
+    for fs in planes.values():
+        if len(fs) < 2:
+            continue
+        nrm = fs[0].normal.normalized()
+        ax = nrm.orthogonal().normalized()
+        ay = nrm.cross(ax)
+        items = []
+        for f in fs:
+            t2 = [(v.co.dot(ax), v.co.dot(ay)) for v in f.verts]
+            items.append((min(p[0] for p in t2), max(p[0] for p in t2), t2, f))
+        items.sort(key=lambda it: it[0])
+        for i in range(len(items)):
+            lo, hi, t1, f1 = items[i]
+            for j in range(i + 1, len(items)):
+                lo2, _, t2, f2 = items[j]
+                if lo2 >= hi:
+                    break
+                if set(f1.verts) & set(f2.verts):
+                    continue
+                if _tri2_overlap(t1, t2):
+                    n += 1
+    bm.free()
+    return n
+
+
+def _face_depth(face, edge):
+    """How far the face reaches away from the edge, in its own plane (mm): the room a fillet's
+    tangent line has on that face."""
+    a, b = edge.verts[0].co, edge.verts[1].co
+    d = (b - a)
+    if d.length == 0:
+        return 0.0
+    d = d.normalized()
+    return max(((v.co - a) - d * (v.co - a).dot(d)).length for v in face.verts)
+
+
+def fillet(obj, radius, edges=None, segments=None, apply=True):
+    """Round edges with a true `radius` in mm: the given edge indices (from `edges(...)`), or
+    every sharp edge off the bed. Unlike `bevel`, whose width is Blender's offset (the radius
+    only on a 90 degree edge), each edge's offset comes from the angle of its faces
+    (offset = radius / tan(a / 2), a the angle between the faces: a 120 degree edge needs
+    0.58 x radius), so every edge gets the same radius; a non-90-degree edge's arc is within
+    1.5 % of the radius (Blender's profile), its tangent lines exact. Segments default to the
+    circle rule (`circle_segments(radius)` per full turn). The object's scale is baked first
+    (put back on a refusal; live modifiers are applied first and stay applied).
+    Refused, before anything is changed, when a face next to an edge is narrower than the
+    fillet reaches into it: the facets of a curved face (a fillet along a cylinder's side
+    cannot be rounded on its facets). Round such an edge in the 2D profile instead
+    (`round_profile`), or build that part with parts.py and bring it in (`from_manifold`).
+    Also refused before any change: an edge sharper than 90 degrees, and rounds that would
+    meet on a flat face (its outline, holes included, inset by each round's reach). A cut
+    leaves its flat faces split along edges from a hole's rim; those at a rounded corner are
+    turned onto the corner's miter first, or the bevel would run along them. After the bevel
+    the result is checked for zero-area triangles, non-manifold edges and faces that cross
+    each other (a round's end meeting another round, a split edge that passes near another
+    hole); any of them puts the object back as it was and raises."""
+    require_blender()
+    if radius <= 0:
+        raise ValueError("fillet radius must be positive")
+    before = None                                      # a refusal puts the mesh and transform back
+    if tuple(obj.scale) != (1.0, 1.0, 1.0):
+        before = (obj.data, obj.data.copy(), _world(obj).copy())
+        obj.data = before[1]                           # bake a copy; the original stays for a refusal
+        before[1][TAG] = True
+        apply_transform(obj)
+    elif obj.modifiers:
+        apply_modifiers(obj)
+    try:
+        return _fillet(obj, radius, edges, segments, apply)
+    except ValueError:
+        if before is not None:
+            baked = obj.data
+            obj.data = before[0]
+            obj.matrix_world = before[2]
+            if baked.users == 0:
+                bpy.data.meshes.remove(baked)
+            _view_layer().update()
+        raise
+    finally:
+        if before is not None and obj.data is not before[0] and before[0].users == 0:
+            bpy.data.meshes.remove(before[0])
+
+
+def _fillet(obj, radius, edges, segments, apply):
+    chosen = set(edges if edges is not None else _edges(obj))
+    if not chosen:
+        raise ValueError(f"fillet on '{obj.name}': no edge chosen (edges() found no sharp edge off the bed)")
+    me = obj.data
+    bm = bmesh.new()
+    bm.from_mesh(me)
+    layer = bm.edges.layers.float.get("bevel_weight_edge") or bm.edges.layers.float.new("bevel_weight_edge")
+    bm.edges.ensure_lookup_table()                     # (a new layer moves the elements: add it first)
+    offsets = [0.0] * len(bm.edges)
+    turn = 0.0
+    for i in sorted(chosen):
+        if i < 0 or i >= len(bm.edges):
+            bm.free()
+            raise ValueError(f"fillet on '{obj.name}': edge {i} does not exist (take indices from edges() on this object)")
+        e = bm.edges[i]
+        if len(e.link_faces) != 2:
+            bm.free()
+            raise ValueError(f"fillet on '{obj.name}': edge {i} is not between two faces")
+        phi = e.calc_face_angle(0.0)                 # the turn of the normal across the edge
+        if phi < 1e-6:
+            continue
+        if phi > math.radians(90.5):
+            mid = (e.verts[0].co + e.verts[1].co) / 2
+            bm.free()
+            raise ValueError(f"fillet on '{obj.name}': edge {i} (near {tuple(round(c, 2) for c in mid)}) is sharper than "
+                             f"90 degrees ({180 - math.degrees(phi):.0f} between its faces); Blender's profile there is "
+                             "no circle (up to +75 % at 30 degrees). Round it in the 2D profile (round_profile, then "
+                             "prism)")
+        t = radius / math.tan((math.pi - phi) / 2)
+        room = min(_face_depth(f, e) for f in e.link_faces)
+        if t > room + 1e-6:
+            mid = (e.verts[0].co + e.verts[1].co) / 2
+            bm.free()
+            raise ValueError(f"fillet of {radius} mm on '{obj.name}': at edge {i} (near {tuple(round(c, 2) for c in mid)}) "
+                             f"it reaches {t:.3f} mm into a face only {room:.3f} mm wide, the facets of a curved face. "
+                             "Round it in the 2D profile (round_profile, then prism) or build it with parts.py and "
+                             "from_manifold")
+        offsets[i] = t
+        turn = max(turn, phi)
+    # Two fillets on one face must not meet: each eats a strip t wide into the face, from the
+    # tangent line inward. The face's outline offset inward by every chosen edge's t must stay a
+    # proper outline (no edge turned round, no crossing): a slab's two sides 3 mm apart cannot
+    # take two 2 mm rounds, a rim's facets or a hexagon's sides can, as long as the inset fits.
+    regions = _flat_regions(bm, offsets)
+    for f, loops, _ in regions:
+        bad = _inset_fault(f.normal, loops)
+        if bad:
+            at = tuple(round(c, 2) for c in f.calc_center_median())
+            bm.free()
+            raise ValueError(f"fillet of {radius} mm on '{obj.name}': the rounds on the flat face near {at} would "
+                             f"overlap ({bad}). A smaller radius, or round that face's edges in the 2D profile")
+    widest = max(offsets)
+    if widest <= 0:
+        bm.free()
+        raise ValueError(f"fillet on '{obj.name}': the chosen edges are flat (their faces do not meet at an angle)")
+    segments = segments or max(2, math.ceil(turn / (2 * math.pi) * circle_segments(radius)))
+    for e in bm.edges:
+        e[layer] = offsets[e.index] / widest
+    if _thin_fans(bm, regions, offsets):                  # indices moved: read the offsets back from the weights
+        bm.edges.index_update()
+        bm.edges.ensure_lookup_table()
+        offsets = [e[layer] * widest for e in bm.edges]
+        regions = _flat_regions(bm, offsets)
+    straightened = _straighten_bridges(bm, regions, lambda e: e[layer] * widest)
+    shared = me if me.users > 1 else None                 # a linked duplicate keeps its mesh as it is
+    if shared:
+        me = shared.copy()
+        me[TAG] = True
+        obj.data = me
+        backup = None
+    else:
+        backup = me.copy()                                 # a refusal after the bevel puts this back
+    bm.to_mesh(me)
+    bm.free()
+    me.update()
+    mod = obj.modifiers.new("fillet", "BEVEL")
+    mod.offset_type = "OFFSET"
+    mod.width = widest
+    mod.segments = segments
+    mod.profile = 0.5
+    mod.limit_method = "WEIGHT"
+    mod.use_clamp_overlap = False                  # a clamped fillet is a smaller radius than asked
+    mod.miter_outer = "MITER_ARC"
+    if apply:
+        apply_modifiers(obj)
+        me = obj.data
+        if me.attributes.get("bevel_weight_edge"):
+            me.attributes.remove(me.attributes["bevel_weight_edge"])
+        weld_degenerate(me)                                # two tangent lines that meet (a full round)
+        bad, nm = fix_slivers(me), nonmanifold_edges(obj)
+        cross = 0 if bad or nm else self_intersections(obj)    # the deciding check: a weld cannot hide it
+        if bad or nm or cross:
+            name = me.name                                 # refused: the object is as it was
+            obj.data = shared or backup
+            bpy.data.meshes.remove(me)
+            if backup:
+                backup.name = name
+            what = (f"{cross} pairs of faces that cross each other" if cross else
+                    f"{bad} zero-area triangles and {nm} non-manifold edges")
+            raise ValueError(f"fillet of {radius} mm on '{obj.name}' left {what}: two fillets (or a fillet and a "
+                             "feature) overlap, or the cut left the face split along edges the round would run across. "
+                             "Reduce the radius, fillet before the cut that is in its way, or put the round into the "
+                             "cut's own tool (a profile with the round, round_profile, or a parts.py tool through "
+                             "from_manifold)")
+    if backup:
+        bpy.data.meshes.remove(backup)
+    LOG.append(f"fillet '{obj.name}': radius {radius} mm on {sum(1 for o in offsets if o)} edges, {segments} segments"
+               + (f", {straightened} rim corners straightened" if straightened else ""))
+    return obj
+
+
 def chamfer(obj, width, angle=30.0, bed=False, apply=True):
     """A 45 degree chamfer of `width` on every qualifying edge (bevel with one segment)."""
     return bevel(obj, width, segments=1, angle=angle, bed=bed, apply=apply)
@@ -799,15 +1960,15 @@ def bed_chamfer(obj, height=0.4, run=None):
     elephant foot), cut into the body: its bottom faces are inset by `run` and the original
     bottom ring is lifted by `height`, so the overall size does not change. `run` defaults to
     0.9 x height: the band is steeper than 45 degrees and P2 never counts it. Works on any
-    bottom outline; applied at once (modifiers are applied first)."""
+    bottom outline; applied at once (modifiers and the object's transform are applied first,
+    so a part rotated into its print orientation is chamfered where it meets the bed)."""
     require_blender()
     if height <= 0:
         raise ValueError("bed chamfer height must be positive")
     run = height * BED_CHAMFER_RUN if run is None else run
     if run <= 0 or run > height:
         raise ValueError("bed chamfer run must be positive and at most the height (steeper than 45 deg)")
-    if obj.modifiers:
-        apply_modifiers(obj)
+    apply_transform(obj)                    # the bed is world z: a rotated or moved part is baked first
     me = obj.data
     bm = bmesh.new()
     bm.from_mesh(me)
@@ -1243,8 +2404,9 @@ def _export_copy(obj, name):
     me[TAG] = True
     bm = bmesh.new()
     bm.from_mesh(me)
-    bm.transform(obj.matrix_world)          # the grid is the STL's: world millimetres
-    if obj.matrix_world.determinant() < 0:  # a mirrored part: keep its faces pointing out
+    mw = _world(obj)
+    bm.transform(mw)                        # the grid is the STL's: world millimetres
+    if mw.determinant() < 0:                # a mirrored part: keep its faces pointing out
         bmesh.ops.reverse_faces(bm, faces=bm.faces)
     before = len(bm.verts)
     for v in bm.verts:
@@ -1260,7 +2422,9 @@ def _export_copy(obj, name):
         bpy.data.meshes.remove(me)
         raise ValueError(f"part '{name}': {bad} zero-area triangles remain after welding on the {WELD} mm grid "
                          "(the STL would fail M3, and M1 once they are dropped): collinear slivers where a cut grazes "
-                         "an edge or crosses a fan of thin triangles; move the cut, or give that face ring topology")
+                         "an edge or crosses a fan of thin triangles, or an arc sampled so finely that its sag between "
+                         "points is under the grid (a radius of several hundred mm at chords under 0.5 mm: sample it "
+                         "coarser); move the cut, or give that face ring topology")
     tmp = bpy.data.objects.new(f"_export_{name}", me)   # identity transform: the mesh is in world mm already
     tmp[TAG] = True
     scene().collection.objects.link(tmp)
@@ -1765,13 +2929,14 @@ def _generator_stem():
 
 
 def _deps():
-    """Python files the build imported from the generator's folder or from here (hashed into
-    the manifest by build.py), plus this file."""
+    """Python files the build imported from the generator's folder, from here or from the
+    skill's scripts folder (parts.py through from_manifold), hashed into the manifest by
+    build.py, plus this file."""
     main = sys.modules.get("__main__")
-    roots = {os.path.normcase(os.path.dirname(os.path.abspath(__file__)))}
+    roots = {os.path.normcase(os.path.dirname(os.path.abspath(__file__))), os.path.normcase(SKILL_SCRIPTS)}
     if getattr(main, "__file__", None):
         roots.add(os.path.normcase(os.path.dirname(os.path.abspath(main.__file__))))
-    deps = {os.path.abspath(__file__)}
+    deps = {os.path.abspath(__file__), *_IMPORTED}
     for m in list(sys.modules.values()):
         f = getattr(m, "__file__", None)
         if f and f.endswith(".py") and os.path.normcase(os.path.dirname(os.path.abspath(f))) in roots:

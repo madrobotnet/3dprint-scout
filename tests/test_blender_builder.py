@@ -7,6 +7,7 @@ import glob
 import hashlib
 import io
 import json
+import math
 import os
 import re
 import shutil
@@ -264,6 +265,88 @@ class PureHelpers(unittest.TestCase):
             bb.box([1, 1, 1])
 
 
+class Profiles(unittest.TestCase):
+    """0.6: 2D profiles with true arcs and rounded corners (pure Python, no Blender)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.bb = load()
+
+    def test_arc_and_outline(self):
+        bb = self.bb
+        a = bb.arc((0, 0), 10, 0, 90)
+        self.assertEqual((a.center, a.r), ((0.0, 0.0), 10.0))
+        self.assertAlmostEqual(a[0][0], 10)
+        self.assertAlmostEqual(a[-1][1], 10)
+        self.assertLessEqual(max(math.dist(a[i], a[i + 1]) for i in range(len(a) - 1)), 0.4 + 1e-9)   # the circle rule
+        cw = bb.arc((0, 0), 10, 90, -90)                                       # clockwise through 0 deg
+        self.assertAlmostEqual(cw[len(cw) // 2][0], 10, delta=0.01)
+        pts = bb.outline([(0, 0), (10, 0)], (10, 0), bb.arc((10, 5), 5, -90, 90), (0, 10), (0, 0))
+        self.assertEqual(pts[0], (0.0, 0.0))
+        self.assertNotEqual(pts[-1], (0.0, 0.0))                               # no closing repeat
+        self.assertEqual(len(pts), len(set(pts)))
+
+    def test_round_profile_on_straight_corners(self):
+        bb = self.bb
+        pts = bb.round_profile([(0, 0), (30, 0), (30, 20), (0, 20)], 2.0)
+        for cx, cy in ((2, 2), (28, 2), (28, 18), (2, 18)):
+            near = [p for p in pts if math.dist(p, (cx, cy)) < 2.5]
+            self.assertGreater(len(near), 3)
+            self.assertTrue(all(abs(math.dist(p, (cx, cy)) - 2.0) < 1e-9 for p in near))
+        self.assertAlmostEqual(min(p[0] for p in pts), 0.0)
+        one = bb.round_profile([(0, 0), (30, 0), (30, 20), (0, 20)], 2.0, corners=[1])
+        self.assertIn((0.0, 0.0), one)                                         # only corner 1 rounded
+        self.assertNotIn((30.0, 0.0), one)
+        with self.assertRaises(ValueError) as cm:
+            bb.round_profile([(0, 0), (3, 0), (3, 20), (0, 20)], 2.0)           # 4 mm of round on a 3 mm edge
+        self.assertIn("overlap", str(cm.exception))
+
+    def test_round_profile_against_an_arc(self):
+        """A plate with a half-round ridge: the feet are rounded against the ridge's circle, not
+        its facets; a C-ring lip is rounded where the opening meets the ring."""
+        bb = self.bb
+        ridge = [(0, 0), (40, 0), (40, 3), bb.arc((20, 3), 6, 0, 180), (0, 3)]
+        pts = bb.round_profile(ridge, 1.0, corners=[3, 4])
+        for c in ((20 + math.sqrt(48), 4.0), (20 - math.sqrt(48), 4.0)):      # 7 mm from the ridge centre, 1 above the plate
+            near = [p for p in pts if math.dist(p, c) < 1.0 + 1e-6]
+            self.assertGreater(len(near), 3)
+            self.assertTrue(all(abs(math.dist(p, c) - 1.0) < 1e-9 for p in near), near)
+        r_i, r_o, half, r, zc = 16.45, 19.65, 14.0, 1.0, 19.95
+        deg = math.degrees
+        a_o = deg(math.atan2(math.sqrt(r_o ** 2 - half ** 2), half))
+        a_i = deg(math.atan2(math.sqrt(r_i ** 2 - half ** 2), half))
+        c_ring = [bb.arc((0, zc), r_o, -30, a_o), bb.arc((0, zc), r_i, a_i, 180 - a_i - 360),
+                  bb.arc((0, zc), r_o, 180 - a_o, 210)]
+        lip = bb.round_profile(c_ring, r, corners=[1, 2, 3, 4])
+        top = max(p[1] for p in lip)
+        self.assertAlmostEqual(top, zc + math.sqrt((r_o - r) ** 2 - (half + r) ** 2) + r, delta=0.002)   # tangent inside the outer circle
+
+    def test_round_profile_shapes_the_review_found_refused(self):
+        """Review of 0.6: a D (an arc and its chord: two corners), a Pac-Man (an arc and the centre)
+        and a round against a concave arc at a 10 degree corner are valid and are built."""
+        bb = self.bb
+        d = bb.round_profile([bb.arc((0, 0), 10, 0, 180)], 1.0)
+        self.assertGreater(bb._signed_area(d), 0)
+        self.assertAlmostEqual(max(p[1] for p in d), 10.0, delta=1e-6)
+        pac = bb.round_profile([bb.arc((0, 0), 10, 30, 330), (0, 0)], 0.5)
+        self.assertGreater(bb._signed_area(pac), 0)
+        a, R = math.radians(10), 10.0
+        cy = -R * math.cos(a)
+        start = math.degrees(math.atan2(-cy, R * math.sin(a)))
+        notch = [(-20, -25), (20, -25), (20, 0), bb.arc((0, cy), R, start, 180 - start - 360), (-20, 0)]
+        pts = bb.round_profile(notch, 1.0, corners=[3])
+        c = (math.sqrt((R + 1) ** 2 - (-1 - cy) ** 2), -1.0)
+        near = [q for q in pts if math.dist(q, c) < 1.0 + 1e-6]
+        self.assertGreater(len(near), 2)
+        self.assertTrue(all(abs(math.dist(q, c) - 1.0) < 1e-9 for q in near))
+
+    def test_round_profile_turning_edges_are_not_corners(self):
+        bb = self.bb
+        pts = bb.round_profile([(0, 0), (20, 0), bb.arc((20, 10), 10, -90, 90), (0, 20)], 1.0)
+        self.assertTrue(all(p[0] <= 30 + 1e-9 for p in pts))                  # the arc's joints are smooth: left alone
+        self.assertTrue(any(abs(p[0]) < 1e-9 and 0.9 < p[1] < 19.1 for p in pts))
+
+
 # --------------------------------------------------------------------------- #
 # With Blender
 # --------------------------------------------------------------------------- #
@@ -450,6 +533,388 @@ emit(info=info)
                          f["metrics"])
         self.assertEqual(rep["info"][0]["welded_vertices"], 1)
         self.assertEqual(rep["info"][0]["triangles"], 12)
+
+    def test_fillet_has_a_true_radius_and_refuses_facets(self):
+        """0.6: bevel's width is Blender's offset (the radius only at 90 degrees); fillet gives the
+        same radius on a 90 and a 120 degree edge, and refuses to round along a curve's facets
+        before changing anything, pointing at round_profile."""
+        rep = run_in_blender(f"""
+import math
+bb.new_scene_mm()
+O = [(0, 0), (30, 0), (30, 20), (15, 20 + 15 * math.tan(math.radians(30))), (0, 20)]
+p = bb.prism(O, 10, name="p")
+sel = bb.edges(p, axis="z")
+bb.fillet(p, 2.0, sel)
+top = [(v.co.x, v.co.y) for v in p.data.vertices if abs(v.co.z - 10) < 1e-6]
+dist = {{}}
+for k in range(len(O)):
+    q, a_, b_ = O[k], O[k - 1], O[(k + 1) % len(O)]
+    u = [a_[0] - q[0], a_[1] - q[1]]; v = [b_[0] - q[0], b_[1] - q[1]]
+    lu, lv = math.hypot(*u), math.hypot(*v); u = [c / lu for c in u]; v = [c / lv for c in v]
+    al = math.acos(u[0] * v[0] + u[1] * v[1]); bis = [u[0] + v[0], u[1] + v[1]]; lb = math.hypot(*bis)
+    c = (q[0] + bis[0] / lb * 2 / math.sin(al / 2), q[1] + bis[1] / lb * 2 / math.sin(al / 2))
+    t = 2 / math.tan(al / 2)
+    ds = [math.hypot(x - c[0], y - c[1]) for x, y in top if 1e-6 < math.hypot(x - q[0], y - q[1]) <= t + 1e-6]
+    dist[round(math.degrees(al))] = dist.get(round(math.degrees(al)), []) + [min(ds), max(ds)]
+bb.part(p, "p")
+info = bb.export_parts({self.tmp!r})
+plate = bb.box([40, 30, 3], "plate")
+ridge = bb.prism(bb.outline(bb.arc((20, 3), 6, 180, 0)), 30, name="ridge", plane="XZ")
+bb.boolean(plate, ridge, "union")
+before = len(plate.data.vertices)
+try:
+    bb.fillet(plate, 1.0, bb.edges(plate, axis="y", inside=((0, -1, 2.9), (40, 31, 3.1)))); refused = None
+except ValueError as exc:
+    refused = str(exc)
+emit(selected=len(sel), dist=dist, refused=refused, untouched=len(plate.data.vertices) == before, mods=len(plate.modifiers))
+""")
+        self.assertEqual(rep["selected"], 5)
+        self.assertEqual([round(x, 4) for x in rep["dist"]["90"]], [2.0, 2.0, 2.0, 2.0])
+        lo, hi = min(rep["dist"]["120"]), max(rep["dist"]["120"])
+        self.assertTrue(2.0 * 0.985 <= lo <= hi <= 2.0 + 1e-4, rep["dist"])   # within 1.5 % (Blender's profile)
+        f = check(os.path.join(self.tmp, "p.stl"))
+        self.assertEqual({k: f["checks"][k]["state"] for k in ("M1", "M2", "M3", "M4")}, {k: "PASS" for k in ("M1", "M2", "M3", "M4")})
+        self.assertIn("facets of a curved face", rep["refused"])
+        self.assertIn("round_profile", rep["refused"])
+        self.assertTrue(rep["untouched"])
+        self.assertEqual(rep["mods"], 0)
+
+    def test_fillet_refuses_overlaps_and_sharp_edges(self):
+        """Review of 0.6: two fillets on one face that would meet, and an edge sharper than 90
+        degrees (Blender's profile is no circle there), are refused before any change."""
+        rep = run_in_blender("""
+import math
+bb.new_scene_mm()
+slab = bb.box([3, 20, 20], "slab")
+try:
+    bb.fillet(slab, 2.0, bb.edges(slab, axis="z")); overlap = None
+except ValueError as exc:
+    overlap = str(exc)
+ok = bb.box([5, 20, 20], "ok")
+bb.fillet(ok, 2.0, bb.edges(ok, axis="z"))                       # 2 + 2 <= 5: fine
+tri = bb.prism([(0, 0), (20, 0), (0, 20 * math.tan(math.radians(30)))], 10, name="tri")
+try:
+    bb.fillet(tri, 1.0, bb.edges(tri, axis="z")); sharp = None
+except ValueError as exc:
+    sharp = str(exc)
+emit(overlap=overlap, sharp=sharp, slab_mods=len(slab.modifiers), ok_nm=bb.nonmanifold_edges(ok), ok_deg=bb.degenerate_triangles(ok.data))
+""")
+        self.assertIn("would overlap", rep["overlap"])
+        self.assertIn("would turn round", rep["overlap"])
+        self.assertEqual(rep["slab_mods"], 0)
+        self.assertEqual((rep["ok_nm"], rep["ok_deg"]), (0, 0))
+        self.assertIn("sharper than 90 degrees", rep["sharp"])
+        self.assertIn("round_profile", rep["sharp"])
+
+    def test_fillet_overlap_check_keeps_rims_and_catches_holes(self):
+        """Second and third review of 0.6: the overlap check insets each flat face's outline
+        (holes included, across the faces a boolean splits it into), and every result is checked
+        for faces that cross each other (validate.py does not look). A cut's face is split along
+        edges from the hole's rim; where one leaves a rim corner at a shallow angle the bevel ran
+        along it to the far corner (a slit, 101 crossing pairs), so those edges are turned onto the
+        corner's miter first. Rims of a cylinder, a rounded rectangle, a hexagon, a hole and a
+        boss's foot pass clean (the hole's round is a true radius); a hole too near the side, two
+        holes too close, a hexagon past its inradius, and a round whose end meets another round,
+        are refused, and a refusal after the bevel leaves the object as it was."""
+        rep = run_in_blender("""
+import math
+def top(o, z):
+    return bb.edges(o, inside=((-200, -200, z - 0.1), (200, 200, z + 0.1)))
+def sel(o, fn):
+    return [e.index for e in o.data.edges if fn([o.data.vertices[v].co for v in e.vertices])]
+def attempt(fn):
+    bb.new_scene_mm()
+    try:
+        o = fn()
+        return [bb.nonmanifold_edges(o), bb.degenerate_triangles(o.data), bb.self_intersections(o)]
+    except ValueError as exc:
+        return str(exc)
+def hole(at, r=4.0, size=(30, 30, 10)):
+    blk = bb.box(list(size), "blk")
+    for x, y in at:
+        h = bb.cylinder(r, size[2] + 2, name="h"); h.location = (x, y, -1)
+        bb.boolean(blk, h, "difference")
+    return blk
+def hex_(r):
+    pts = [(5 * math.cos(math.radians(60 * i)), 5 * math.sin(math.radians(60 * i))) for i in range(6)]
+    o = bb.prism(pts, 10, name="hex")
+    return bb.fillet(o, r, top(o, 10))
+def cyl():
+    o = bb.cylinder(10, 10, name="c")
+    return bb.fillet(o, 1.0, top(o, 10))
+def rrect():
+    o = bb.prism(bb.round_profile([(0, 0), (40, 0), (40, 20), (0, 20)], 4), 10, name="rr")
+    return bb.fillet(o, 1.0, top(o, 10))
+def hole_rim():
+    o = hole([(15, 15)])
+    return bb.fillet(o, 0.5, top(o, 10))
+rim_r = []
+def rim_only():
+    o = hole([(15, 15)])
+    bb.fillet(o, 1.0, sel(o, lambda p: all(abs(q.z - 10) < 1e-3 and abs(math.hypot(q.x - 15, q.y - 15) - 4) < 0.01 for q in p)))
+    rim_r.append(min(math.hypot(v.co.x - 15, v.co.y - 15) for v in o.data.vertices if abs(v.co.z - 10) < 1e-4))
+    rim_r.append(max(v.co.z for v in o.data.vertices if math.hypot(v.co.x - 15, v.co.y - 15) < 4.001))
+    return o
+def boss_foot():
+    o = bb.box([30, 30, 4], "b"); c = bb.cylinder(5, 8, name="c"); c.location = (15, 15, 2)
+    bb.boolean(o, c, "union")
+    return bb.fillet(o, 1.0, sel(o, lambda p: all(abs(q.z - 4) < 1e-3 and abs(math.hypot(q.x - 15, q.y - 15) - 5) < 0.01 for q in p)))
+def near_edge():
+    o = hole([(15, 5.5)])                                   # rim 1.5 mm from the side
+    return bb.fillet(o, 1.0, top(o, 10))
+def near_edge_ok():
+    o = hole([(15, 5.5)])
+    return bb.fillet(o, 0.6, top(o, 10))
+def two_holes():
+    o = hole([(10, 10), (19, 10)], size=(30, 20, 5))        # 1 mm between the rims
+    return bb.fillet(o, 0.6, top(o, 5))
+kept = []
+def end_meets():                                            # the top-front round's end meets the corner's round
+    o = bb.box([30, 4, 10], "b")
+    front = sel(o, lambda p: all(abs(q.z - 10) < 1e-6 and abs(q.y) < 1e-6 for q in p))
+    corner = sel(o, lambda p: all(abs(q.x) < 1e-6 and abs(q.y - 4) < 1e-6 for q in p))
+    n = len(o.data.vertices)
+    try:
+        return bb.fillet(o, 2.2, front + corner)
+    finally:
+        kept.append([n, len(o.data.vertices), len(o.modifiers)])
+def full_round():
+    o = bb.box([9.8, 30, 10], "b")
+    return bb.fillet(o, 4.9, top(o, 10) + bb.edges(o, axis="z"))
+def two_steps():
+    o = bb.box([20, 20, 10], "b")
+    bb.fillet(o, 1.0, top(o, 10))
+    return bb.fillet(o, 3.0, bb.edges(o, axis="z"))
+emit(rim_r=rim_r, kept=kept, **{n: attempt(f) for n, f in dict(
+    hex3=lambda: hex_(3.0), hex44=lambda: hex_(4.4), cyl=cyl, rrect=rrect, hole_rim=hole_rim, rim_only=rim_only,
+    boss_foot=boss_foot, near_edge=near_edge, near_edge_ok=near_edge_ok, two_holes=two_holes, end_meets=end_meets,
+    full_round=full_round, two_steps=two_steps).items()})
+""")
+        for name in ("hex3", "cyl", "rrect", "hole_rim", "rim_only", "boss_foot", "near_edge_ok", "full_round",
+                     "two_steps"):
+            self.assertEqual(rep[name], [0, 0, 0], name)
+        self.assertAlmostEqual(rep["rim_r"][0], 5.0, delta=0.01)                 # the round meets the top 1 mm out
+        self.assertAlmostEqual(rep["rim_r"][1], 9.0, delta=0.01)                 # ... and the bore 1 mm down
+        for name in ("hex44", "near_edge", "two_holes"):
+            self.assertIsInstance(rep[name], str, name)
+            self.assertIn("would overlap", rep[name], name)
+        self.assertIn("cross each other", rep["end_meets"])
+        self.assertEqual(rep["kept"][0][:2], [8, 8])                             # put back as it was
+        self.assertEqual(rep["kept"][0][2], 0)
+
+    def test_apply_transform_keeps_shared_meshes_and_children(self):
+        rep = run_in_blender("""
+bb.new_scene_mm()
+a = bb.box([10, 10, 10], "a")
+b = a.copy(); b[bb.TAG] = True; bb.scene().collection.objects.link(b)      # shares a's mesh
+b.location = (50, 0, 0)
+a.location = (0, 0, 5)
+child = bb.box([2, 2, 2], "child"); child.parent = a; child.location = (20, 0, 0)
+before_child = bb.world_bbox(child)[0][:]
+before_b = bb.world_bbox(b)[0][:]
+bb.apply_transform(a)
+emit(a_min=list(bb.world_bbox(a)[0]), b_min=list(bb.world_bbox(b)[0]), b_before=list(before_b),
+     child_min=list(bb.world_bbox(child)[0]), child_before=list(before_child), shared=a.data == b.data)
+""")
+        self.assertEqual([round(c, 4) for c in rep["a_min"]], [0.0, 0.0, 5.0])
+        self.assertEqual([round(c, 4) for c in rep["b_min"]], [round(c, 4) for c in rep["b_before"]])   # the copy stayed
+        self.assertEqual([round(c, 4) for c in rep["child_min"]], [round(c, 4) for c in rep["child_before"]])
+        self.assertFalse(rep["shared"])
+
+    @unittest.skipUnless(find_spec("manifold3d") is not None, "manifold3d not installed")
+    def test_parts_reach_blender_through_from_manifold(self):
+        """0.6: a parts.py countersunk hole cut from a Blender block (the bridge), the result
+        exported and checked; an STL read back with import_stl keeps its volume."""
+        rep = run_in_blender(f"""
+import parts
+bb.new_scene_mm()
+blk = bb.box([20, 20, 8], "blk")
+hole = bb.from_manifold(parts.screw_hole("M3", depth=8.5, kind="countersunk").translate([10, 10, 8]), "hole")
+bb.boolean(blk, hole, "difference")
+bb.part(blk, "blk")
+info = bb.export_parts({self.tmp!r})
+back = bb.import_stl(os.path.join({self.tmp!r}, "blk.stl"), "back")
+try:
+    bb.from_mesh([(0, 0, 0), (1, 0, 0), (0, 1, 0)], [(0, 1, 2)], "open"); open_refused = None
+except ValueError as exc:
+    open_refused = str(exc)
+emit(nm=bb.nonmanifold_edges(back), open_refused=open_refused, deps=[os.path.basename(d) for d in bb._deps()],
+     deps_full=bb._deps())
+""")
+        f = check(os.path.join(self.tmp, "blk.stl"))
+        self.assertEqual({k: f["checks"][k]["state"] for k in ("M1", "M2", "M3", "M4", "D3")}, {k: "PASS" for k in ("M1", "M2", "M3", "M4", "D3")}, f["metrics"])
+        csk = 3.14159 * 1.6 ** 2                                               # the shank alone, as a lower bound
+        self.assertLess(f["metrics"]["volume_mm3"], 20 * 20 * 8 - csk * 8)
+        self.assertEqual(rep["nm"], 0)
+        self.assertIn("open or non-manifold", rep["open_refused"])
+        self.assertIn("parts.py", rep["deps"])                                 # parts.py is hashed into the manifest
+        self.assertIn(os.path.join(self.tmp, "blk.stl"), rep["deps_full"])      # so is an STL brought in
+
+    def test_from_mesh_merges_split_facets_not_a_gentle_curve(self):
+        """Second and third review of 0.6: split facets are merged back by flatness, never by an
+        angle alone (float32 noise on a thin triangle and the bend of a large radius overlap):
+        manifold3d's face groups when they are flat, else faces grown while every corner stays
+        within WELD / 2 of the seed's plane. Two parts.py countersinks cut a plate cleanly near
+        the origin and 300 mm out; the facets of an r = 1000 mm arc stay apart on both paths
+        (folded, a later cut replaced the arc with its chord); a merged face is flat."""
+        rep = run_in_blender("""
+import math, parts
+from manifold3d import CrossSection, Manifold
+cuts = {}
+for x0 in (0, 300):
+    bb.new_scene_mm()
+    plate = bb.box([70, 25, 4], "plate"); plate.location = (x0, 0, 0); bb.apply_transform(plate)
+    for i, x in enumerate((10, 60)):
+        tool = bb.from_manifold(parts.screw_hole("M4", depth=4.1, kind="countersunk").translate([x0 + x, 12.5, 4]),
+                                f"h{i}")
+        bb.boolean(plate, tool, "difference")
+    cuts[x0] = [bb.degenerate_triangles(plate.data), bb.nonmanifold_edges(plate)]
+R, n = 1000.0, 100
+arc = [(R * math.sin(a), R - R * math.cos(a)) for a in (i * 0.0004 for i in range(n + 1))]
+pts = arc + [(arc[-1][0], arc[-1][1] + 5), (0, 5)]
+man = Manifold.extrude(CrossSection([pts]), 3)
+bb.new_scene_mm()
+strip = bb.from_manifold(man, "strip")
+mesh = man.to_mesh()
+raw = bb.from_mesh([tuple(v[:3]) for v in mesh.vert_properties.tolist()], mesh.tri_verts.tolist(), "raw")
+def sides(o):
+    return sum(1 for p in o.data.polygons if abs(p.normal.z) < 0.5)
+def worst(o):
+    me = o.data
+    return max(max(abs((me.vertices[v].co - me.vertices[p.vertices[0]].co).dot(p.normal)) for v in p.vertices)
+               for p in me.polygons)
+emit(cuts=cuts, sides=sides(strip), raw_sides=sides(raw), outline=len(pts), worst=max(worst(strip), worst(raw)))
+""")
+        self.assertEqual(rep["cuts"], {"0": [0, 0], "300": [0, 0]})
+        self.assertEqual(rep["sides"], rep["outline"])                         # one face per outline edge
+        self.assertEqual(rep["raw_sides"], rep["outline"])
+        self.assertLess(rep["worst"], 1e-4)
+
+    def test_fillet_near_another_round_shared_meshes_and_flat_overlaps(self):
+        """Fourth review of 0.6: a straightened rim corner never lands past another round's
+        tangent line (a hole 2r + 0.05 from the side at r = 3 left a 0.08 mm ridge on the side's
+        round): the surface across that round stays within faceting of the ideal one. A fillet on
+        a mesh shared with a linked duplicate leaves the duplicate as it was, accepted or refused.
+        Faces that overlap in one plane count as crossing (the BVH test alone saw 0)."""
+        rep = run_in_blender("""
+import math, bmesh
+from mathutils.bvhtree import BVHTree
+r, R, TOP = 3.0, 4.0, 8.0
+cx, cy = 40 - (2 * r + 0.05) - R, 15.0
+bb.new_scene_mm()
+o = bb.box([40, 30, TOP], "blk")
+h = bb.cylinder(R, TOP + 2, name="h"); h.location = (cx, cy, -1)
+bb.boolean(o, h, "difference")
+bb.fillet(o, r, bb.edges(o, inside=((-1, -1, TOP - 0.1), (41, 31, TOP + 0.1))))
+bm = bmesh.new(); bm.from_mesh(o.data); tree = BVHTree.FromBMesh(bm)
+def ideal(x):
+    tl = 40 - r
+    return TOP if x <= tl else TOP - r + math.sqrt(max(r * r - (x - tl) ** 2, 0.0))
+worst = 0.0
+for y in (cy - 1.5, cy, cy + 1.5):
+    for k in range(60):
+        x = 40 - r + 0.05 * k
+        hit = tree.ray_cast((x, y, TOP + 5), (0, 0, -1))
+        if hit[0] is not None and x < 39.9:
+            worst = max(worst, hit[0].z - ideal(x))
+bm.free()
+clean = [bb.nonmanifold_edges(o), bb.degenerate_triangles(o.data), bb.self_intersections(o)]
+twins = {}
+for case, rad in (("ok", 1.0), ("refused", 6.0)):
+    bb.new_scene_mm()
+    a = bb.box([30, 30, 10], "a"); hh = bb.cylinder(4, 12, name="hh"); hh.location = (15, 15, -1)
+    bb.boolean(a, hh, "difference")
+    b = a.copy(); bpy.context.scene.collection.objects.link(b)
+    n = len(b.data.vertices)
+    try:
+        bb.fillet(a, rad, bb.edges(a, inside=((-1, -1, 9.9), (31, 31, 10.1))))
+    except ValueError:
+        pass
+    twins[case] = [n, len(b.data.vertices), "bevel_weight_edge" in b.data.attributes]
+bb.new_scene_mm()
+bm = bmesh.new()
+for lo in ((0, 0, 0), (5, 5, 10)):                       # two blocks stacked: the faces at z = 10 overlap flat
+    vs = bmesh.ops.create_cube(bm, size=1.0)["verts"]
+    bmesh.ops.scale(bm, vec=(10, 10, 10), verts=vs)
+    bmesh.ops.translate(bm, vec=(lo[0] + 5, lo[1] + 5, lo[2] + 5), verts=vs)
+stack = bb.mesh_object("stack", bm)
+flat = bb.self_intersections(stack)
+bb.new_scene_mm()
+sc = bb.box([4, 30, 10], "sc"); sc.scale = (2, 1, 1); sc.location = (3, 0, 0)
+name, n = sc.data.name, len(sc.data.vertices)
+try:
+    bb.fillet(sc, 4.5, bb.edges(sc, axis="z")); scaled = None             # 2 x 4.5 > 8 wide: refused
+except ValueError as exc:
+    scaled = str(exc)
+scaled_back = [tuple(sc.scale), tuple(sc.location), sc.data.name == name, len(sc.data.vertices) == n]
+emit(worst=worst, clean=clean, twins=twins, flat=flat, scaled=scaled, scaled_back=scaled_back)
+""")
+        self.assertEqual(rep["clean"], [0, 0, 0])
+        self.assertLess(rep["worst"], 0.02)                                    # above the ideal round: no ridge
+        for case in ("ok", "refused"):
+            n, after, weight = rep["twins"][case]
+            self.assertEqual((after, weight), (n, False), case)
+        self.assertGreater(rep["flat"], 0)
+        self.assertIsNotNone(rep["scaled"])                                     # a refusal of a scaled object
+        self.assertEqual(rep["scaled_back"], [[2, 1, 1], [3, 0, 0], True, True])  # ... leaves it as it was
+
+    def test_boolean_welds_only_degenerate_corners(self):
+        """Third review of 0.6: a boolean that leaves corners a hair apart merges only those
+        corners (as the export would) and counts again; two shells 0.07 um apart elsewhere stay
+        apart (a weld of the whole mesh joined them into a non-manifold edge, unreported)."""
+        rep = run_in_blender("""
+import bmesh
+E = 5e-5
+bb.new_scene_mm()
+bm = bmesh.new()
+for lo, hi in (((0, 0, 0), (10, 10, 10)), ((10 + E, 10 + E, 0), (20, 20, 10))):
+    vs = bmesh.ops.create_cube(bm, size=1.0)["verts"]
+    bmesh.ops.scale(bm, vec=[h - l for l, h in zip(lo, hi)], verts=vs)
+    bmesh.ops.translate(bm, vec=[(l + h) / 2 for l, h in zip(lo, hi)], verts=vs)
+o = bb.mesh_object("two", bm)
+t = bb.box([5, 6, 7], "t"); t.location = (-E, 2, 5); bb.apply_transform(t)
+try:
+    bb.boolean(o, t, "union"); err = None
+except ValueError as exc:
+    err = str(exc)
+emit(err=err, nm=bb.nonmanifold_edges(o), deg=bb.degenerate_triangles(o.data))
+""")
+        if rep["err"] is None:
+            self.assertEqual((rep["nm"], rep["deg"]), (0, 0))
+        else:
+            self.assertIn("non-manifold", rep["err"])                          # never returned silently
+
+    def test_planes_transforms_and_world_bed_chamfer(self):
+        rep = run_in_blender(f"""
+import math
+bb.new_scene_mm()
+def vol(o):
+    me = o.data; me.calc_loop_triangles()
+    return sum(me.vertices[t.vertices[0]].co.dot(me.vertices[t.vertices[1]].co.cross(me.vertices[t.vertices[2]].co)) / 6
+               for t in me.loop_triangles)
+vols, boxes = {{}}, {{}}
+for plane in ("XY", "XZ", "YZ"):
+    o = bb.prism([(0, 0), (10, 0), (10, 5), (0, 5)], 3, name=plane, plane=plane)
+    vols[plane] = round(vol(o), 3)
+    lo, hi, _ = bb.world_bbox(o)
+    boxes[plane] = [round(c, 3) for c in hi]
+c = bb.cone(2, 4, 2, name="c")
+bar = bb.box([30, 6, 4], "bar")
+bar.rotation_euler = (math.radians(90), 0, math.radians(30))
+bar.location = (5, 5, 0)
+bb.bed_chamfer(bar, 0.4)
+bb.part(bar, "bar")
+info = bb.export_parts({self.tmp!r})
+emit(vols=vols, boxes=boxes, cone=round(vol(c), 3), identity=bar.matrix_world == bar.matrix_world.Identity(4))
+""")
+        self.assertEqual(rep["vols"], {"XY": 150.0, "XZ": 150.0, "YZ": 150.0})
+        self.assertEqual(rep["boxes"], {"XY": [10.0, 5.0, 3.0], "XZ": [10.0, 3.0, 5.0], "YZ": [3.0, 10.0, 5.0]})
+        self.assertAlmostEqual(rep["cone"], math.pi * 2 / 3 * (4 + 8 + 16), delta=0.5)   # frustum, faceted
+        self.assertTrue(rep["identity"])
+        f = check(os.path.join(self.tmp, "bar.stl"))
+        self.assertEqual(f["checks"]["M1"]["state"], "PASS")
+        self.assertAlmostEqual(f["metrics"]["bbox_min_mm"][2], 0.0, delta=1e-4)            # the world bed
+        self.assertLess(f["metrics"]["bed_contact_mm2"], 30 * 4 - 1)                    # inset by the chamfer
 
     def test_text_single_letter_at_its_cap_height(self):
         rep = run_in_blender(f"""

@@ -6,7 +6,34 @@ Deliverables are new files outside `out/` (for example `deliver/<date>/`): copy 
 3MF there, or point `bambu3mf.py` there. Never write into a file the slicer has open, and never
 overwrite an existing path: if it exists, ask and stop (the scripts refuse as well). The verdicts
 come from `out/` before the copy, where the build's manifests are; copy `<part>.stl.manifest.json`
-along only when the copy is to be re-checked (without it R3 reads UNVERIFIED). Deliver:
+along only when the copy is to be re-checked (without it R3 reads UNVERIFIED).
+
+**First, the final report.** Run it before the delivery message, and again after every fix:
+
+```bash
+python3 "$SKILL_DIR/scripts/finalize.py" --build out/build.json --params .3dprint/params.json \
+  --printer .3dprint/printers.json --deliver deliver/2026-10-21 --bundle deliver/2026-10-21/source
+```
+
+It validates every part again with the settings the build used (R3 against the generator and
+parameters as they are now), checks that the build JSON is the build of these very STLs and of
+every part in `_parts`, and that it ran without errors, reads the `_verify` declarations
+(Phase 5, step 5) and reports four tiers: **geometry** verified or not
+verified, **shape** by direction (from `_verify.references`), **slicing** unverified (nothing here
+slices) and **print** unverified (with the test prints and their results), plus `open`, every
+reason the geometry is not verified, every unaccepted WARN, every unverified dimension and
+assumption. Say "verified" only for what it calls verified; never fold the tiers into one "all
+checks pass". `--deliver` checks the delivery folder: every STL must be one of the verified
+STLs, every 3MF must carry its manifest (`<file>.3mf.manifest.json`, written next to it by
+`build.py` and `bambu3mf.py`: copy it along, or write the Bambu project straight into the
+delivery folder) naming exactly the verified STLs, and every part must be delivered in one of
+them. `--bundle` writes a new folder with the generator and its own files (not the
+skill's libraries) at their places in the project folder (`lib/helper.py` stays
+`lib/helper.py`), `params.json`, the `printers.json` the build used, the report as
+`verification.json` and `REPRODUCE.md`, the commands that rebuild and re-check the parts; it
+refuses a source outside the project folder (move it in and build again) and a source or
+`params.json` that holds a path of this machine (put a name there); deliver it with the files so a later change can
+start from it. Deliver:
 
 1. Files chosen by the slicer saved in Phase 2:
 
@@ -36,8 +63,9 @@ along only when the copy is to be re-checked (without it R3 reads UNVERIFIED). D
    A print-in-place lid hinge adds one line: "don't force the lid past fully open" (the hinge is
    sized for the lid pulled away from the box, not for levering it past its stop; `design.md`).
 5. Sources of the references used in Phase 1.
-6. Verdicts, repeated at every delivery, also after a fix: FAIL, WARN and UNVERIFIED items, every
-   dimension that is still unverified, and `_assumptions` in full. When the user later reports
+6. Verdicts, repeated at every delivery, also after a fix: `finalize.py`'s `summary` (the four
+   tiers) and its `open` list, which holds the FAIL, WARN and UNVERIFIED items, every dimension
+   that is still unverified, and `_assumptions` in full. When the user later reports
    a print result (a ring that fit, a latch that held or broke), offer **once** to record it
    with `calibration.py add` in `.3dprint/calibration.json` (`references/calibration.md`); never
    write it without their yes. If all hard checks pass, say so in one line. When a fit test or a

@@ -61,7 +61,7 @@ from xml.sax.saxutils import quoteattr
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import validate  # noqa: E402
-from threemf import indexed  # noqa: E402
+from threemf import indexed, write_3mf_manifest  # noqa: E402
 from validate import ArtifactError, convex_hull, fit_rect, read_stl  # noqa: E402
 
 SCHEMA = "3dprint-scout.bambu3mf/1"
@@ -441,7 +441,7 @@ def read_parts(job: dict, cfg: dict) -> list:
             plate = _slot(f"part '{name}' plate", plate)
             if plate < 1:
                 raise JobError(f"part '{name}': plate numbers start at 1")
-        parts.append({"name": name, "object": obj, "verts": verts, "faces": faces,
+        parts.append({"name": name, "object": obj, "verts": verts, "faces": faces, "stl": raw["stl"],
                       "filament": filament, "plate": plate,
                       "settings": raw.get("settings") or {}, "reasons": raw.get("reasons") or {}})
     for p in parts:
@@ -677,6 +677,7 @@ def build(job: dict) -> dict:
             data = files[name] if name in files else entries[name][0]
             ctype = zipfile.ZIP_STORED if name.endswith(".png") else zipfile.ZIP_DEFLATED
             z.writestr(name, data, compress_type=ctype)
+    write_3mf_manifest(out, [(p["name"], p["stl"]) for o in objects for p in o["parts"]])
 
     separate = [o for o in objects if len(o["parts"]) > 1]
     if separate:

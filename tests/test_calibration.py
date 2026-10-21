@@ -1,15 +1,20 @@
 """Tests for scripts/calibration.py: schema, privacy refusals, add / show / lookup."""
+import glob
 import io
 import json
 import os
+import re
 import sys
 import tempfile
 import unittest
 from contextlib import redirect_stdout
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-sys.path.insert(0, os.path.join(HERE, "..", "scripts"))
+ROOT = os.path.join(HERE, "..")
+sys.path.insert(0, os.path.join(ROOT, "scripts"))
 import calibration  # noqa: E402
+
+PRESET = "0.20mm Standard @BBL X2D"
 
 
 def run(*argv):
@@ -17,6 +22,19 @@ def run(*argv):
     with redirect_stdout(buf):
         code = calibration.main(list(argv))
     return code, json.loads(buf.getvalue())
+
+
+def lookup_commands(text):
+    """Every `calibration.py lookup --file ...` command in a text, its continuation lines joined."""
+    lines, out = text.splitlines(), []
+    for n, line in enumerate(lines):
+        if re.search(r'calibration\.py"? lookup --file', line):
+            cmd = line
+            while cmd.rstrip().endswith("\\") and n + 1 < len(lines):
+                n += 1
+                cmd = cmd.rstrip()[:-1] + " " + lines[n].strip()
+            out.append(cmd)
+    return out
 
 
 class Calibration(unittest.TestCase):
@@ -241,6 +259,205 @@ class Calibration(unittest.TestCase):
         self.assertEqual(code, 0, out["errors"])
         code, out = run("show", "--file", self.file)
         self.assertIn("2번 링", out["entries"][-1]["note"])
+
+    def test_lookup_keeps_to_the_nozzle_and_the_docs_give_it(self):
+        """Results from different nozzles mixed by default, and the documented lookup left --nozzle out. With
+        --nozzle an entry from another nozzle is only a reference, with what differs; without it a warning says
+        every nozzle is mixed; every documented lookup command gives --nozzle."""
+        self.add("--feature", "fit", "--result", "fits", "--value", "clearance_per_side_mm=0.3", "--date", "2026-10-15")
+        code, out = run("add", "--file", self.file, "--printer", "x2d", "--material", "pla_basic", "--nozzle", "0.6",
+                        "--feature", "fit", "--result", "fits", "--value", "clearance_per_side_mm=0.4", "--date", "2026-10-16")
+        self.assertEqual(code, 0, out["errors"])
+        code, out = run("lookup", "--file", self.file, "--printer", "x2d", "--material", "pla_basic", "--feature", "fit")
+        self.assertEqual(code, 0, out["errors"])
+        self.assertTrue(any("--nozzle" in w and "mixed" in w and "0.4, 0.6" in w for w in out["warnings"]), out["warnings"])
+        code, out = run("lookup", "--file", self.file, "--printer", "x2d", "--material", "pla_basic", "--nozzle", "0.4",
+                        "--feature", "fit")
+        self.assertEqual(out["count"], 1)
+        self.assertEqual(out["worked"]["clearance_per_side_mm"]["value"], 0.3)                  # not the 0.6 nozzle's 0.4
+        self.assertEqual([(r["entry"], r["values"], r["differs"]) for r in out["reference"]],
+                         [(1, {"clearance_per_side_mm": 0.4}, {"nozzle_mm": [0.6, 0.4]})])
+        self.assertFalse(any("--nozzle" in w for w in out["warnings"]), out["warnings"])
+        docs = {"calibration.py": calibration.__doc__}
+        for path in [os.path.join(ROOT, n) for n in ("SKILL.md", "README.md", "README.ko.md")] + \
+                glob.glob(os.path.join(ROOT, "references", "**", "*.md"), recursive=True):
+            with open(path, encoding="utf-8") as f:
+                docs[os.path.relpath(path, ROOT)] = f.read()
+        commands = [(name, cmd) for name, text in docs.items() for cmd in lookup_commands(text)]
+        self.assertGreaterEqual(len(commands), 3, commands)
+        for name, cmd in commands:
+            self.assertIn("--nozzle", cmd, (name, cmd))
+
+    def test_lookup_matches_layer_load_orientation_and_process(self):
+        """layer_mm and load were stored but never matched, orientation and the process preset not recorded. Each
+        is a condition now: only an entry that records the query's value sets worked and bounds; one that differs,
+        or does not record it, is a reference with what differs."""
+        mech = ["--feature", "mechanism", "--kind", "latch"]
+        same = ["--layer", "0.2", "--load", "finger_push", "--orientation", "flat", "--process", PRESET]
+
+        def but(**changed):
+            argv = list(same)
+            for opt, value in changed.items():
+                argv[argv.index("--" + opt) + 1] = value
+            return argv
+        code, out = self.add(*mech, "--result", "worked", "--value", "pin_d_mm=3.2", *same, "--date", "2026-10-14")  # 0
+        self.assertEqual(code, 0, out["errors"])
+        self.assertEqual((out["added"]["orientation"], out["added"]["process"], out["added"]["layer_mm"]), ("flat", PRESET, 0.2))
+        self.add(*mech, "--result", "worked", "--value", "pin_d_mm=2.8", *but(layer="0.28"), "--date", "2026-10-15")   # 1
+        self.add(*mech, "--result", "failed", "--value", "pin_d_mm=3.6", *but(orientation="upright"), "--date", "2026-10-16")  # 2
+        self.add(*mech, "--result", "failed", "--value", "pin_d_mm=3.4", *but(load="40"), "--date", "2026-10-17")      # 3
+        self.add(*mech, "--result", "worked", "--value", "pin_d_mm=2.4", *but(process="0.20mm Strength @BBL X2D"),
+                 "--date", "2026-10-18")                                                                            # 4
+        self.add(*mech, "--result", "worked", "--value", "pin_d_mm=2.0", "--date", "2026-10-19")                     # 5: none
+        query = ["lookup", "--file", self.file, "--printer", "x2d", "--material", "pla_basic", "--nozzle", "0.4",
+                 "--feature", "mechanism", "--kind", "latch"]
+        code, out = run(*query, *but(process=" 0.20mm  standard @BBL X2D"))       # case and repeated spaces aside
+        self.assertEqual(code, 0, out["errors"])
+        self.assertEqual([e["entry"] for e in out["entries"]], [0])
+        self.assertEqual((out["worked"]["pin_d_mm"]["value"], out["worked"]["pin_d_mm"]["entry"]), (3.2, 0))
+        self.assertEqual(out["bounds"], {})                    # the upright and the 40 N failures are not this print's floors
+        self.assertEqual({k: out["query"][k] for k in ("nozzle", "layer", "load", "orientation", "process")},
+                         {"nozzle": 0.4, "layer": 0.2, "load": "finger_push", "orientation": "flat",
+                          "process": "0.20mm standard @BBL X2D"})
+        self.assertEqual([r["entry"] for r in out["reference"]], [5, 4, 3, 2, 1])                  # newest first
+        self.assertEqual({r["entry"]: r["differs"] for r in out["reference"]}, {
+            1: {"layer_mm": [0.28, 0.2]},
+            2: {"orientation": ["upright", "flat"]},
+            3: {"load": [40.0, "finger_push"]},
+            4: {"process": ["0.20mm Strength @BBL X2D", "0.20mm standard @BBL X2D"]},
+            5: {"layer_mm": ["not recorded", 0.2], "load": ["not recorded", "finger_push"],
+                "orientation": ["not recorded", "flat"], "process": ["not recorded", "0.20mm standard @BBL X2D"]}})
+        # A force matches within 1e-6 N; the 40 N failure is the floor under 40 N.
+        code, out = run(*query, *but(load="40.0000001"))
+        self.assertEqual([e["entry"] for e in out["entries"]], [3])
+        self.assertEqual(out["bounds"]["pin_d_mm"]["failed"]["entry"], 3)
+        self.assertEqual(out["worked"], {})
+        # Without --layer the 0.2 and 0.28 mm prints both count, and a warning names the layer heights.
+        argv = but()
+        del argv[0:2]
+        code, out = run(*query, *argv)
+        self.assertEqual([e["entry"] for e in out["entries"]], [1, 0])
+        self.assertTrue(any("--layer" in w and "0.28, 0.2" in w for w in out["warnings"]), out["warnings"])
+        self.assertNotIn("layer_mm", out["reference"][0]["differs"])
+
+    def test_worked_from_different_prints_is_marked_combined(self):
+        """'worked' took each value name's newest value from any entry, pairing one print's pin with another
+        print's wall as if they had been printed together. Each value now names its entry, 'combined' says
+        when they come from different prints, and 'worked_set' is one print's values together."""
+        mech = ["--feature", "mechanism", "--kind", "latch"]
+        self.add(*mech, "--result", "worked", "--value", "pin_d_mm=3.0", "--value", "pin_wall_mm=2.2", "--date", "2026-10-15")
+        self.add(*mech, "--result", "worked", "--value", "pin_d_mm=2.6", "--date", "2026-10-17")
+        self.add(*mech, "--result", "failed", "--value", "pin_wall_mm=1.3", "--date", "2026-10-18")
+        query = ["lookup", "--file", self.file, "--printer", "x2d", "--material", "pla_basic", "--nozzle", "0.4", "--kind", "latch"]
+        code, out = run(*query)
+        self.assertEqual(code, 0, out["errors"])
+        self.assertEqual({k: (v["value"], v["entry"], v["date"]) for k, v in out["worked"].items()},
+                         {"pin_d_mm": (2.6, 1, "2026-10-17"), "pin_wall_mm": (2.2, 0, "2026-10-15")})
+        self.assertIs(out["combined"], True)
+        self.assertTrue(any("never printed together" in w and "worked_set" in w for w in out["warnings"]), out["warnings"])
+        self.assertEqual((out["worked_set"]["entry"], out["worked_set"]["values"]), (1, {"pin_d_mm": 2.6}))
+        self.assertEqual((out["bounds"]["pin_wall_mm"]["failed"]["entry"], out["bounds"]["pin_wall_mm"]["failed"]["date"]),
+                         (2, "2026-10-18"))
+        self.assertEqual([e["entry"] for e in out["entries"]], [2, 1, 0])
+        # One print that carries both values: one set, not combined.
+        self.add(*mech, "--result", "worked", "--value", "pin_d_mm=3.24", "--value", "pin_wall_mm=2.2", "--date", "2026-10-19")
+        code, out = run(*query)
+        self.assertIs(out["combined"], False)
+        self.assertEqual((out["worked_set"]["entry"], out["worked_set"]["values"]), (3, {"pin_d_mm": 3.24, "pin_wall_mm": 2.2}))
+        self.assertEqual({v["entry"] for v in out["worked"].values()}, {3})
+        self.assertFalse(any("never printed together" in w for w in out["warnings"]), out["warnings"])
+        # Nothing that fit, worked or was measured: no set.
+        code, out = run("lookup", "--file", self.file, "--nozzle", "0.4", "--kind", "lid_hinge")
+        self.assertEqual((out["worked"], out["worked_set"], out["combined"]), ({}, None, False))
+
+    def test_old_file_without_the_new_fields(self):
+        """A file written before orientation and process, with entries that record no layer or load, loads, shows
+        and looks up as before; given those conditions its entries are references, marked not recorded, and an
+        entry without a kind stays under unclassified with what differs; add keeps the old entries as they are."""
+        entries = [{"date": "2026-10-10", "printer": "x2d", "material": "pla_basic", "nozzle_mm": 0.4, "feature": "fit",
+                    "result": "fits", "values": {"clearance_per_side_mm": 0.3}, "note": ""},
+                   {"date": "2026-10-11", "printer": "x2d", "material": "pla_basic", "nozzle_mm": 0.4, "layer_mm": 0.2,
+                    "feature": "mechanism", "kind": "latch", "result": "failed", "values": {"pin_d_mm": 2.6},
+                    "load": "finger_push", "note": "broke on first use"}]
+        os.makedirs(os.path.dirname(self.file))
+        with open(self.file, "w", encoding="utf-8") as f:
+            json.dump({"schema": calibration.SCHEMA, "entries": entries}, f)
+        code, out = run("show", "--file", self.file)
+        self.assertEqual((code, out["count"]), (0, 2))
+        self.assertTrue(all("orientation" not in e and "process" not in e for e in out["entries"]))
+        code, out = run("lookup", "--file", self.file, "--printer", "x2d", "--nozzle", "0.4")
+        self.assertEqual((code, out["count"], out["reference"], out["combined"]), (0, 2, [], False))
+        self.assertEqual(out["worked"]["clearance_per_side_mm"]["value"], 0.3)
+        self.assertEqual(out["bounds"]["pin_d_mm"]["failed"]["value"], 2.6)
+        code, out = run("lookup", "--file", self.file, "--nozzle", "0.4", "--orientation", "flat", "--process", PRESET)
+        self.assertEqual((out["count"], out["worked"], out["bounds"], out["worked_set"]), (0, {}, {}, None))
+        self.assertEqual([(r["entry"], r["differs"]) for r in out["reference"]],
+                         [(1, {"orientation": ["not recorded", "flat"], "process": ["not recorded", PRESET]}),
+                          (0, {"orientation": ["not recorded", "flat"], "process": ["not recorded", PRESET]})])
+        code, out = run("lookup", "--file", self.file, "--nozzle", "0.4", "--layer", "0.2", "--kind", "latch")
+        self.assertEqual([e["entry"] for e in out["entries"]], [1])
+        self.assertEqual(out["bounds"]["pin_d_mm"]["failed"]["entry"], 1)
+        self.assertEqual([(u["entry"], u["differs"]) for u in out["unclassified"]["entries"]],
+                         [(0, {"layer_mm": ["not recorded", 0.2]})])
+        code, out = self.add("--feature", "fit", "--result", "fits", "--value", "clearance_per_side_mm=0.25",
+                             "--orientation", "flat", "--process", PRESET, "--date", "2026-10-20")
+        self.assertEqual(code, 0, out["errors"])
+        with open(self.file, encoding="utf-8") as f:
+            data = json.load(f)
+        self.assertEqual(data["schema"], calibration.SCHEMA)
+        self.assertEqual(data["entries"][:2], entries)
+        self.assertEqual((data["entries"][2]["orientation"], data["entries"][2]["process"]), ("flat", PRESET))
+
+    def test_orientation_and_process_are_validated(self):
+        """orientation goes through the kind's id checks; process is one line of text, 80 characters at most,
+        through the note's checks; both are optional; the same checks hold for lookup and for a file."""
+        base = ["--feature", "fit", "--result", "fits"]
+        for argv, word in ((["--orientation", "On Side"], "lowercase id"), (["--orientation", "on-side"], "lowercase id"),
+                           (["--orientation", "9flat"], "lowercase id"),
+                           (["--orientation", "flat_on_the_bed_with_brim"], "24 at most"),
+                           (["--orientation", "device_id"], "identifier"), (["--orientation", "user1"], "identifier"),
+                           (["--orientation", "flat0123456789"], "six or more digits"),
+                           (["--orientation", "flatk9q2m4p8w1"], "letter-digit"),
+                           (["--process", "x" * 81], "80 characters"),
+                           (["--process", PRESET + " at 192.168.1.20"], "IP address"),
+                           (["--process", "preset from someone@example.com"], "e-mail"),
+                           (["--process", "SN 01P00A123456789"], "digits"),
+                           (["--process", "x7k9q2m4p8w1 preset"], "letter-digit"),
+                           (["--process", "access code preset"], "announces"),
+                           (["--process", "0.20mm\x00Standard"], "control")):
+            code, out = self.add(*base, *argv)
+            self.assertEqual(code, 1, argv)
+            self.assertIn(word, out["errors"][0], (argv, out["errors"]))
+        self.assertFalse(os.path.exists(self.file))
+        code, out = self.add(*base, "--orientation", "on_side", "--process", "  0.20mm   Standard\n@BBL X2D  ")
+        self.assertEqual(code, 0, out["errors"])
+        self.assertEqual((out["added"]["orientation"], out["added"]["process"]), ("on_side", PRESET))   # one line, trimmed
+        code, out = self.add(*base, "--process", "0.16mm Optimal @BBL X2D, Bambu Studio 02.08.02.61")
+        self.assertEqual(code, 0, out["errors"])
+        code, out = self.add(*base, "--orientation", "", "--process", "  ")
+        self.assertEqual(code, 0, out["errors"])
+        self.assertNotIn("orientation", out["added"])                                                 # optional
+        self.assertNotIn("process", out["added"])
+        for argv, word in ((["--orientation", "On Side"], "lowercase id"), (["--process", "y" * 81], "80 characters"),
+                           (["--load", "hard"], "force"), (["--load", "0"], "positive"), (["--layer", "9"], "plausible"),
+                           (["--nozzle", "40"], "plausible")):
+            code, out = run("lookup", "--file", self.file, *argv)
+            self.assertEqual(code, 1, argv)
+            self.assertIn(word, out["errors"][0], (argv, out["errors"]))
+        entry = {"date": "2026-10-17", "printer": "x2d", "material": "pla", "nozzle_mm": 0.4, "feature": "fit",
+                 "result": "fits", "values": {}}
+        for bad, word in (({"orientation": "Flat Side"}, "lowercase id"), ({"process": 5}, "as text"),
+                          ({"process": "z" * 81}, "80 characters"), ({"orientation": "serial"}, "identifier")):
+            with self.assertRaisesRegex(calibration.CalibrationError, word):
+                calibration.validate_entry(dict(entry, **bad))
+        with open(self.file, encoding="utf-8") as f:
+            data = json.load(f)
+        data["entries"][0]["process"] = "printer at 192.168.1.20"
+        with open(self.file, "w", encoding="utf-8") as f:
+            json.dump(data, f)
+        code, out = run("show", "--file", self.file)
+        self.assertEqual(code, 1)
+        self.assertIn("IP address", out["errors"][0])
 
 
 if __name__ == "__main__":

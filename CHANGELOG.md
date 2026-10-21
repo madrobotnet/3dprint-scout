@@ -1,5 +1,99 @@
 # Changelog
 
+## 0.6.0 — 2026-10-21
+
+Two things: Blender becomes the first engine for every shape, and a PASS now comes with the
+evidence behind it. Blender first followed a comparison build with new helpers; the final report,
+the calibration matching and the reference coverage by direction follow an outside review of
+0.5 (by GPT) that asked for "why this result can be trusted, and what was not checked" more than
+for new features.
+
+- **Rule A: Blender first** (the owner's decision after the comparison). With the helpers below,
+  a C-clip and a card-slot block built in Blender with no hand-computed geometry measured the same
+  as the Python engine: fit features within 0.002 mm, the same `fit.py` gap (0.2488 mm) and play,
+  corner radii 0.999 mm (0.935 with 0.5's `bevel`), the lip round where the analytic tangent puts
+  it. Blender builds take about a second longer. A part that needs a parts.py helper (thread,
+  hinge, snap, countersink) when Blender's Python has no manifold3d is built with the Python
+  engine; without Blender nothing changes.
+- **Blender helpers**:
+  - `bb.fillet(obj, radius, bb.edges(...))`: each edge's offset comes from its own angle, so a
+    120° edge gets the radius asked as a 90° one does (within 1.5 % along the arc, Blender's
+    profile). It refuses, before changing anything, a fillet along a curved face's facets
+    (0.5's bevel failed 33 of 33 there), an edge sharper than 90° (Blender's profile is no
+    circle there: +12 % at 60°, +75 % at 30°) and rounds that would meet on a flat face (its
+    outline, holes included, inset by each round's reach must stay a proper outline: a hexagon's
+    rim or a hole's rim passes, a hole nearer the side than the two reaches does not), and names
+    the way out: the profile, or a smaller radius. A cut leaves its flat faces split along edges
+    from a hole's rim; those at a rounded corner are turned onto the corner's miter first (the
+    bevel ran along them: a slit from the rim to the far corner), so a hole's rim gets a true
+    round, and never past another round's tangent line. After the bevel every result is checked
+    for zero-area triangles, non-manifold edges and faces that cross each other or overlap in one
+    plane (`bb.self_intersections`, which validate.py does not look for); any of them puts the
+    object back as it was (its scale and place too) and raises. A mesh shared with a linked
+    duplicate is copied first. Known limit: a face cut by many
+    holes can still be refused there (a split edge passing near another hole); a hole's
+    chamfer or round then belongs in the cut's own tool.
+  - `bb.arc`, `bb.outline`, `bb.round_profile`: 2D profiles from lines and true arcs, corners
+    rounded with a circle tangent to both edges, straight or arc (a C-ring lip, a ridge foot);
+    `bb.prism(plane="XZ" | "YZ")` extrudes them in any direction. `bb.cone`.
+  - `bb.from_manifold`, `bb.from_mesh`, `bb.import_stl`: parts.py's geometry or another engine's
+    STL inside a Blender build; parts.py and an imported STL are hashed into the manifest;
+    `detect` says whether Blender's Python has manifold3d.
+  - `bb.apply_transform`, and `bed_chamfer` on the world bed (a part rotated into its print
+    orientation).
+  - Found on the way and fixed: a location or rotation set a moment before was not yet in
+    `matrix_world` (Blender updates it when the scene is evaluated); an XZ prism came out inside
+    out; a boolean with a triangulated tool left sliver triangles on flat faces (now turned into
+    proper ones, and only corners closer than the weld distance merged, as the export does);
+    split facets of a parts.py tool are merged back by flatness, not by angle (manifold3d's face
+    groups when they are flat, otherwise grown while every corner stays within 0.05 um of the
+    seed's plane), so a countersink 300 mm from the origin cuts cleanly and the facets of a
+    gentle curve (r = 1000 mm) are never folded into one bent face.
+- **`finalize.py`**, the final report (Phase 6): from the saved build JSON and the evidence
+  declared in `params.json` `_verify` (joints with their fit reports, members with their
+  `strength.py` reports, test prints, accepted WARNs, unverified dimensions, reference coverage),
+  it validates every part again and reports four tiers that are never folded into one PASS:
+  geometry verified or not, shape by direction, slicing unverified, print unverified, plus every
+  open item. A list that is not declared keeps the geometry unverified; a fit report about other
+  STLs, a stale one, or a delivered copy that differs from the verified STL is a reason too.
+  It re-checks with the settings the build used (now in the build JSON with each STL's sha256),
+  needs every `_parts` part built and a build without errors, and with `--deliver` checks every
+  STL and 3MF in the delivery folder (a 3MF through the `<file>.3mf.manifest.json` that
+  `build.py` and `bambu3mf.py` now write next to it; a malformed one is an open reason).
+  `--bundle` writes the generator and its own files at their places in the project folder (so
+  imports, includes and loaded files still resolve), parameters, printers.json, the report and
+  `REPRODUCE.md`, and refuses a source outside the project folder or a file that holds a path
+  of this machine (a whole folder, in any form: JSON-escaped, MSYS, any case; the report itself
+  is scrubbed of every form). The build's object checks count only with the build's settings
+  and printers.json (`settings_drift`; a value left at validate.py's default counts as that
+  default). A D1 against an expect copied from the model stays open
+  until the user accepts it as `<part> D1`.
+- **A `_parts` grouping that cannot be read** (a role with a typo) made no object check run and
+  still gave the build a PASS; it is now a FAIL.
+- **Upgrading**: the build JSON now carries each STL's sha256 and the settings it was validated
+  with (`validate_settings`, with `printer_sha256`). A build JSON saved before 0.6 has neither,
+  and `finalize.py` reports it as not verified: build again and save the new JSON first.
+- **References by direction** (#8): Phase 1 records which of the six directions the references
+  show (real, estimated, assumed); `finalize.py` reports the shape as not verified from the rest.
+- **Calibration under the same conditions**: `lookup` recommends only entries printed with the
+  query's nozzle, layer, load, orientation and process (two new optional fields); the others are
+  a `reference` list with what differs. `worked` no longer passes off values from different
+  prints as one set: `worked_set` is one print's values, and `combined` warns when `worked` mixes
+  prints. The documented lookup gives `--nozzle`.
+- **Reviews**: an independent review of this release found five blockers, all in what could
+  be called verified without being checked (a stale build JSON, a part never built, bed
+  settings dropped on re-check, build errors ignored, two fillets that overlapped); each is
+  fixed with a test that fails without the fix. Its re-check found the overlap check refusing
+  valid rims (a cylinder's, a hole's, a hexagon's); the check was rebuilt on the flat face's
+  inset outline. A third pass found rounds on a cut's face that crossed themselves while every
+  mesh check passed, a weld that hid an overlap, a gentle curve folded flat, a round's end that
+  met another round, and an object judged on one printer reported as verified for another; all
+  are fixed or refused, with tests. Codex's review found the bundle flattening sources into one
+  folder and a malformed 3MF manifest giving a traceback; both fixed. A fourth pass found a
+  straightened corner that could leave a 0.08 mm ridge on a neighbouring round, flat overlaps
+  the crossing check missed, and a linked duplicate changed along; fixed, with tests.
+- **Tests**: 289 → 328, with Python 3.13 + Blender 5.2.2 and without Blender.
+
 ## 0.5.1 — 2026-10-21
 
 Three checks could pass what they should not. An outside review of 0.5.0 (by GPT) found them by

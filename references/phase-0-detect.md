@@ -38,28 +38,34 @@ Find what works:
   try `apt` or `brew` for OpenSCAD in a sandbox (minutes lost, and there is no display). If
   nothing works after that, say what to install and stop.
 
-Then choose **by the shape**, among the engines that work (rule A in SKILL.md):
+Then choose among the engines that work (rule A in SKILL.md):
 
-- **Mechanical or prismatic** (dimensions that must fit, holes, bosses, screw fits, snaps,
-  hinges) → **Python** (manifold3d with the tested part library in `scripts/parts.py`: holes,
-  countersinks, teardrops, snaps, hinges, threads), or **OpenSCAD** when the user wants an
-  editable `.scad` (idioms in `references/engines/openscad.md`).
-  - **Fusion** only when the user wants an editable CAD design (a Fusion document, STEP) and
-    Fusion is connected: through MCP it is slow, and freeform shapes are hard to drive there.
-  - **Blender** may build such a part only when its fit features are booleans of primitives
-    (holes, slots, pockets, made with `bb.circle_segments`, never Blender's default 32-vertex
-    primitives) and every round sits on flat faces. Round an edge next to a curved, tessellated
-    face in the profile instead: Blender's bevel fails there (zero-area triangles, or a clamped,
-    too-small round). `measure.py` and `fit.py` check it as any other part. A comparison on
-    2026-10-20 measured the same accuracy in both engines (fit features within 0.002 mm, the same
-    `fit.py` play) and found the mechanical helpers only on the Python side.
-- **Organic, freeform, sculpted or decorative** (leaves, sculpted grips, terrain, reliefs, smooth
-  blends, surface patterns, embossed art, fillets on a freeform body) → **Blender when it is
-  there** (binary, `bpy` module or live), else Python, which builds such surfaces from height
-  functions; CAD sketches and CSG handle them poorly.
-- **Mixed** (a mechanical body with a decorative part): the body in the CAD engine, the decorative
-  part in Blender as a separate `_parts` entry of the same object (`role: fused` where they meet
-  on a face, `references/parts.md`); say so.
+- **Blender first, for every shape, when it is usable** (binary, `bpy` module or live):
+  - **Mechanical or prismatic** (dimensions that must fit, holes, bosses, screw fits, snaps,
+    hinges): holes and slots as booleans of primitives made with `bb.circle_segments` (never
+    Blender's default 32-vertex primitives), rounds with `bb.fillet` (a true radius) or, along a
+    curved face, in the 2D profile with `bb.round_profile`. parts.py's tested helpers
+    (countersinks, teardrops, snaps, hinges, threads) come in through `bb.from_manifold` when
+    `detect` reports manifold3d in the Python that runs Blender (`blender.*.manifold3d`); when it
+    does not, a part that needs one of them is built with the Python engine (or from
+    `cylinder` / `cone` when that is enough), and installing manifold3d into Blender's Python is
+    the user's call (ask). A comparison on 2026-10-21 (a C-clip and a card-slot block, built
+    with these helpers only) measured the same as the Python engine: fit features within
+    0.002 mm, the same `fit.py` gap and play, true corner radii; Blender builds take about a
+    second longer.
+  - **Organic, freeform, sculpted or decorative** (leaves, sculpted grips, terrain, reliefs,
+    smooth blends, surface patterns, embossed art, fillets on a freeform body): what Blender is
+    best at.
+- **Without Blender:** mechanical or prismatic → **Python** (manifold3d with the part library in
+  `scripts/parts.py`), or **OpenSCAD** when the user wants an editable `.scad` (idioms in
+  `references/engines/openscad.md`); organic or freeform → **Python**, which builds such
+  surfaces from height functions (`sdf.py`); CAD sketches and CSG handle them poorly.
+- **Fusion** only when the user wants an editable CAD design (a Fusion document, STEP) and Fusion
+  is connected: through MCP it is slow, and freeform shapes are hard to drive there.
+- **Mixed engines** stay possible: a part built in another engine (a Fusion body, a Python part
+  that needs a parts.py helper Blender cannot reach) is its own `_parts` entry of the same object
+  (`role: fused` where they meet on a face, `references/parts.md`), or is brought into the
+  Blender build with `bb.import_stl`; say so.
 
 Before modeling, tell the user what the choice costs: OpenSCAD and Python have no native fillets
 (chamfers instead), Python leaves a mesh, not editable CAD (every dimension stays a parameter in

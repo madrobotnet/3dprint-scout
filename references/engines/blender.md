@@ -1,10 +1,11 @@
 # Blender engine (binary, `bpy` module, or a live Blender)
 
-Read this right before Phase 3 when Phase 0 found Blender and the shape is organic, freeform,
-sculpted or decorative (rule A in SKILL.md). A dimension-critical part goes to Python or
-OpenSCAD; Blender builds one only when its fit features are booleans of primitives and every
-round sits on flat faces (Phase 0, rule A), and a mixed part gets its mechanical body there and
-its decorative part here, as a separate `_parts` entry of the same object ("Mixed parts" below).
+Read this right before Phase 3 when Phase 0 found Blender: it is the first engine for every
+shape when it is usable (rule A in SKILL.md). Mechanical parts get true-radius fillets
+(`fillet`), rounds along curves in the 2D profile (`round_profile`), and parts.py's helpers
+through `from_manifold` when manifold3d is in Blender's Python; a part that needs such a helper
+without it is built with the Python engine, as a separate `_parts` entry of the same object or
+brought in with `import_stl` ("Mixed parts" below).
 
 Contents:
 
@@ -22,9 +23,10 @@ Contents:
 
 ## What it gives and what it costs
 
-Blender adds what the other engines lack on a freeform body: real fillets and chamfers on any
-edge (the Bevel modifier), robust booleans (the Manifold solver, the same library as
-`manifold3d`), text in any font, and renders that look like the printed part. It costs the
+Blender adds what the other engines lack: real fillets with a true radius on any straight edge
+(`fillet`) and rounds along curves in the profile (`round_profile`), robust booleans (the Manifold
+solver, the same library as `manifold3d`, which also brings parts.py's helpers in through
+`from_manifold`), text in any font, and renders that look like the printed part. It costs the
 parametric history: the result is a mesh in an editable `.blend` (meshes, collections per
 object, the parameters as custom properties on a `PARAMETERS` empty), not CAD. Tell the user
 that in one line before building. The generator script stays the source of truth: editing the
@@ -139,11 +141,15 @@ sits next to the generator). Millimetres everywhere, Z-up, Z = 0 on the bed.
 |---|---|
 | `bb.main(build, PARAMETERS)` | The runner: command line (`--out` required, `--params`, `--only`, `--blend`, `--no-blend`), the build scene, `build(p)`, parameters → custom properties, a path check, one STL per part, the `.blend`, the `@@3DPS` line. The generator ends with it |
 | `bb.new_scene_mm()` | The build scene `3dprint-scout` at 1 unit = 1 mm (`METRIC`, `scale_length` 0.001, `MILLIMETERS`) with its own world, created next to whatever is open and reused on the next run with only the module's own objects removed; nothing is ever reset |
-| `bb.box(size, name)`, `bb.cylinder(r, h, segments, name)`, `bb.prism(outline, height, name, z0)`, `bb.ring(r_in, r_out, h, segments, name, z0)` | Primitives on the bed (box corner at the origin; cylinder and ring on the Z axis; outline as `[(x, y), ...]`) |
+| `bb.box(size, name)`, `bb.cylinder(r, h, segments, name)`, `bb.cone(r_bottom, r_top, h, segments, name, z0)`, `bb.prism(outline, height, name, z0, plane="XY")`, `bb.ring(r_in, r_out, h, segments, name, z0)` | Primitives on the bed (box corner at the origin; cylinder, cone and ring on the Z axis). A prism's outline is `[(u, v), ...]` on its `plane`: `"XY"` extruded along +Z, `"XZ"` (x, z: a profile seen from the front) along +Y, `"YZ"` along +X |
+| `bb.arc(centre, r, start_deg, end_deg)`, `bb.outline(*pieces)`, `bb.round_profile(pieces, radius, corners=None)` | 2D profiles from points and true arcs (circle-rule spacing; counter-clockwise when end > start). `round_profile` rounds the corners where two pieces meet (default: every corner turning 20° or more, convex and concave) with a true circle tangent to both edges, a straight one or an arc's circle: a C-ring lip, a ridge's foot. It refuses a round that does not fit on both edges. The way to round an edge that runs along a curved face (`fillet` refuses that) |
+| `bb.from_manifold(man, name)`, `bb.from_mesh(verts, faces, name)`, `bb.import_stl(path, name)` | Geometry made elsewhere as a tagged object: a manifold3d solid (parts.py's screw holes, countersinks, teardrops, snaps, hinges, threads, offsets), raw arrays, or another engine's STL. Welded, split facets merged back by flatness (manifold3d's face groups when flat, otherwise grown while every corner stays within WELD / 2 of the seed's plane: never the facets of a curve), refused when not closed; an STL read with `import_stl` is hashed into the manifest like a source. `from_manifold` needs manifold3d in the Python that runs Blender (`detect` reports it as `blender.*.manifold3d`); parts.py is importable from a generator and hashed into its manifest |
 | `bb.mesh_object(name, bmesh)` | Any bmesh you build yourself, linked and tagged |
-| `bb.bevel(obj, width, segments=None, angle=30, bed=False)` | Real fillets on every edge sharper than `angle`, except edges on the bed; `segments` default one per line width along the arc; refuses a result with zero-area faces instead of welding it. `bb.chamfer(obj, width)` is the one-segment case. It picks no edges (all of them above `angle`), and `width` is Blender's offset, which equals the radius only on a 90° edge; next to a finely faceted curved face it fails, so round such an edge in the profile |
-| `bb.bed_chamfer(obj, height=0.4)` | The elephant-foot chamfer, cut into the bottom edges (P6), slightly steeper than 45° so P2 never counts it. It reads the mesh's local coordinates: apply a rotation first |
-| `bb.boolean(target, tool, "difference" \| "union" \| "intersect")`, `bb.join(target, *tools)` | Boolean modifier, Manifold solver (`solver="EXACT"` forces the old one); checks both inputs and the result are manifold; applied, the tool removed (`apply=False` keeps it live, tool hidden) |
+| `bb.fillet(obj, radius, edges=None, segments=None)`, `bb.edges(obj, angle=30, axis=None, inside=None, bed=False)` | Real fillets with a true radius on the chosen edges: `edges` picks sharp edges, only those parallel to `axis` (`"x"`, `"y"`, `"z"` or a vector) and inside the box `inside` = ((x0, y0, z0), (x1, y1, z1)) when given, never the bed edge unless `bed=True`; `fillet` gives each its offset from its own angle (radius / tan(a / 2)), so a 120° edge gets the same radius as a 90° one (within 1.5 % of the radius along the arc, Blender's profile; tangent lines exact), segments by the circle rule. Before changing anything it refuses an edge whose face is narrower than the fillet reaches into it (the facets of a curved face), an edge sharper than 90° (Blender's profile is no circle there: +12 % at 60°, +75 % at 30°), and rounds that would meet on a flat face (its outline, holes included and across the faces a boolean split it into, inset by each round's reach must stay a proper outline: a hexagon's or a hole's rim passes, a hole nearer the side than the two reaches is refused); round those in the profile, or take a smaller radius. A cut's flat face is split along edges from the hole's rim; those at a rounded corner are turned onto the corner's miter first, so a hole's rim gets a true round. After the bevel every result is checked for zero-area triangles, non-manifold edges and faces that cross each other or overlap in one plane (`bb.self_intersections`; validate.py does not look): any of them puts the object back as it was and raises. A mesh shared with a linked duplicate is copied first, so the duplicate stays as it was The object's scale is baked first |
+| `bb.bevel(obj, width, segments=None, angle=30, bed=False)` | Fillets on every edge sharper than `angle`, except edges on the bed, with `width` as Blender's offset (the radius only on a 90° edge); `bb.chamfer(obj, width)` is the one-segment case. Prefer `fillet` when the radius is a dimension |
+| `bb.bed_chamfer(obj, height=0.4)` | The elephant-foot chamfer, cut into the bottom edges (P6), slightly steeper than 45° so P2 never counts it. The object's transform is baked first, so a part rotated into its print orientation is chamfered where it meets the bed |
+| `bb.apply_transform(obj)` | Bakes location, rotation and scale into the mesh (a mirrored one keeps its faces pointing out; a mesh shared with a linked copy is copied first; children keep their place); `edges`, `fillet` and the export read world coordinates after a scene update |
+| `bb.boolean(target, tool, "difference" \| "union" \| "intersect")`, `bb.join(target, *tools)` | Boolean modifier, Manifold solver (`solver="EXACT"` forces the old one); checks both inputs and the result are manifold; applied, the tool removed (`apply=False` keeps it live, tool hidden). Where a flat face of the result has corners almost in line (a cut through faceted geometry), the sliver triangles are turned into proper ones (`bb.fix_slivers`); what cannot be fixed is refused |
 | `bb.text(string, height, depth, font=None, align="CENTER")` | Letters as one mesh standing on z = 0, `height` the **cap height** of a Latin "H" (non-Latin glyphs come out taller), Blender's built-in font or a font file (`bb.load_font` packs it into the `.blend` under its base name); each glyph welded on its own, touching glyphs unioned ("Booleans and text" below) |
 | `bb.part(obj, name, object=None, role=None)` | Registers the part: object renamed, moved into the collection of its object (one collection per `_parts` object, made by the module; a user's collection of the same name is never reused), `role` kept as a property |
 | `bb.params_to_props(p)` | The parameters on a `PARAMETERS` empty (numbers, strings, lists; anything else as JSON text; a string that is an absolute path is stored as its base name) |
@@ -190,9 +196,27 @@ if __name__ == "__main__":
 - `build(p)` returns `{part_name: Object}`, names exactly as `_parts`; parts of one object share
   a frame, so the STLs hold the assembled positions (`parts.md`).
 - Rebuilt from scratch on every run: never read state from a previous run or from the file.
-- Order: fillets, then cuts, then the bed chamfer. A bevel that meets another feature closer than
-  its width is clamped into slivers; `bb.bevel` refuses such a mesh with a message rather than
-  welding it (never paper over a failure).
+- Order: fillets, then cuts (a hole's own rim after its cut), then the bed chamfer. A fillet that meets another feature closer
+  than its reach is refused with a message (`fillet` before it changes anything when the face is
+  too narrow, `bevel` after), never welded over (never paper over a failure).
+- A round along a curved face (where a straight lip meets a ring, the foot of a ridge) goes into
+  the 2D profile: `arc` pieces and points, `round_profile`, then `prism` on the right `plane`.
+  The C-clip below is built that way with no hand-computed geometry:
+
+  ```python
+  C = (cx, zc)                                                 # the ring's centre in (x, z)
+  prof = bb.round_profile([(0, 0), (W, 0), (W, T),
+                           bb.arc(C, r_o, a_foot, a_open_o),           # outer ring up to the opening
+                           bb.arc(C, r_i, a_open_i, 180 - a_open_i - 360),   # round the bore, clockwise
+                           bb.arc(C, r_o, 180 - a_open_o, 180 - a_foot),
+                           (0, T)], lip_r, corners=[4, 5, 6, 7])       # the four lip corners
+  clip = bb.prism(prof, D, name="clip", plane="XZ")
+  bb.fillet(clip, plate_r, bb.edges(clip, axis="z", inside=((0, 0, 0), (W, D, T))))
+  ```
+- Mechanical features that parts.py has (a countersunk screw hole, a teardrop, a snap, a hinge,
+  a thread) come in with `bb.from_manifold(parts.screw_hole(...).translate(...))` when
+  manifold3d is in Blender's Python; give the tool the same overshoot as any boolean tool. Without
+  manifold3d, build them from `cylinder` and `cone`, or build that part with the Python engine.
 - Assert derived sizes (`raise ValueError(...)`) so an impossible combination stops the build
   with a readable message, as the coaster example does for its text width.
 - Parameters and properties hold names, never paths: a path in a string parameter is reduced
@@ -273,8 +297,11 @@ its licence, and what a packed `.ttc` costs: `design.md`, "Text, logos, cosmetic
 
 ## Mixed parts: one object, two engines
 
-A mechanical body with a decorative part on it: the body in the CAD engine, the decorative part
-here, both modelled in the same frame (Z-up, Z = 0 on the bed, the decorative part at its
+A part built in another engine next to a Blender part: a Fusion body the user keeps as CAD, or a
+mechanical part that needs a parts.py helper when Blender's Python has no manifold3d (the Python
+engine builds it). When the two must become one body, bring the other STL in with
+`bb.import_stl` and union it here (its sources go into `--source` with the generator's). When
+they stay two parts of one object, both are modelled in the same frame (Z-up, Z = 0 on the bed, the decorative part at its
 assembled place) and listed in one `_parts` object (`role: fused` where they meet on a face).
 Build each with `--only` and `--no-3mf` into its own folder (half an object makes no 3MF;
 `record` writes the object's), then record both STLs together with the union of the `sources`
@@ -333,6 +360,12 @@ evidence.
 |---|---|---|
 | D4 FAIL, everything 1000× too small or large | Scene units left at metres, or `use_scene_unit` on | `bb.new_scene_mm()`; export through `bb.export_parts` |
 | `bevel ... made N zero-area triangles` | The bevel meets a chamfer, a cut or a dense outline closer than its width | Bevel first, cut and chamfer after; a smaller width; fewer outline points |
+| `fillet ... left N pairs of faces that cross each other` | A round's end meets another round or a hole, or a face cut by several holes is split along an edge that passes near another hole (the round crosses it). The object is as it was | A smaller radius; a chamfer or round on a hole's entry in the cut's own tool (parts.py's countersink, or a revolved profile through `from_manifold`); fewer holes in that face before the fillet |
+| `fillet ... reaches X mm into a face only Y mm wide, the facets of a curved face` | The edge runs along a cylinder or ring (a lip, a ridge's foot): its facets are narrower than the round | Round it in the 2D profile: `arc` + `round_profile`, then `prism` |
+| A rounded edge measures less than its radius | `bevel` takes Blender's offset, which equals the radius only on a 90° edge, and few segments | `fillet` with the radius; it computes each edge's offset and uses the circle rule |
+| `round_profile: no ... round fits at corner N` | An edge next to the corner is shorter than the round needs, or the corner turns the other way | A smaller radius, or give the corner more room; check the corner index (corners are where pieces meet) |
+| `the Python that runs Blender has no manifold3d` in `detect` | A Blender binary's own Python | Build the parts.py features from `cylinder` / `cone`, or that part with the Python engine; installing manifold3d into Blender's Python is the user's call (ask) |
+| An XZ or YZ prism, a part brought in, or a mirrored part turns inside out (negative volume, D3) | Normals left from before the vertices moved | The helpers refresh and fix them (`mesh_object`, `apply_transform`, the export); a hand-made bmesh goes through `bb.mesh_object` |
 | M1 FAIL after a boolean (non-manifold edges) | The tool ends exactly on a face | Overshoot by 0.01–0.1 mm; check `bb.nonmanifold_edges` on the inputs |
 | `boolean ... left N zero-area triangles` (M3, and M1 once they are dropped) | The cut crosses a fan of thin triangles: a hole through the pole of a revolved floor or a cap | Build a round hole on the axis into the profile (revolve it with the hole), give the face ring topology where it is cut, or move the cut off the pole; overshooting does not help |
 | M5 FAIL on a text part | One body per glyph piece | Union the text onto the face or a plaque, or set `shells` in `_parts` to the body count in `LOG` |

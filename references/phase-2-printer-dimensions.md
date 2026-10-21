@@ -67,12 +67,16 @@ Two priorities. The size of the object: the user's caliper measurement > the off
 secondary sources (two that agree). How this printer prints (clearances, holes, members that
 held): the user's calibration log > the starting points in `references/`. Record the source
 as a comment next to the parameter. Read `.3dprint/calibration.json` first when it exists
-(`calibration.py lookup`, `references/calibration.md`): a clearance that fit on this printer
-beats every table. A file the user supplies (a manufacturer's kit 3MF, a reference model) is
-measured with `measure.py` (`references/measure.md`): interface numbers only, never its
-geometry (licences); an official file counts as "official file, measured", another maker's
-model as a secondary source. Dimension research has its own cap, about six page fetches (Phase
-1's counts only the reference table); past it, ask or mark the value unverified.
+(`calibration.py lookup` with `--nozzle`, and `--layer`, `--orientation`, `--process` when
+known; `references/calibration.md`): a clearance that fit on this printer under the same
+conditions beats every table. An entry printed under other conditions (`reference`, with
+`differs`) is a reference only, never a setting or a floor; values that `worked` takes from
+different prints (`combined`) were never printed together, so a combination starts from
+`worked_set` or is marked unverified. A file the user supplies (a manufacturer's kit 3MF, a
+reference model) is measured with `measure.py` (`references/measure.md`): interface numbers
+only, never its geometry (licences); an official file counts as "official file, measured",
+another maker's model as a secondary source. Dimension research has its own cap, about six page
+fetches (Phase 1's counts only the reference table); past it, ask or mark the value unverified.
 
 **Published standards** (a bin system, a rail, a connector): a spec or drawing published by the
 standard's owner counts as the official spec. Numbers read from a spec, a drawing or published

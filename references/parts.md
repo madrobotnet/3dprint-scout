@@ -151,7 +151,12 @@ with `--only`, so it shows `seconds` per part and a `partial` object):
 - `objects[]` lists every object; a single-part object has only `name`, `parts`, `main`
   (plus `partial` and `gate` when it is one part of a larger object built with `--only`).
 - `seconds` on a part is the engine's time for it (`run`); the top-level `seconds` is the
-  whole command.
+  whole command. `sha256` on a part is the STL its verdicts are about, and `validate_settings`
+  the printer, printer id, tools and tolerances they were made with (and `printer_sha256`, the
+  printers.json as it was): `finalize.py` re-checks with the same, and only trusts the object
+  checks while every STL still has that hash and the settings and printers.json are unchanged.
+- A `_parts` grouping that cannot be read (an unknown `role`, say) is in `errors` and makes the
+  gate FAIL: the parts were validated, but no object check ran.
 - `record` only: a part whose STL already has a manifest from `run` that describes this very
   file gets `prior_manifest` (`engine`, `sources`, `fresh`). A fresh one is kept as the record
   (its sources join `sources`); a stale one, or one none of whose generators is among

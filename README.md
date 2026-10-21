@@ -20,13 +20,13 @@ Studio, that is a project file with the print settings already set per object.
 4. **Dimensions** — a table of every dimension with its source (your caliper, an official spec,
    or two secondary sources that agree). Nothing is invented. For parts that must fit an object of
    uncertain shape, it makes small fit-test pieces first (three clearance steps, marked 1, 2, 3).
-5. **Modeling** — the engine is chosen by the shape: Python
-   ([manifold3d](https://github.com/elalish/manifold)) or OpenSCAD for mechanical parts, Fusion
-   (through MCP) only when you want an editable CAD design; [Blender](https://www.blender.org) for
-   organic and decorative shapes when it is there (your own Blender through MCP, a `blender`
-   binary, or the `bpy` module: real fillets on freeform bodies, Manifold booleans, text in any
-   font, an editable `.blend` next to the STLs), and Python for those otherwise. The Python
-   engine comes with a tested part library (rounded and chamfered boxes, screw and insert holes,
+5. **Modeling** — [Blender](https://www.blender.org) first, for every shape, when it is there
+   (your own Blender through MCP, a `blender` binary, or the `bpy` module): fillets with a true
+   radius, rounds along curves in the profile, Manifold booleans, text in any font, an editable
+   `.blend` next to the STLs, and the Python part library's mechanical helpers when Blender's
+   Python has [manifold3d](https://github.com/elalish/manifold). Without Blender, Python
+   (manifold3d) or OpenSCAD for mechanical parts and Python for organic ones; Fusion (through MCP)
+   only when you want an editable CAD design. The Python engine comes with a tested part library (rounded and chamfered boxes, screw and insert holes,
    teardrop holes, bosses, snap hooks, a print-in-place hinge, text, threads) and a
    signed-distance-function toolkit for smooth, blended, organic shapes. Anything
    with its own job or a likely colour of its own (a latch, a lever, a label) is modelled as a
@@ -43,8 +43,11 @@ Studio, that is a project file with the print settings already set per object.
    printed first, a few grams; a print-in-place lid hinge always gets that coupon, on top of
    its margin. Every part gets a preview image (iso, front, right, top) rendered without a
    display, and a Blender render in your filament's colour when Blender is there.
-7. **Delivery** — STL per part plus a 3MF that fits your slicer, with print-setting changes and the
-   reason for each, and one line naming the separate parts and how to recolour them.
+7. **Delivery** — a final report first (`finalize.py`): geometry verified or not, the shape by
+   the directions the references cover, and slicing and printing as not verified here, with
+   every open item listed; then STL per part plus a 3MF that fits your slicer, with print-setting
+   changes and the reason for each, one line naming the separate parts and how to recolour them,
+   and a bundle with the generator, the parameters and the commands that rebuild them.
 
 The agent stops for your choice after references, after the concepts, after the dimension table
 and after the base shape. If you hand it a file of the thing the part must fit (a manufacturer's
@@ -103,11 +106,11 @@ PCB"*, *"X2D 프린터 문 손잡이를 만들고 싶어"*.
 - Python 3.9 or newer (tested on 3.9 and 3.13). The validator and the 3MF writers use the standard
   library only.
 - One modeling engine: **Fusion** with an MCP connection, **OpenSCAD** (2021.01 or a newer build
-  with the Manifold backend), or `pip install manifold3d`. **Blender** is optional, for organic
-  and decorative shapes and for renders: your own Blender through an MCP connector, a `blender`
-  binary, or `pip install bpy`, each 4.5 LTS or newer (the Manifold boolean solver). The
+  with the Manifold backend), or `pip install manifold3d`. **Blender** is optional and the first
+  engine when it is there, and gives renders: your own Blender through an MCP connector, a
+  `blender` binary, or `pip install bpy`, each 4.5 LTS or newer (the Manifold boolean solver). The
   [official Blender MCP add-on](https://www.blender.org/lab/mcp-server/) itself needs Blender 5.1
-  or newer. Without Blender nothing changes.
+  or newer. Without Blender the other engines do everything, as before.
 - `numpy` for preview images, the measuring tool and the contact-area part of the fit check;
   `manifold3d` for the fit check and sweep, the object checks, the fit-test pieces, the part
   library and the SDF toolkit; `rtree` (with numpy) for the wall-thickness check. Text on parts
@@ -146,6 +149,15 @@ the X2D and H2D, objects that need both nozzles are placed where both can reach.
 | a new delivery folder | Final files. Existing files are never overwritten |
 
 ## Status
+
+**v0.6.0** makes Blender the first engine for every shape, after a comparison build (a C-clip and
+a card-slot block) measured the same as the Python engine with the new helpers: fillets with a
+true radius, rounds along curves in the profile, and the Python part library inside Blender. A
+final report (`finalize.py`) gathers every check, fit and strength report, test print and
+accepted warning, says what is verified and what is not (shape by direction, slicing and
+printing are said to be unverified), and checks that the delivered files are the verified
+ones. The calibration log recommends only results printed under the same conditions (nozzle,
+layer, load, orientation, process), and never a mix of values from different prints.
 
 **v0.5.1** fixes checks that could pass what they should not, found by an outside review: a
 move that passes through an obstacle on its way, a turn checked over less than the travel it

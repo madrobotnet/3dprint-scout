@@ -142,6 +142,9 @@ python3 "$SKILL_DIR/scripts/bambu3mf.py" job.json
   it at delivery with "select the part in the object list to change its filament".
 - The script refuses to overwrite an existing file; there is no override, choose a new name. Tell
   the user to open the result with **Open Project** so plates and settings are kept.
+- Next to the project it writes `<out>.manifest.json` (the project's sha256 and each part STL's),
+  replacing a stale one of that name: `finalize.py --deliver` takes the project as verified only
+  with it. Write the project straight into the delivery folder, or copy the sidecar along.
 
 ## Where settings live
 

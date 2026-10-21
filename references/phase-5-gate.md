@@ -4,8 +4,8 @@ Read this on entering Phase 5 (SKILL.md holds the checklist table and the rules 
 all times; `references/checks.md` describes `validate.py`'s JSON).
 
 1. Validate every part against **its own** `expect`: re-run the Phase 3 `build.py run` (or
-   `record`) command; it validates each part with that part's `expect` and the exact source list
-   it hashed. To re-check one STL without rebuilding, call `validate.py` once per part:
+   `record`) command and save what it prints (`build.py run ... > out/build.json`); it validates
+   each part with that part's `expect` and the exact source list it hashed. To re-check one STL without rebuilding, call `validate.py` once per part:
 
    ```bash
    python3 "$SKILL_DIR/scripts/validate.py" out/body.stl --expect 71.2,37.8,33.6 \
@@ -36,3 +36,27 @@ all times; `references/checks.md` describes `validate.py`'s JSON).
    (supports, support interface filament and Z distance, brim, walls, infill, ...).
    Any other slicer: give a three-line recipe (material, layer height, walls, infill, supports,
    orientation, and why).
+5. **Declare the evidence** in `params.json` under `_verify`, for `finalize.py` in Phase 6: every
+   joint F3 covers with its saved report, every member's saved `strength.py` report
+   (`strength.py ... > out/strength_latch.json`), the test prints with their status, each WARN the
+   user accepted with their reason, and the dimensions taken without a measurement. A list left
+   out is reported as "not declared", which keeps the geometry from being verified; an empty
+   list says there is nothing of that kind:
+
+   ```json
+   "_verify": {
+     "joints": [{"name": "lid on box", "report": "out/fit_box_lid.json"}],
+     "strength": [],
+     "test_prints": [{"name": "hinge coupon", "status": "skipped", "note": "user had no time"}],
+     "accepted": [{"check": "body P2", "reason": "the user wants supports under the ledge"},
+                  {"check": "object box P2", "reason": "the same, for the assembled object"}],
+     "unverified": ["wall behind the label: from a photo"],
+     "references": {"box": {"front": "real", "top": "real", "back": "estimated"}}
+   }
+   ```
+
+   A joint fitted against a proxy of the mating part (built from measured or published numbers)
+   gets `"proxy": true`; `finalize.py` then says the fit shows agreement with those numbers, not
+   that they are right. Test print status: `passed`, `failed`, `skipped`, `offered` or
+   `pending`. An accepted WARN is named `<part> <check>` (`lid A2`) or `object <name> <check>`
+   (an object's D2 / P1 / P2), as `finalize.py` lists it in `open`.

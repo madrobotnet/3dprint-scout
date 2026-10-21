@@ -1,6 +1,7 @@
 # OpenSCAD engine
 
-Read this right before Phase 3 when Phase 0 picked OpenSCAD.
+Read this right before Phase 3 when Phase 0 picked OpenSCAD (Rule A: Blender is not usable and
+the user wants an editable `.scad`, or OpenSCAD is the engine that works).
 
 ## Script shape
 
