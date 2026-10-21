@@ -70,6 +70,9 @@ for new features.
   until the user accepts it as `<part> D1`.
 - **A `_parts` grouping that cannot be read** (a role with a typo) made no object check run and
   still gave the build a PASS; it is now a FAIL.
+- **Upgrading**: the build JSON now carries each STL's sha256 and the settings it was validated
+  with (`validate_settings`, with `printer_sha256`). A build JSON saved before 0.6 has neither,
+  and `finalize.py` reports it as not verified: build again and save the new JSON first.
 - **References by direction** (#8): Phase 1 records which of the six directions the references
   show (real, estimated, assumed); `finalize.py` reports the shape as not verified from the rest.
 - **Calibration under the same conditions**: `lookup` recommends only entries printed with the
