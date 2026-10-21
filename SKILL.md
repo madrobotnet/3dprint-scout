@@ -85,10 +85,10 @@ references via web search; previews via OpenSCAD."). No planned stop; ask only a
   otherwise OpenSCAD, Python or Blender via `build.py detect` (never `--enable=manifold`). In a
   disposable sandbox pip installs are fine, said in one line; on the user's machine ask before installing
   anything; never `apt` or `brew` for OpenSCAD in a sandbox. If nothing works, say what to install and stop.
-- Rule A, **by the shape** among the engines that work: mechanical or prismatic → Python (its part library)
-  or OpenSCAD; Fusion only when the user wants editable CAD; Blender for a fit only when its fit features are
-  booleans of primitives and every round sits on flat faces; organic, freeform or decorative → Blender, else
-  Python; mixed → the decorative part in Blender as its own `_parts` entry. Say the cost (no native fillets outside Fusion and Blender; Python leaves a mesh, Blender a `.blend`).
+- Rule A, among the engines that work: **Blender first** when it is usable, for every shape (rounds with
+  `fillet` and `round_profile`; parts.py's screw holes, snaps, hinges, threads through `from_manifold` when
+  `detect` finds manifold3d in Blender's Python, else that part with the Python engine); without Blender,
+  mechanical or prismatic → Python (its part library) or OpenSCAD, organic → Python; Fusion only when the user wants editable CAD. Say the cost (Python leaves a mesh, Blender a `.blend`; no native fillets outside Fusion and Blender).
 - Fusion holding the user's own work: ask before the first write, prefer a new document.
 - Note the reference search tier (A marketplace tool, B web search, C neither) and whether `.3dprint/printers.json` exists.
 

@@ -1,8 +1,9 @@
 # Python engine (manifold3d)
 
-Read this right before Phase 3 when Phase 0 picked Python: for mechanical and prismatic parts
-(Rule A, with its part library; OpenSCAD is the other choice there), or for organic and freeform
-shapes when Blender is not available. Tell the user once: this path produces meshes only (no editable CAD
+Read this right before Phase 3 when Phase 0 picked Python: when Blender is not usable (Rule A:
+mechanical and prismatic parts with its part library, OpenSCAD being the other choice there;
+organic and freeform shapes with `sdf.py`), or for a part that needs a parts.py helper Blender
+cannot reach (no manifold3d in Blender's Python). Tell the user once: this path produces meshes only (no editable CAD
 file) and has no native fillets (smooth blends come from `sdf.py`, chamfers from `parts.py`).
 
 Contents:

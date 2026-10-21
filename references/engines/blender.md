@@ -1,10 +1,11 @@
 # Blender engine (binary, `bpy` module, or a live Blender)
 
-Read this right before Phase 3 when Phase 0 found Blender and the shape is organic, freeform,
-sculpted or decorative (rule A in SKILL.md). A dimension-critical part goes to Python or
-OpenSCAD; Blender builds one only when its fit features are booleans of primitives and every
-round sits on flat faces (Phase 0, rule A), and a mixed part gets its mechanical body there and
-its decorative part here, as a separate `_parts` entry of the same object ("Mixed parts" below).
+Read this right before Phase 3 when Phase 0 found Blender: it is the first engine for every
+shape when it is usable (rule A in SKILL.md). Mechanical parts get true-radius fillets
+(`fillet`), rounds along curves in the 2D profile (`round_profile`), and parts.py's helpers
+through `from_manifold` when manifold3d is in Blender's Python; a part that needs such a helper
+without it is built with the Python engine, as a separate `_parts` entry of the same object or
+brought in with `import_stl` ("Mixed parts" below).
 
 Contents:
 
@@ -22,9 +23,10 @@ Contents:
 
 ## What it gives and what it costs
 
-Blender adds what the other engines lack on a freeform body: real fillets and chamfers on any
-edge (the Bevel modifier), robust booleans (the Manifold solver, the same library as
-`manifold3d`), text in any font, and renders that look like the printed part. It costs the
+Blender adds what the other engines lack: real fillets with a true radius on any straight edge
+(`fillet`) and rounds along curves in the profile (`round_profile`), robust booleans (the Manifold
+solver, the same library as `manifold3d`, which also brings parts.py's helpers in through
+`from_manifold`), text in any font, and renders that look like the printed part. It costs the
 parametric history: the result is a mesh in an editable `.blend` (meshes, collections per
 object, the parameters as custom properties on a `PARAMETERS` empty), not CAD. Tell the user
 that in one line before building. The generator script stays the source of truth: editing the
@@ -295,8 +297,11 @@ its licence, and what a packed `.ttc` costs: `design.md`, "Text, logos, cosmetic
 
 ## Mixed parts: one object, two engines
 
-A mechanical body with a decorative part on it: the body in the CAD engine, the decorative part
-here, both modelled in the same frame (Z-up, Z = 0 on the bed, the decorative part at its
+A part built in another engine next to a Blender part: a Fusion body the user keeps as CAD, or a
+mechanical part that needs a parts.py helper when Blender's Python has no manifold3d (the Python
+engine builds it). When the two must become one body, bring the other STL in with
+`bb.import_stl` and union it here (its sources go into `--source` with the generator's). When
+they stay two parts of one object, both are modelled in the same frame (Z-up, Z = 0 on the bed, the decorative part at its
 assembled place) and listed in one `_parts` object (`role: fused` where they meet on a face).
 Build each with `--only` and `--no-3mf` into its own folder (half an object makes no 3MF;
 `record` writes the object's), then record both STLs together with the union of the `sources`
