@@ -628,7 +628,7 @@ def fix_slivers(me, area=1e-9):
         bad = {t.polygon_index for t in me.loop_triangles
                if np.linalg.norm(np.cross(co[t.vertices[1]] - co[t.vertices[0]], co[t.vertices[2]] - co[t.vertices[0]])) / 2 < area}
         if not bad:
-            return 0
+            return degenerate_triangles(me, area)
         bm = bmesh.new()
         bm.from_mesh(me)
         bm.faces.ensure_lookup_table()
@@ -862,6 +862,18 @@ def _tangent(kind, p, q, at_start):
     return (d[0] / n, d[1] / n)
 
 
+def _dir_at(kind, p, q, x):
+    """Unit direction of travel along edge p -> q at its point x."""
+    if kind[0] == "line":
+        d = (q[0] - p[0], q[1] - p[1])
+    else:
+        c, ccw = kind[1], kind[3]
+        rx, ry = x[0] - c[0], x[1] - c[1]
+        d = (-ry, rx) if ccw else (ry, -rx)
+    n = math.hypot(*d)
+    return (d[0] / n, d[1] / n)
+
+
 def _carrier_offsets(kind, p, q, r):
     """The curves a fillet centre may lie on next to this edge: lines parallel to it at r, or
     circles concentric with it at R - r and R + r."""
@@ -938,10 +950,12 @@ def round_profile(pieces, radius, corners=None, angle=20.0, segments=None):
     rounds that would overlap)."""
     if radius <= 0:
         raise ValueError("round_profile radius must be positive")
-    nodes, kinds = _edges_2d(list(pieces) if not (pieces and isinstance(pieces[0], (int, float))) else [pieces])
+    items = list(pieces) if not (pieces and isinstance(pieces[0], (int, float))) else [pieces]
+    nodes, kinds = _edges_2d(items)
     n = len(nodes)
-    if n < 3:
-        raise ValueError("an outline needs at least three corners")
+    sampled = outline(*items)
+    if n < 2 or len(sampled) < 3:
+        raise ValueError("an outline needs at least three points (an arc counts with its own)")
     lim = math.radians(angle)
     fillets = {}
     for i in range(n):
@@ -954,20 +968,21 @@ def round_profile(pieces, radius, corners=None, angle=20.0, segments=None):
         turn = math.atan2(t_in[0] * t_out[1] - t_in[1] * t_out[0], t_in[0] * t_out[0] + t_in[1] * t_out[1])
         if abs(turn) < (lim if corners is None else 1e-6):
             continue
-        u, v = (-t_in[0], -t_in[1]), t_out                  # the corner's wedge, between u and v
+        left = turn > 0                                     # the round's centre is on the inside of the turn
         best = None
         for ca in _carrier_offsets(k_in, prev, p, radius):
             for cb in _carrier_offsets(k_out, p, nxt, radius):
                 for c in _intersect(ca, cb):
-                    w = (c[0] - p[0], c[1] - p[1])
-                    cu = u[0] * w[1] - u[1] * w[0]
-                    cv = w[0] * v[1] - w[1] * v[0]
-                    if (cu > 0) != (cv > 0) or (cu > 0) != (u[0] * v[1] - u[1] * v[0] > 0):
-                        continue                            # not inside the corner's wedge
                     x1, s1 = _foot(k_in, prev, p, c)
                     x2, s2 = _foot(k_out, p, nxt, c)
                     if not (-1e-9 <= s1 <= 1 + 1e-9 and -1e-9 <= s2 <= 1 + 1e-9):
                         continue
+                    d1, d2 = _dir_at(k_in, prev, p, x1), _dir_at(k_out, p, nxt, x2)
+                    side1 = d1[0] * (c[1] - x1[1]) - d1[1] * (c[0] - x1[0])
+                    side2 = d2[0] * (c[1] - x2[1]) - d2[1] * (c[0] - x2[0])
+                    if (side1 > 0) != left or (side2 > 0) != left:
+                        continue                            # tangent from the wrong side: not this corner's round
+                    w = (c[0] - p[0], c[1] - p[1])
                     d = math.hypot(*w)
                     if best is None or d < best[0]:
                         best = (d, c, x1, s1, x2, s2)
@@ -1006,7 +1021,7 @@ def round_profile(pieces, radius, corners=None, angle=20.0, segments=None):
         else:
             out.append(start)
     rounded = outline(out)
-    if (_signed_area(rounded) > 0) != (_signed_area(outline(nodes)) > 0):
+    if (_signed_area(rounded) > 0) != (_signed_area(sampled) > 0):
         raise ValueError("round_profile: the rounded outline turned inside out (a radius too big for the shape)")
     return rounded
 
@@ -1032,10 +1047,12 @@ def from_mesh(verts, faces, name="mesh", collection=None):
     # Triangle pairs that lie in one plane become one face again (a cylinder's facets from
     # manifold3d or an STL are split along a diagonal): a cut through such a facet would add a
     # vertex on the diagonal, in line with the facet's edges, and leave zero-area triangles.
-    # 0.05 deg covers float32 noise and stays below the facet angle the circle rule gives up
-    # to r = 450 mm (0.1 deg at r = 230 mm), so facets of a curve are never merged.
+    # The limit (at most 0.05 deg, which covers float32 noise) stays under half the smallest real
+    # angle between faces, so the facets of a curve are never merged, however large its radius.
     bm.normal_update()
-    bmesh.ops.dissolve_limit(bm, angle_limit=math.radians(0.05), use_dissolve_boundaries=False,
+    bends = [a for a in (e.calc_face_angle(0.0) for e in bm.edges if len(e.link_faces) == 2) if a > math.radians(1e-3)]
+    limit = min(math.radians(0.05), min(bends) / 2) if bends else math.radians(0.05)
+    bmesh.ops.dissolve_limit(bm, angle_limit=limit, use_dissolve_boundaries=False,
                              verts=[], edges=bm.edges[:], delimit=set())
     return mesh_object(name, bm, collection)
 
@@ -1076,11 +1093,17 @@ def _read_stl(path):
     return [tuple(pts[i:i + 3]) for i in range(0, len(pts), 3)]
 
 
+_IMPORTED = []       # files import_stl read: hashed into the manifest like the generator's sources
+
+
 def import_stl(path, name=None, collection=None):
     """An object from an STL (binary or ASCII, mm): a part another engine built (a Python
     generator's body) brought in to be finished in Blender. Welded and checked as `from_mesh`.
-    The STL keeps its own manifest; the Blender part made from it is a new artifact."""
+    The STL is one of this build's sources (its sha256 goes into the manifest, so a changed
+    STL makes the Blender part stale)."""
     tris = _read_stl(path)
+    if os.path.abspath(path) not in _IMPORTED:
+        _IMPORTED.append(os.path.abspath(path))
     index, verts, faces = {}, [], []
     for t in tris:
         face = []
@@ -1112,6 +1135,11 @@ def apply_transform(obj):
     mw = _world(obj)
     if mw == mw.Identity(4):
         return obj
+    children = {c: _world(c) for c in obj.children}
+    if obj.data.users > 1:                 # a mesh shared with a linked copy: bake a copy of it only
+        own = obj.data.copy()
+        own[TAG] = True
+        obj.data = own
     me = obj.data
     me.transform(mw)
     if mw.determinant() < 0:
@@ -1123,6 +1151,10 @@ def apply_transform(obj):
     obj.matrix_world = mw.Identity(4)
     me.update()
     _view_layer().update()                 # matrix_world is read again right away (export, edges)
+    for c, cw in children.items():         # children stay where they were in the world
+        c.matrix_world = cw
+    if children:
+        _view_layer().update()
     return obj
 
 
@@ -1284,6 +1316,28 @@ def edges(obj, angle=30.0, axis=None, inside=None, bed=False):
 _edges = edges                                      # fillet's `edges` argument shadows the function
 
 
+def _segment_gap(e1, e2):
+    """The shortest distance between two edges (segments) in mm."""
+    from mathutils.geometry import intersect_line_line
+    a, b = e1.verts[0].co, e1.verts[1].co
+    c, d = e2.verts[0].co, e2.verts[1].co
+
+    def point_seg(p, q, r):
+        qr = r - q
+        L2 = qr.length_squared
+        t = 0.0 if L2 == 0 else max(0.0, min(1.0, (p - q).dot(qr) / L2))
+        return (p - (q + qr * t)).length
+    best = min(point_seg(a, c, d), point_seg(b, c, d), point_seg(c, a, b), point_seg(d, a, b))
+    hit = intersect_line_line(a, b, c, d)
+    if hit:
+        p1, p2 = hit
+        on1 = (p1 - a).dot(b - a) >= 0 and (p1 - b).dot(a - b) >= 0
+        on2 = (p2 - c).dot(d - c) >= 0 and (p2 - d).dot(c - d) >= 0
+        if on1 and on2:
+            best = min(best, (p1 - p2).length)
+    return best
+
+
 def _face_depth(face, edge):
     """How far the face reaches away from the edge, in its own plane (mm): the room a fillet's
     tangent line has on that face."""
@@ -1334,6 +1388,13 @@ def fillet(obj, radius, edges=None, segments=None, apply=True):
         phi = e.calc_face_angle(0.0)                 # the turn of the normal across the edge
         if phi < 1e-6:
             continue
+        if phi > math.radians(90.5):
+            mid = (e.verts[0].co + e.verts[1].co) / 2
+            bm.free()
+            raise ValueError(f"fillet on '{obj.name}': edge {i} (near {tuple(round(c, 2) for c in mid)}) is sharper than "
+                             f"90 degrees ({180 - math.degrees(phi):.0f} between its faces); Blender's profile there is "
+                             "no circle (up to +75 % at 30 degrees). Round it in the 2D profile (round_profile, then "
+                             "prism)")
         t = radius / math.tan((math.pi - phi) / 2)
         room = min(_face_depth(f, e) for f in e.link_faces)
         if t > room + 1e-6:
@@ -1345,6 +1406,22 @@ def fillet(obj, radius, edges=None, segments=None, apply=True):
                              "from_manifold")
         offsets[i] = t
         turn = max(turn, phi)
+    # Two fillets on one face must not meet: their tangent lines come t1 and t2 in from their
+    # edges, so two edges of a face that share no corner need t1 + t2 of room between them.
+    for f in bm.faces:
+        on = [e for e in f.edges if offsets[e.index] > 0]
+        for k, e1 in enumerate(on):
+            for e2 in on[k + 1:]:
+                if set(e1.verts) & set(e2.verts):
+                    continue                          # a corner: the bevel joins them
+                gap = _segment_gap(e1, e2)
+                i1, i2 = e1.index, e2.index
+                if offsets[i1] + offsets[i2] > gap + 1e-6:
+                    bm.free()
+                    raise ValueError(f"fillet of {radius} mm on '{obj.name}': edges {i1} and {i2} of one face are "
+                                     f"{gap:.3f} mm apart, and their rounds need {offsets[i1]:.3f} + {offsets[i2]:.3f} mm "
+                                     "of it: they would overlap. A smaller radius, or round that face's edges in the "
+                                     "2D profile")
     bm.free()
     widest = max(offsets)
     if widest <= 0:
@@ -2358,7 +2435,7 @@ def _deps():
     roots = {os.path.normcase(os.path.dirname(os.path.abspath(__file__))), os.path.normcase(SKILL_SCRIPTS)}
     if getattr(main, "__file__", None):
         roots.add(os.path.normcase(os.path.dirname(os.path.abspath(main.__file__))))
-    deps = {os.path.abspath(__file__)}
+    deps = {os.path.abspath(__file__), *_IMPORTED}
     for m in list(sys.modules.values()):
         f = getattr(m, "__file__", None)
         if f and f.endswith(".py") and os.path.normcase(os.path.dirname(os.path.abspath(f))) in roots:

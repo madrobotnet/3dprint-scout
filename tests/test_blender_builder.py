@@ -321,6 +321,25 @@ class Profiles(unittest.TestCase):
         top = max(p[1] for p in lip)
         self.assertAlmostEqual(top, zc + math.sqrt((r_o - r) ** 2 - (half + r) ** 2) + r, delta=0.002)   # tangent inside the outer circle
 
+    def test_round_profile_shapes_the_review_found_refused(self):
+        """Review of 0.6: a D (an arc and its chord: two corners), a Pac-Man (an arc and the centre)
+        and a round against a concave arc at a 10 degree corner are valid and are built."""
+        bb = self.bb
+        d = bb.round_profile([bb.arc((0, 0), 10, 0, 180)], 1.0)
+        self.assertGreater(bb._signed_area(d), 0)
+        self.assertAlmostEqual(max(p[1] for p in d), 10.0, delta=1e-6)
+        pac = bb.round_profile([bb.arc((0, 0), 10, 30, 330), (0, 0)], 0.5)
+        self.assertGreater(bb._signed_area(pac), 0)
+        a, R = math.radians(10), 10.0
+        cy = -R * math.cos(a)
+        start = math.degrees(math.atan2(-cy, R * math.sin(a)))
+        notch = [(-20, -25), (20, -25), (20, 0), bb.arc((0, cy), R, start, 180 - start - 360), (-20, 0)]
+        pts = bb.round_profile(notch, 1.0, corners=[3])
+        c = (math.sqrt((R + 1) ** 2 - (-1 - cy) ** 2), -1.0)
+        near = [q for q in pts if math.dist(q, c) < 1.0 + 1e-6]
+        self.assertGreater(len(near), 2)
+        self.assertTrue(all(abs(math.dist(q, c) - 1.0) < 1e-9 for q in near))
+
     def test_round_profile_turning_edges_are_not_corners(self):
         bb = self.bb
         pts = bb.round_profile([(0, 0), (20, 0), bb.arc((20, 10), 10, -90, 90), (0, 20)], 1.0)
@@ -560,6 +579,52 @@ emit(selected=len(sel), dist=dist, refused=refused, untouched=len(plate.data.ver
         self.assertTrue(rep["untouched"])
         self.assertEqual(rep["mods"], 0)
 
+    def test_fillet_refuses_overlaps_and_sharp_edges(self):
+        """Review of 0.6: two fillets on one face that would meet, and an edge sharper than 90
+        degrees (Blender's profile is no circle there), are refused before any change."""
+        rep = run_in_blender("""
+import math
+bb.new_scene_mm()
+slab = bb.box([3, 20, 20], "slab")
+try:
+    bb.fillet(slab, 2.0, bb.edges(slab, axis="z")); overlap = None
+except ValueError as exc:
+    overlap = str(exc)
+ok = bb.box([5, 20, 20], "ok")
+bb.fillet(ok, 2.0, bb.edges(ok, axis="z"))                       # 2 + 2 <= 5: fine
+tri = bb.prism([(0, 0), (20, 0), (0, 20 * math.tan(math.radians(30)))], 10, name="tri")
+try:
+    bb.fillet(tri, 1.0, bb.edges(tri, axis="z")); sharp = None
+except ValueError as exc:
+    sharp = str(exc)
+emit(overlap=overlap, sharp=sharp, slab_mods=len(slab.modifiers), ok_nm=bb.nonmanifold_edges(ok), ok_deg=bb.degenerate_triangles(ok.data))
+""")
+        self.assertIn("would overlap", rep["overlap"])
+        self.assertIn("3.000 mm apart", rep["overlap"])
+        self.assertEqual(rep["slab_mods"], 0)
+        self.assertEqual((rep["ok_nm"], rep["ok_deg"]), (0, 0))
+        self.assertIn("sharper than 90 degrees", rep["sharp"])
+        self.assertIn("round_profile", rep["sharp"])
+
+    def test_apply_transform_keeps_shared_meshes_and_children(self):
+        rep = run_in_blender("""
+bb.new_scene_mm()
+a = bb.box([10, 10, 10], "a")
+b = a.copy(); b[bb.TAG] = True; bb.scene().collection.objects.link(b)      # shares a's mesh
+b.location = (50, 0, 0)
+a.location = (0, 0, 5)
+child = bb.box([2, 2, 2], "child"); child.parent = a; child.location = (20, 0, 0)
+before_child = bb.world_bbox(child)[0][:]
+before_b = bb.world_bbox(b)[0][:]
+bb.apply_transform(a)
+emit(a_min=list(bb.world_bbox(a)[0]), b_min=list(bb.world_bbox(b)[0]), b_before=list(before_b),
+     child_min=list(bb.world_bbox(child)[0]), child_before=list(before_child), shared=a.data == b.data)
+""")
+        self.assertEqual([round(c, 4) for c in rep["a_min"]], [0.0, 0.0, 5.0])
+        self.assertEqual([round(c, 4) for c in rep["b_min"]], [round(c, 4) for c in rep["b_before"]])   # the copy stayed
+        self.assertEqual([round(c, 4) for c in rep["child_min"]], [round(c, 4) for c in rep["child_before"]])
+        self.assertFalse(rep["shared"])
+
     @unittest.skipUnless(find_spec("manifold3d") is not None, "manifold3d not installed")
     def test_parts_reach_blender_through_from_manifold(self):
         """0.6: a parts.py countersunk hole cut from a Blender block (the bridge), the result
@@ -577,7 +642,8 @@ try:
     bb.from_mesh([(0, 0, 0), (1, 0, 0), (0, 1, 0)], [(0, 1, 2)], "open"); open_refused = None
 except ValueError as exc:
     open_refused = str(exc)
-emit(nm=bb.nonmanifold_edges(back), open_refused=open_refused, deps=[os.path.basename(d) for d in bb._deps()])
+emit(nm=bb.nonmanifold_edges(back), open_refused=open_refused, deps=[os.path.basename(d) for d in bb._deps()],
+     deps_full=bb._deps())
 """)
         f = check(os.path.join(self.tmp, "blk.stl"))
         self.assertEqual({k: f["checks"][k]["state"] for k in ("M1", "M2", "M3", "M4", "D3")}, {k: "PASS" for k in ("M1", "M2", "M3", "M4", "D3")}, f["metrics"])
@@ -586,6 +652,7 @@ emit(nm=bb.nonmanifold_edges(back), open_refused=open_refused, deps=[os.path.bas
         self.assertEqual(rep["nm"], 0)
         self.assertIn("open or non-manifold", rep["open_refused"])
         self.assertIn("parts.py", rep["deps"])                                 # parts.py is hashed into the manifest
+        self.assertIn(os.path.join(self.tmp, "blk.stl"), rep["deps_full"])      # so is an STL brought in
 
     def test_planes_transforms_and_world_bed_chamfer(self):
         rep = run_in_blender(f"""

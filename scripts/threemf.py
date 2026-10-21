@@ -30,7 +30,20 @@ from xml.sax.saxutils import escape, quoteattr
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-from validate import WELD_Q, ArtifactError, convex_hull, fit_rect, read_stl  # noqa: E402
+from validate import WELD_Q, ArtifactError, convex_hull, fit_rect, file_sha256, read_stl  # noqa: E402
+
+MANIFEST_SCHEMA = "3dprint-scout.3mf-manifest/1"
+
+
+def write_3mf_manifest(path, parts):
+    """`<path>.manifest.json` next to a 3MF: its own sha256 and the sha256 of every part STL it
+    was written from, so finalize.py can tell a delivered 3MF holds the verified STLs. Copy it
+    along with the 3MF (it says nothing about edits made in a slicer afterwards)."""
+    data = {"schema": MANIFEST_SCHEMA, "artifact_sha256": file_sha256(path),
+            "parts": {name: file_sha256(stl) for name, stl in parts}}
+    with open(path + ".manifest.json", "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2)
+    return data
 
 CORE_NS = "http://schemas.microsoft.com/3dmanufacturing/core/2015/02"
 CONTENT_TYPES = (
@@ -155,6 +168,7 @@ def write_core_3mf(parts, out_path, spacing=10.0, title=None, bed=None, objects=
         z.writestr("[Content_Types].xml", CONTENT_TYPES)
         z.writestr("_rels/.rels", RELS)
         z.writestr("3D/3dmodel.model", model)
+    write_3mf_manifest(out_path, parts)
     return info
 
 

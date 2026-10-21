@@ -48,7 +48,8 @@ all times; `references/checks.md` describes `validate.py`'s JSON).
      "joints": [{"name": "lid on box", "report": "out/fit_box_lid.json"}],
      "strength": [],
      "test_prints": [{"name": "hinge coupon", "status": "skipped", "note": "user had no time"}],
-     "accepted": [{"check": "body P2", "reason": "the user wants supports under the ledge"}],
+     "accepted": [{"check": "body P2", "reason": "the user wants supports under the ledge"},
+                  {"check": "object box P2", "reason": "the same, for the assembled object"}],
      "unverified": ["wall behind the label: from a photo"],
      "references": {"box": {"front": "real", "top": "real", "back": "estimated"}}
    }
@@ -57,4 +58,5 @@ all times; `references/checks.md` describes `validate.py`'s JSON).
    A joint fitted against a proxy of the mating part (built from measured or published numbers)
    gets `"proxy": true`; `finalize.py` then says the fit shows agreement with those numbers, not
    that they are right. Test print status: `passed`, `failed`, `skipped`, `offered` or
-   `pending`.
+   `pending`. An accepted WARN is named `<part> <check>` (`lid A2`) or `object <name> <check>`
+   (an object's D2 / P1 / P2), as `finalize.py` lists it in `open`.

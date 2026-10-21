@@ -460,12 +460,16 @@ def mixed_warnings(selected, same, conditions: dict) -> list:
     for field, opt in CONDITIONS[1:]:
         if field in conditions:
             continue
-        seen = {}
+        seen, unrecorded = {}, False
         for _i, e in same:
             v = e.get(field)
-            if v is not None:
+            if v is None:
+                unrecorded = True
+            else:
                 key = v.casefold() if field == "process" else (v if isinstance(v, str) else round(v, 6))
                 seen.setdefault(key, v)
+        if seen and unrecorded:
+            seen.setdefault(None, "not recorded")         # recorded and unrecorded mixed: as different
         if len(seen) > 1:
             warnings.append(f"no --{opt}: the entries behind 'worked' and 'bounds' record different {words[field]} "
                             f"({', '.join(shown(v) for v in seen.values())}); give --{opt} for this print, so the "

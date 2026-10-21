@@ -821,12 +821,15 @@ def finish(out, parts, sources, params, params_path, specs, args, engine):
         if p["stl"] not in prior:
             validate.write_manifest(p["stl"], sources, params, engine, by=by)
 
-    # Parts grouped into objects (assembly.py). A bad grouping is a usage error, not a build error.
+    # Parts grouped into objects (assembly.py). A bad grouping is a usage error: the parts are
+    # still validated, but no object check ran, so the build gate is FAIL.
+    grouping_failed = False
     try:
         groups = assembly.group_parts({p["name"]: specs.get(p["name"], {}) for p in parts})
     except assembly.AssemblyError as exc:
         out["errors"].append(f"params.json _parts: {exc}")
         groups = [{"name": p["name"], "parts": [p["name"]], "main": p["name"]} for p in parts]
+        grouping_failed = True                # no object checks ran: the build cannot pass
     of_part = {n: g for g in groups for n in g["parts"]}
     for p in parts:
         p["object"] = of_part[p["name"]]["name"]
@@ -942,12 +945,18 @@ def finish(out, parts, sources, params, params_path, specs, args, engine):
             object_gates.append(entry["gate"])
         out["objects"].append(entry)
 
+    for p in sane:
+        p["sha256"] = validate.file_sha256(p["stl"])      # the very STLs these verdicts are about (finalize.py)
     out["parts"] = parts
     out["sources"] = [_relpath(s) for s in sources]
+    # The settings the parts were validated with, so a later re-check (finalize.py) uses the same bed.
+    out["validate_settings"] = {f: (_relpath(getattr(args, f)) if f == "printer" and getattr(args, f, None)
+                                    else getattr(args, f, None)) for f in VALIDATE_FLAGS}
+    out["validate_settings"]["wall_check"] = bool(getattr(args, "wall_check", True))
     gate = overall_gate(reports)
     if object_gates:
         gate = overall_gate([{"gate": gate}] + [{"gate": g} for g in object_gates])
-    out["gate"] = "FAIL" if len(sane) < len(parts) else gate
+    out["gate"] = "FAIL" if len(sane) < len(parts) or grouping_failed else gate
     out["R4"] = "PASS" if len(sane) == len(parts) else "FAIL"   # the generator ran, but left a broken artifact
     return out
 

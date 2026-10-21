@@ -5,14 +5,16 @@ verified, with what evidence, and what was not, so a missing fit report or a ski
 can never look like a finished check.
 
   python3 finalize.py --build out/build.json --params .3dprint/params.json \\
-      --printer .3dprint/printers.json [--deliver deliver/2026-10-21] [--bundle deliver/2026-10-21/source]
+      [--deliver deliver/2026-10-21] [--bundle deliver/2026-10-21/source]
 
 --build is the JSON that `build.py run` or `record` printed, saved (`build.py run ... > out/build.json`).
-It names the parts, their STLs and the sources the build hashed. finalize does not trust it for
-the verdicts: it validates every part STL again (validate.py, with the part's `expect` from
---params and the build's sources, so R3 says whether the STL still matches the generator and
-parameters as they are now) and takes the object checks (A1 / A2, D2 of an object) from the
-build only when every STL is still the one that build wrote.
+It names the parts, the sha256 of each STL it judged, the sources it hashed and the settings it
+validated with (printer, printer id, tools, tolerances). finalize does not take its verdicts on
+trust: it validates every part STL again with the same settings (R3 says whether the STL still
+matches the generator and parameters as they are now), checks that every part in `_parts` was
+built, and takes the object checks (A1 / A2, an object's D2) from the build only while every STL
+is still the one that build judged. A build that reported errors, or whose gate was not PASS,
+is not verified. Settings given here (--printer, --printer-id, --tools, ...) replace the build's.
 
 What else counts is declared in params.json under `_verify` (every key optional, but a key that
 is missing is reported as "not declared", which keeps the geometry from being verified):
@@ -22,7 +24,8 @@ is missing is reported as "not declared", which keeps the geometry from being ve
                  {"name": "clip on the tube", "report": "out/fit_clip.json", "proxy": true}],
     "strength": [{"name": "latch arm", "report": "out/strength_latch.json"}],
     "test_prints": [{"name": "hinge coupon", "status": "skipped", "note": "user had no time"}],
-    "accepted": [{"check": "body P2", "reason": "the user wants supports there"}],
+    "accepted": [{"check": "body P2", "reason": "the user wants supports there"},
+                 {"check": "object box P2", "reason": "..."}],
     "unverified": ["wall behind the label: estimated from a photo"],
     "references": {"lid": {"front": "real", "top": "real", "back": "estimated", "bottom": "assumed"}}
   }
@@ -30,50 +33,61 @@ is missing is reported as "not declared", which keeps the geometry from being ve
 joints: every joint F3 must cover, with its saved fit.py report: the report must be fresh (its
 STLs are the parts being delivered, or a declared proxy) and its own F3 / F3_sweep must PASS.
 An empty list says the design has no joint. strength: strength.py reports (saved JSON), their
-gate must PASS. test_prints: coupons and mechanism-first prints (status passed, failed,
-skipped, offered or pending). accepted: WARNs the user accepted, with their reason; any other
-WARN is listed as open. unverified: dimensions taken without a measurement. references: for each
-object, which directions a reference shows (`real`), or was generated or inferred
-(`estimated`), or given up on (`assumed`); a direction without a real reference is a direction
-whose shape is not verified.
+gate must PASS; their inputs are numbers from the dimension table, not read from the model, so
+the report says to keep them equal. test_prints: coupons and mechanism-first prints (status
+passed, failed, skipped, offered or pending). accepted: WARNs the user accepted, named
+"<part> <check>" or "object <name> <check>", with their reason; any other WARN is open.
+unverified: dimensions taken without a measurement. references: for each object, which
+directions a reference shows (`real`), or was generated or inferred (`estimated`), or given up
+on (`assumed`); a direction without a real reference is one whose shape is not verified.
 
 The report has four tiers and never folds them into one PASS:
-  geometry  verified | not verified   the STLs, joints and members, from the checks above
+  geometry  verified | not verified   the STLs, objects, joints and members, from the checks above
   shape     per object, the directions a real reference covers
   slicing   unverified                  nothing here slices; say so at delivery
   print     unverified                  test prints and their results, if any
-plus `open`: every reason the geometry is not verified, every unaccepted WARN, every
-unverified dimension and assumption, in plain lines for the delivery message.
+plus `open`: every reason the geometry is not verified, every unaccepted WARN, the soft checks
+left to you (P3 skipped, P4, P5, P6), every unverified dimension and assumption, in plain lines
+for the delivery message.
 
---deliver DIR compares the delivered STLs (same file names) with the verified ones: a copy that
-differs is a FAIL. --bundle DIR writes a new folder with the generator sources (not the skill's
-own libraries), params.json, this report and REPRODUCE.md (the commands that rebuild and
-re-check the parts); it refuses an existing folder. Exit 0 when it ran (read "geometry"), 1 on a
-usage or file error.
+--deliver DIR checks the delivery folder: every STL in it must be one of the verified STLs,
+every 3MF must carry a manifest (`<file>.3mf.manifest.json`, written by build.py and bambu3mf.py
+next to the 3MF; copy it along) that lists exactly the verified STLs, and every part must be
+delivered in one or the other. --bundle DIR writes a new folder with the generator sources (not
+the skill's own libraries), params.json, the printers.json the build used, this report and
+REPRODUCE.md (the commands that rebuild and re-check the parts); it refuses an existing folder,
+and a source or params file that holds a path of this machine. Exit 0 when it ran (read
+"geometry"), 1 on a usage or file error.
 """
 from __future__ import annotations
 
 import argparse
-import io
 import json
 import os
 import shutil
 import sys
-from contextlib import redirect_stdout
+from types import SimpleNamespace
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import validate  # noqa: E402
 
 SCHEMA = "3dprint-scout.finalize/1"
+MANIFEST_3MF = "3dprint-scout.3mf-manifest/1"
 ENGINES_DIR = os.path.join(os.path.dirname(HERE), "references", "engines")
 DIRECTIONS = ("front", "back", "left", "right", "top", "bottom")
 COVERAGE = ("real", "estimated", "assumed", "none")
 PRINT_STATUS = ("passed", "failed", "skipped", "offered", "pending")
+SETTINGS = ("tol", "printer", "printer_id", "tools", "overhang_angle", "min_wall")
 
 
 class FinalizeError(Exception):
     pass
+
+
+class JsonArgParser(argparse.ArgumentParser):
+    def error(self, message):
+        raise FinalizeError(f"usage: {message}")
 
 
 def load_json(path, what):
@@ -97,111 +111,161 @@ def rel(path):
     return os.path.basename(path) if r.startswith("..") else r.replace(os.sep, "/")
 
 
+def machine_prefixes():
+    """Absolute folders of this machine that must not leave it in a report or bundle."""
+    out = []
+    for p in (os.getcwd(), os.path.realpath(os.getcwd()), os.path.expanduser("~")):
+        if p and len(p) > 3 and p not in out:
+            out.append(p)
+    return sorted(out, key=len, reverse=True)
+
+
+def scrub(text):
+    """The report's text with this machine's folders taken out: the working folder becomes `.`,
+    the home folder `~` (also in the doubled backslashes of JSON text)."""
+    home = os.path.expanduser("~")
+    for p in machine_prefixes():
+        rep = "~" if p == home else "."
+        for form in sorted({p, p.replace("\\", "/"), p.replace("\\", "\\\\")}, key=len, reverse=True):
+            text = text.replace(form, rep)
+    return text
+
+
 def part_specs(params):
     parts = params.get("_parts") or {}
-    return {str(k): dict(v or {}) for k, v in parts.items()} if isinstance(parts, dict) else {}
+    if not isinstance(parts, dict):
+        raise FinalizeError("_parts in params.json must be an object")
+    return {str(k): dict(v or {}) for k, v in parts.items()}
 
 
-def validate_part(stl, spec, sources, params_path, args):
-    argv = [stl, "--shells", str(spec.get("shells", 1))]
-    if spec.get("expect"):
-        argv += ["--expect", ",".join(str(x) for x in spec["expect"])]
-    for flag in ("tol", "printer_id", "overhang_angle", "min_wall"):
-        if spec.get(flag) is not None:
-            argv += ["--" + flag.replace("_", "-"), str(spec[flag])]
-    if args.printer:
-        argv += ["--printer", args.printer]
-    if args.tools:
-        argv += ["--tools", args.tools]
-    if not args.wall_check:
-        argv.append("--no-wall-check")
-    argv += ["--source", *sources, "--params", params_path]
-    buf = io.StringIO()
-    with redirect_stdout(buf):
-        validate.main(argv)
-    return json.loads(buf.getvalue())
+def check_verify_shape(verify):
+    lists = {"joints": dict, "strength": dict, "test_prints": dict, "accepted": dict, "unverified": str}
+    for key, item in lists.items():
+        if key in verify:
+            v = verify[key]
+            if not isinstance(v, list) or not all(isinstance(x, item) for x in v):
+                kind = "objects" if item is dict else "strings"
+                raise FinalizeError(f"_verify.{key} must be a list of {kind}")
+    if "references" in verify and not (isinstance(verify["references"], dict)
+                                       and all(isinstance(v, dict) for v in verify["references"].values())):
+        raise FinalizeError("_verify.references must map each object to {direction: coverage}")
 
 
-def check_parts(build, specs, params_path, args):
-    """Every part STL validated again now. Returns (part entries, reasons, warns, all fresh)."""
+def settings_for(build, args):
+    """The validation settings: the build's, replaced by any given here."""
+    s = dict(build.get("validate_settings") or {})
+    for f in SETTINGS:
+        v = getattr(args, f, None)
+        if v is not None:
+            s[f] = v
+    if args.wall_check is False:
+        s["wall_check"] = False
+    s.setdefault("wall_check", True)
+    return SimpleNamespace(**{f: s.get(f) for f in SETTINGS}, wall_check=s["wall_check"])
+
+
+def check_parts(build, specs, params_path, settings):
+    """Every part STL validated again now, as the build did. Returns (entries, reasons, warns,
+    to_decide, same_as_build) where same_as_build says every STL is the one the build judged."""
+    import build as build_mod
     sources = build.get("sources") or []
     missing = [s for s in sources if not os.path.isfile(s)]
-    entries, reasons, warns = [], [], []
-    fresh_all = True
+    entries, reasons, warns, to_decide = [], [], [], []
+    same_as_build = True
     if missing:
         reasons.append(f"sources the build hashed are missing: {', '.join(missing)} (run finalize from the folder the "
                        "build ran in)")
+    built = {p.get("name") for p in build.get("parts") or []}
+    for name in specs:
+        if name not in built:
+            reasons.append(f"{name}: in _parts but not in this build (built with --only, or not recorded): build "
+                           "every part, save that build's JSON")
     for p in build.get("parts") or []:
         name, stl = p.get("name"), p.get("stl")
         entry = {"name": name, "stl": rel(stl)}
         if not stl or not os.path.isfile(stl):
             entry["state"] = "FAIL"
-            reasons.append(f"{name}: STL {stl} not found")
-            fresh_all = False
+            reasons.append(f"{name}: STL {rel(stl)} not found")
+            same_as_build = False
             entries.append(entry)
             continue
         entry["sha256"] = validate.file_sha256(stl)
+        entry["same_as_build"] = bool(p.get("sha256")) and p["sha256"] == entry["sha256"]
+        if not entry["same_as_build"]:
+            same_as_build = False
+            reasons.append(f"{name}: {rel(stl)} is not the STL this build JSON judged" if p.get("sha256") else
+                           f"{name}: the build JSON has no sha256 for its STLs (made before 0.6): build again and save it")
         if missing:
             entry["state"] = "UNVERIFIED"
-            fresh_all = False
             entries.append(entry)
             continue
-        rep = validate_part(stl, specs.get(name, {}), sources, params_path, args)
+        rep = build_mod.validate_part(stl, specs.get(name, {}), sources, params_path, settings)
         f = (rep.get("files") or [{}])[0]
         checks = f.get("checks") or {}
         entry["gate"] = rep.get("gate")
         entry["checks"] = {k: v.get("state") for k, v in checks.items()}
-        r3 = checks.get("R3", {})
-        if r3.get("state") != "PASS":
-            fresh_all = False
-            reasons.append(f"{name} R3 {r3.get('state')}: {r3.get('note', '')}".rstrip(": "))
         for cid, ck in checks.items():
-            if cid == "R3":
-                continue
-            if ck.get("state") == "FAIL" and ck.get("kind") == "hard":
-                reasons.append(f"{name} {cid} FAIL: {ck.get('note', '')}".rstrip(": "))
-            elif ck.get("state") == "UNVERIFIED" and ck.get("kind") == "hard":
-                reasons.append(f"{name} {cid} UNVERIFIED: {ck.get('note', '')}".rstrip(": "))
-            elif ck.get("state") == "WARN":
-                warns.append((f"{name} {cid}", ck.get("note", "")))
+            state, note = ck.get("state"), ck.get("note", "")
+            if cid == "D1" and ck.get("copied_expect"):
+                reasons.append(f"{name} D1: its expect was copied from the model's own box, so D1 compares the part "
+                               "with itself; give the intended size")
+            if state == "FAIL" and ck.get("kind") == "hard":
+                reasons.append(f"{name} {cid} FAIL: {note}".rstrip(": "))
+            elif state == "UNVERIFIED" and ck.get("kind") == "hard":
+                reasons.append(f"{name} {cid} UNVERIFIED: {note}".rstrip(": "))
+            elif state == "UNVERIFIED":
+                to_decide.append(f"{name} {cid} UNVERIFIED (yours to decide): {note}".rstrip(": "))
+            elif state == "WARN":
+                warns.append((f"{name} {cid}", note))
         for e in rep.get("errors", []):
             reasons.append(f"{name}: {e}")
         entries.append(entry)
     if not entries:
         reasons.append("the build lists no parts")
-    return entries, reasons, warns, fresh_all
+    return entries, reasons, warns, to_decide, same_as_build
 
 
-def check_objects(build, fresh_all):
+def check_build(build):
+    reasons = []
+    if not build.get("ran"):
+        reasons.append("the build did not run")
+    for e in build.get("errors") or []:
+        reasons.append(f"the build reported: {e}")
+    if build.get("gate") != "PASS":
+        reasons.append(f"the build's gate was {build.get('gate')}, not PASS")
+    return reasons
+
+
+def check_objects(build, same_as_build):
     """Object checks from the build (A1 / A2, an object's D2 / P1 / P2), only while every STL is
-    still the one that build wrote."""
+    the one that build judged."""
     entries, reasons, warns = [], [], []
     for o in build.get("objects") or []:
-        if "checks" not in o and len(o.get("parts", [])) < 2 and "partial" not in o:
+        if "checks" not in o and "gate" not in o:
             continue
         entry = {"name": o.get("name"), "gate": o.get("gate"), "parts": o.get("parts")}
-        if not fresh_all:
+        if not same_as_build:
             entry["state"] = "UNVERIFIED"
-            reasons.append(f"object '{o.get('name')}': its checks are from a build whose STLs changed or could not be "
-                           "re-checked; build again")
+            reasons.append(f"object '{o.get('name')}': its checks are from a build whose STLs have changed since; "
+                           "build again and save that build's JSON")
         else:
             if o.get("partial"):
                 reasons.append(f"object '{o.get('name')}' was built in part (--only): not judged as a whole")
+            if o.get("gate") == "FAIL" and not any(ck.get("state") == "FAIL" for ck in (o.get("checks") or {}).values()):
+                reasons.append(f"object '{o.get('name')}': its gate was FAIL")
             for cid, ck in (o.get("checks") or {}).items():
                 if ck.get("state") in ("FAIL", "UNVERIFIED") and ck.get("kind") == "hard":
                     reasons.append(f"object '{o.get('name')}' {cid} {ck['state']}: {ck.get('note', '')}".rstrip(": "))
                 elif ck.get("state") == "WARN":
-                    warns.append((f"{o.get('name')} {cid}", ck.get("note", "")))
+                    warns.append((f"object {o.get('name')} {cid}", ck.get("note", "")))
         entries.append(entry)
-    for p in build.get("parts") or []:
-        asm = p.get("assembly") or {}
-        for cid, ck in (asm.get("checks") or {}).items():
-            if not fresh_all:
-                continue
-            if ck.get("state") in ("FAIL", "UNVERIFIED") and ck.get("kind") == "hard":
-                reasons.append(f"{p.get('name')} {cid} {ck['state']}: {ck.get('note', '')}".rstrip(": "))
-            elif ck.get("state") == "WARN":
-                warns.append((f"{p.get('name')} {cid}", ck.get("note", "")))
+    if same_as_build:
+        for p in build.get("parts") or []:
+            for cid, ck in ((p.get("assembly") or {}).get("checks") or {}).items():
+                if ck.get("state") in ("FAIL", "UNVERIFIED") and ck.get("kind") == "hard":
+                    reasons.append(f"{p.get('name')} {cid} {ck['state']}: {ck.get('note', '')}".rstrip(": "))
+                elif ck.get("state") == "WARN":
+                    warns.append((f"{p.get('name')} {cid}", ck.get("note", "")))
     return entries, reasons, warns
 
 
@@ -211,12 +275,12 @@ def check_joints(verify, part_shas):
                     "report, or [] when the design has none"], []
     entries, reasons, notes = [], [], []
     import fit
-    for j in verify["joints"] or []:
+    for j in verify["joints"]:
         name, report = j.get("name") or j.get("report"), j.get("report")
         entry = {"name": name, "report": rel(report)}
         if not report or not os.path.isfile(report):
             entry["state"] = "FAIL"
-            reasons.append(f"joint '{name}': fit report {report} not found; run fit.py and save it")
+            reasons.append(f"joint '{name}': fit report {rel(report)} not found; run fit.py and save it")
             entries.append(entry)
             continue
         try:
@@ -237,15 +301,19 @@ def check_joints(verify, part_shas):
                 reasons.append(f"joint '{name}': {cid} {st}: {(rep['checks'][cid].get('note') or '')}".rstrip(": "))
         if not states:
             reasons.append(f"joint '{name}': the report has no checks")
-        unknown = [k for k in ("a", "b") if (rep.get("parts") or {}).get(k, {}).get("sha256") not in part_shas]
-        if unknown and not j.get("proxy"):
-            reasons.append(f"joint '{name}': the report measured {', '.join(rel((rep['parts'].get(k) or {}).get('path')) for k in unknown)}, "
-                           "which is not a part of this build; mark the joint \"proxy\": true if that is a proxy "
-                           "of the mating part, or fit the delivered parts")
+        parts = rep.get("parts") or {}
+        unknown = [k for k in ("a", "b") if (parts.get(k) or {}).get("sha256") not in part_shas]
         if j.get("proxy"):
             entry["proxy"] = True
             notes.append(f"joint '{name}' is checked against a proxy built from numbers: it shows the part agrees "
                          "with those numbers, not that the numbers are right")
+            if len(unknown) == 2:
+                reasons.append(f"joint '{name}': neither STL the report measured is a part of this build")
+        elif unknown:
+            reasons.append(f"joint '{name}': the report measured "
+                           f"{', '.join(rel((parts.get(k) or {}).get('path')) or k for k in unknown)}, which is not "
+                           "a part of this build; mark the joint \"proxy\": true if that is a proxy of the mating "
+                           "part, or fit the delivered parts")
         entries.append(entry)
     return entries, reasons, notes
 
@@ -253,24 +321,27 @@ def check_joints(verify, part_shas):
 def check_strength(verify):
     if "strength" not in verify:
         return [], ["members not declared (_verify.strength): P7 is not counted; list each member's strength.py "
-                    "report, or [] when nothing carries load"]
-    entries, reasons = [], []
-    for s in verify["strength"] or []:
+                    "report, or [] when nothing carries load"], []
+    entries, reasons, notes = [], [], []
+    for s in verify["strength"]:
         name, report = s.get("name") or s.get("report"), s.get("report")
         entry = {"name": name, "report": rel(report)}
         if not report or not os.path.isfile(report):
             entry["state"] = "FAIL"
-            reasons.append(f"member '{name}': strength report {report} not found; run strength.py and save it")
+            reasons.append(f"member '{name}': strength report {rel(report)} not found; run strength.py and save it")
         else:
             rep = load_json(report, "strength report")
-            if rep.get("schema") != "3dprint-scout.strength/1":
+            if not isinstance(rep, dict) or rep.get("schema") != "3dprint-scout.strength/1":
                 raise FinalizeError(f"{report}: not a strength.py report")
-            entry.update(gate=rep.get("gate"), case=rep.get("case"), worst=rep.get("worst"))
+            entry.update(gate=rep.get("gate"), case=rep.get("case"), worst=rep.get("worst"), inputs=rep.get("inputs"))
             if rep.get("gate") != "PASS":
                 reasons.append(f"member '{name}': strength.py {rep.get('case')} {rep.get('gate')} (worst: "
                                f"{rep.get('worst')})")
+            notes.append(f"member '{name}': strength.py took its sizes from the numbers it was given "
+                         f"({json.dumps(rep.get('inputs'), separators=(',', ':'))}), not from the model: they must "
+                         "be the dimension table's")
         entries.append(entry)
-    return entries, reasons
+    return entries, reasons, notes
 
 
 def check_prints(verify):
@@ -290,9 +361,8 @@ def check_references(verify, objects):
         return {}, ["reference coverage not declared (_verify.references): the shape is not verified from any "
                     "direction"]
     out, lines = {}, []
-    refs = verify["references"] or {}
+    refs = verify["references"]
     for obj, slots in refs.items():
-        slots = slots or {}
         bad = [d for d in slots if d not in DIRECTIONS]
         if bad:
             raise FinalizeError(f"references for '{obj}': unknown direction {bad} (use {', '.join(DIRECTIONS)})")
@@ -312,20 +382,68 @@ def check_references(verify, objects):
     return out, lines
 
 
-def check_delivered(deliver, parts):
+def threemf_manifests(folders):
+    """Every 3MF manifest in the folders: {artifact sha256: manifest}."""
+    found = {}
+    for folder in folders:
+        if not folder or not os.path.isdir(folder):
+            continue
+        for root, _dirs, files in os.walk(folder):
+            for fn in files:
+                if fn.endswith(".3mf.manifest.json"):
+                    try:
+                        with open(os.path.join(root, fn), encoding="utf-8") as f:
+                            m = json.load(f)
+                    except (OSError, ValueError):
+                        continue
+                    if isinstance(m, dict) and m.get("schema") == MANIFEST_3MF and m.get("artifact_sha256"):
+                        found[m["artifact_sha256"]] = m
+    return found
+
+
+def check_delivered(deliver, parts, build):
+    """Every STL and 3MF in the delivery folder against the verified STLs."""
     entries, reasons = [], []
+    if not os.path.isdir(deliver):
+        return [], [f"delivery folder {rel(deliver)} not found"]
+    by_sha = {p["sha256"]: p["name"] for p in parts if p.get("sha256")}
+    covered = set()
+    out_dirs = {os.path.dirname(p["stl"]) for p in parts if p.get("stl")} | {os.path.dirname(build.get("threemf") or "")}
+    manifests = threemf_manifests([deliver, *out_dirs])
+    for fn in sorted(os.listdir(deliver)):
+        path = os.path.join(deliver, fn)
+        if not os.path.isfile(path):
+            continue
+        low = fn.lower()
+        if low.endswith(".stl"):
+            sha = validate.file_sha256(path)
+            name = by_sha.get(sha)
+            entries.append({"file": rel(path), "kind": "stl", "part": name, "same_as_verified": name is not None})
+            if name is None:
+                reasons.append(f"{rel(path)} is not one of the verified STLs (an older build, or another part): "
+                               "copy the verified file, or take it out of the delivery")
+            else:
+                covered.add(name)
+        elif low.endswith(".3mf"):
+            sha = validate.file_sha256(path)
+            m = manifests.get(sha)
+            entry = {"file": rel(path), "kind": "3mf", "manifest": bool(m)}
+            if not m:
+                reasons.append(f"{rel(path)}: no 3MF manifest says which STLs it was written from (copy "
+                               f"{fn}.manifest.json along, or write it with build.py / bambu3mf.py from the verified STLs)")
+            else:
+                stale = [n for n, s in (m.get("parts") or {}).items() if s not in by_sha]
+                entry["parts"] = sorted((m.get("parts") or {}).keys())
+                entry["same_as_verified"] = not stale
+                if stale:
+                    reasons.append(f"{rel(path)} was written from STLs that are not the verified ones "
+                                   f"({', '.join(stale)}): write it again from the verified STLs")
+                else:
+                    covered.update(by_sha[s] for s in m["parts"].values())
+            entries.append(entry)
     for p in parts:
-        if not p.get("stl"):
-            continue
-        copy = os.path.join(deliver, os.path.basename(p["stl"]))
-        if not os.path.isfile(copy):
-            entries.append({"name": p["name"], "delivered": None})
-            reasons.append(f"{p['name']}: no {os.path.basename(p['stl'])} in {rel(deliver)}")
-            continue
-        same = validate.file_sha256(copy) == p.get("sha256")
-        entries.append({"name": p["name"], "delivered": rel(copy), "same_as_verified": same})
-        if not same:
-            reasons.append(f"{p['name']}: the delivered {rel(copy)} is not the STL that was verified")
+        if p.get("sha256") and p["name"] not in covered:
+            reasons.append(f"{p['name']}: not in the delivery ({rel(deliver)}) as an STL or in a 3MF")
     return entries, reasons
 
 
@@ -336,42 +454,72 @@ def own_sources(build):
             if os.path.normcase(os.path.dirname(os.path.abspath(s))) not in lib]
 
 
-def write_bundle(folder, build, params_path, report):
+def holds_machine_path(path):
+    try:
+        with open(path, encoding="utf-8", errors="replace") as f:
+            text = f.read()
+    except OSError:
+        return False
+    return any(form in text for p in machine_prefixes() for form in {p, p.replace("\\", "/")})
+
+
+def write_bundle(folder, build, params_path, settings, report):
     if os.path.exists(folder):
         raise FinalizeError(f"{folder} exists; the bundle goes into a new folder (never overwrites)")
     srcs = own_sources(build)
-    os.makedirs(os.path.join(folder, "source"))
+    printers = settings.printer if settings.printer and os.path.isfile(settings.printer) else None
+    files = [*srcs, params_path] + ([printers] if printers else [])
+    leaking = [rel(f) for f in files if holds_machine_path(f)]
+    if leaking:
+        raise FinalizeError(f"{', '.join(leaking)} holds a path of this machine; take it out (a name, not a path) "
+                            "before bundling")
+    names = [os.path.basename(f) for f in files]
+    if len(set(names)) != len(names):
+        raise FinalizeError(f"two bundled files share a name ({', '.join(names)}); rename one")
+    os.makedirs(folder)
     written = []
-    for s in srcs:
-        dst = os.path.join(folder, "source", os.path.basename(s))
-        shutil.copyfile(s, dst)
+    for src in srcs:
+        dst = os.path.join(folder, os.path.basename(src))
+        shutil.copyfile(src, dst)
         written.append(rel(dst))
-    pdst = os.path.join(folder, "source", "params.json")
-    shutil.copyfile(params_path, pdst)
-    written.append(rel(pdst))
-    with open(os.path.join(folder, "verification.json"), "w", encoding="utf-8") as f:
-        json.dump(report, f, indent=2, ensure_ascii=False)
-    written.append(rel(os.path.join(folder, "verification.json")))
-    names = [os.path.basename(s) for s in srcs]
-    main = os.path.basename(build.get("source") or (names[0] if names else "model"))
+    shutil.copyfile(params_path, os.path.join(folder, "params.json"))
+    written.append(rel(os.path.join(folder, "params.json")))
+    if printers:
+        shutil.copyfile(printers, os.path.join(folder, "printers.json"))
+        written.append(rel(os.path.join(folder, "printers.json")))
+    main = os.path.basename(build.get("source") or (srcs[0] if srcs else "model"))
     engine = build.get("engine") or "?"
+    flags = []
+    if printers:
+        flags.append("--printer printers.json")
+    for f in ("printer_id", "tools", "tol", "overhang_angle", "min_wall"):
+        if getattr(settings, f, None) is not None:
+            flags.append(f"--{f.replace('_', '-')} {getattr(settings, f)}")
+    if settings.wall_check is False:
+        flags.append("--no-wall-check")
+    flag_text = (" " + " ".join(flags)) if flags else ""
     lines = ["# Reproduce", "",
-             f"Engine: {engine}. Generator: `{main}`. Parameters: `params.json`. Run from the `source` folder, with "
+             f"Engine: {engine}. Generator: `{main}`. Parameters: `params.json`. Run from this folder, with "
              "`SKILL_DIR` the 3dprint-scout skill folder.", ""]
     if engine in ("openscad", "python", "blender"):
-        lines += ["```bash", f'python3 "$SKILL_DIR/scripts/build.py" run {main} --params params.json --out out > out_build.json',
+        lines += ["```bash", f'python3 "$SKILL_DIR/scripts/build.py" run {main} --params params.json --out out{flag_text} > build.json',
                   "```", ""]
     else:
         lines += [f"This build was recorded (`build.py record`, engine {engine}): run the generator in {engine}, export "
-                  "one STL per part named after the part, then:", "", "```bash",
-                  f'python3 "$SKILL_DIR/scripts/build.py" record <part>.stl ... --source {" ".join(names) or main} '
-                  "--params params.json --engine " + engine + " --out out > out_build.json", "```", ""]
-    lines += ["Then re-check, with the same printers.json as the build:", "", "```bash",
-              'python3 "$SKILL_DIR/scripts/finalize.py" --build out_build.json --params params.json', "```", "",
+                  "one STL per part named after the part into `out/`, then:", "", "```bash",
+                  f'python3 "$SKILL_DIR/scripts/build.py" record out/<part>.stl ... --source '
+                  f'{" ".join(os.path.basename(s) for s in srcs) or main} --params params.json --engine {engine} '
+                  f"--out out{flag_text} > build.json", "```", ""]
+    lines += ["Then re-check:", "", "```bash",
+              'python3 "$SKILL_DIR/scripts/finalize.py" --build build.json --params params.json', "```", "",
               "`verification.json` is the report this delivery was made with: what was verified, and what was not.", ""]
     with open(os.path.join(folder, "REPRODUCE.md"), "w", encoding="utf-8") as f:
         f.write("\n".join(lines))
     written.append(rel(os.path.join(folder, "REPRODUCE.md")))
+    written.append(rel(os.path.join(folder, "verification.json")))
+    report["bundle"] = written
+    with open(os.path.join(folder, "verification.json"), "w", encoding="utf-8") as f:
+        f.write(scrub(json.dumps(report, indent=2, ensure_ascii=False)))
     return written
 
 
@@ -380,22 +528,26 @@ def finalize(args):
     if not isinstance(build, dict) or build.get("schema") != "3dprint-scout.build/1":
         raise FinalizeError(f"{args.build}: not a build.py run / record report")
     params = load_json(args.params, "params")
+    if not isinstance(params, dict):
+        raise FinalizeError(f"{args.params}: not a params object")
     specs = part_specs(params)
     verify = params.get("_verify") or {}
     if not isinstance(verify, dict):
         raise FinalizeError("_verify in params.json must be an object")
+    check_verify_shape(verify)
+    settings = settings_for(build, args)
     out = {"schema": SCHEMA, "ran": True, "build": rel(args.build), "engine": build.get("engine"),
            "geometry": None, "shape": {}, "slicing": "unverified", "print": "unverified",
+           "settings": {f: getattr(settings, f) for f in SETTINGS} | {"wall_check": settings.wall_check},
            "parts": [], "objects": [], "joints": [], "strength": [], "test_prints": [], "open": [],
            "accepted": [], "assumptions": list(params.get("_assumptions") or []),
            "unverified_dimensions": list(verify.get("unverified") or []), "warnings": [], "errors": []}
-    reasons = []
-    if not build.get("ran"):
-        reasons.append("the build did not run")
-    parts, r, warns, fresh_all = check_parts(build, specs, args.params, args)
+    out["settings"]["printer"] = rel(settings.printer)
+    reasons = check_build(build)
+    parts, r, warns, to_decide, same_as_build = check_parts(build, specs, args.params, settings)
     out["parts"] = parts
     reasons += r
-    objs, r, w = check_objects(build, fresh_all)
+    objs, r, w = check_objects(build, same_as_build)
     out["objects"] = objs
     reasons += r
     warns += w
@@ -404,17 +556,18 @@ def finalize(args):
     out["joints"] = joints
     reasons += r
     out["warnings"] += notes
-    strength, r = check_strength(verify)
+    strength, r, notes = check_strength(verify)
     out["strength"] = strength
     reasons += r
+    out["warnings"] += notes
     prints, print_lines = check_prints(verify)
     out["test_prints"] = prints
     accepted = verify.get("accepted") or []
     out["accepted"] = accepted
-    taken = {str(a.get("check", "")).strip().lower() for a in accepted}
-    open_warns = [f"{who} WARN: {note}".rstrip(": ") for who, note in warns if who.strip().lower() not in taken]
+    taken = {" ".join(str(a.get("check", "")).split()).lower() for a in accepted}
+    open_warns = [f"{who} WARN: {note}".rstrip(": ") for who, note in warns if " ".join(who.split()).lower() not in taken]
     if args.deliver:
-        delivered, r = check_delivered(args.deliver, parts)
+        delivered, r = check_delivered(args.deliver, parts, build)
         out["delivered"] = delivered
         reasons += r
     shape, shape_lines = check_references(verify, [o["name"] for o in build.get("objects") or []])
@@ -425,36 +578,43 @@ def finalize(args):
     out["print"] = ("unverified (test prints passed: " + ", ".join(passed) + "; the final part is not printed)"
                     if passed else "unverified")
     out["open"] = (reasons + [f"open warning (not accepted in _verify.accepted): {w}" for w in open_warns]
-                   + print_lines + shape_lines
+                   + to_decide + print_lines + shape_lines
                    + [f"unverified: {u}" for u in out["unverified_dimensions"]]
                    + [f"assumption: {a}" for a in out["assumptions"]])
     out["summary"] = [
-        "geometry: " + ("verified (every part, object, declared joint and member checked against the files being "
-                        "delivered)" if geometry_ok else f"not verified ({len(reasons) + len(open_warns)} open items)"),
+        "geometry: " + ("verified (every part, object, declared joint and member checked; the delivered files are "
+                        "the verified ones)" if geometry_ok and args.deliver else
+                        "verified (every part, object, declared joint and member checked)" if geometry_ok else
+                        f"not verified ({len(reasons) + len(open_warns)} open items)"),
         "shape: " + ("; ".join(f"{o} from {', '.join(v['verified_from']) or 'no direction'}" for o, v in shape.items())
                      or "not declared"),
         "slicing: unverified (not sliced here)",
         "print: " + out["print"]]
     if args.bundle:
-        out["bundle"] = write_bundle(args.bundle, build, args.params, out)
-    return out
+        write_bundle(args.bundle, build, args.params, settings, out)
+    return json.loads(scrub(json.dumps(out, ensure_ascii=False)))
 
 
 def main(argv=None):
-    ap = argparse.ArgumentParser(description="final verification report of a build (Phase 6)")
+    ap = JsonArgParser(description="final verification report of a build (Phase 6)")
     ap.add_argument("--build", required=True, help="the saved JSON of build.py run / record")
     ap.add_argument("--params", default=os.path.join(".3dprint", "params.json"))
-    ap.add_argument("--printer", help="printers.json, as the build had it (D2)")
-    ap.add_argument("--tools", help="tool ids, as the build had them")
-    ap.add_argument("--no-wall-check", dest="wall_check", action="store_false", help="skip P3 (ray casting)")
-    ap.add_argument("--deliver", help="the delivery folder: its STLs must be the verified ones")
+    ap.add_argument("--printer", help="printers.json (default: the one the build used)")
+    ap.add_argument("--printer-id", help="printer id in printers.json (default: the build's)")
+    ap.add_argument("--tools", help="tool ids (default: the build's)")
+    ap.add_argument("--tol", type=float, help="D1 tolerance (default: the build's)")
+    ap.add_argument("--overhang-angle", type=float, help="P2 limit (default: the build's)")
+    ap.add_argument("--min-wall", type=float, help="P3 minimum wall (default: the build's)")
+    ap.add_argument("--no-wall-check", dest="wall_check", action="store_false", default=None,
+                    help="skip P3 (default: as the build did)")
+    ap.add_argument("--deliver", help="the delivery folder: its STLs and 3MFs must be the verified ones")
     ap.add_argument("--bundle", help="a new folder for the sources, params, this report and REPRODUCE.md")
     try:
         args = ap.parse_args(argv)
         out = finalize(args)
         code = 0
     except (FinalizeError, OSError) as exc:
-        out = {"schema": SCHEMA, "ran": False, "geometry": None, "warnings": [], "errors": [str(exc)]}
+        out = {"schema": SCHEMA, "ran": False, "geometry": None, "warnings": [], "errors": [scrub(str(exc))]}
         code = 1
     print(json.dumps(out, indent=2, ensure_ascii=False))
     return code
