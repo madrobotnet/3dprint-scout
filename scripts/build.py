@@ -236,8 +236,26 @@ def bpy_pythons(explicit: str | None = None) -> list[str]:
     return out
 
 
-BPY_PROBE = ("import json, sys, bpy; print('@@BPY ' + json.dumps({'version': bpy.app.version_string, "
-             "'version_tuple': list(bpy.app.version), 'python': sys.version.split()[0]}))")
+BPY_PROBE = ("import json, sys, importlib.util, bpy; print('@@BPY ' + json.dumps({'version': bpy.app.version_string, "
+             "'version_tuple': list(bpy.app.version), 'python': sys.version.split()[0], "
+             "'manifold3d': importlib.util.find_spec('manifold3d') is not None}))")
+MF_PROBE = "import importlib.util; print('@@MF', importlib.util.find_spec('manifold3d') is not None)"
+
+
+def blender_manifold3d(exe: str) -> bool | None:
+    """Whether the Python inside a Blender binary has manifold3d (parts.py through
+    bb.from_manifold), or None when the probe could not tell. Starts Blender in the background
+    once, without the user's preferences or add-ons."""
+    try:
+        with tempfile.TemporaryDirectory() as empty:
+            r = subprocess.run([exe, "--background", "--factory-startup", "--python-expr", MF_PROBE],
+                               capture_output=True, timeout=BPY_PROBE_TIMEOUT, cwd=empty, **TEXT)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    for ln in r.stdout.splitlines():
+        if ln.startswith("@@MF "):
+            return ln.split()[1] == "True"
+    return None
 
 
 def bpy_info(python: str | None = None) -> dict | None:
@@ -284,6 +302,8 @@ def blender_status(python: str | None = None) -> dict:
         notes = []
     binary_ok = bool(binary) and not binary.get("error") and not too_old(binary["version"])
     module_ok = bool(module) and not too_old(module["version_tuple"])
+    if binary_ok:
+        binary["manifold3d"] = blender_manifold3d(exe)
     for label, ver in (("binary", binary and version_tuple(binary["version"])),
                        ("bpy", module and tuple(module["version_tuple"]))):
         note = too_old(ver) if ver else None
@@ -293,6 +313,11 @@ def blender_status(python: str | None = None) -> dict:
         notes.append("both a binary and the bpy module: build.py uses the binary (--blender-python forces bpy)")
     elif binary and not binary_ok and module_ok:
         notes.append("the binary is not usable: build.py and render.py use the bpy module")
+    runs = binary if binary_ok else module if module_ok else None
+    if runs is not None and runs.get("manifold3d") is False:
+        notes.append("the Python that runs Blender has no manifold3d: parts.py's helpers (screw holes, snaps, hinges, "
+                     "threads) cannot reach a Blender build through bb.from_manifold; build such a part with the Python "
+                     "engine, or install manifold3d into that Python (ask first)")
     # The same choice as choose_blender: the Manifold solver is there when what runs is 4.5+.
     return {"binary": binary, "bpy": module, "manifold_boolean": binary_ok or module_ok, "notes": notes}
 

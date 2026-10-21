@@ -7,6 +7,7 @@ import glob
 import hashlib
 import io
 import json
+import math
 import os
 import re
 import shutil
@@ -264,6 +265,69 @@ class PureHelpers(unittest.TestCase):
             bb.box([1, 1, 1])
 
 
+class Profiles(unittest.TestCase):
+    """0.6: 2D profiles with true arcs and rounded corners (pure Python, no Blender)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.bb = load()
+
+    def test_arc_and_outline(self):
+        bb = self.bb
+        a = bb.arc((0, 0), 10, 0, 90)
+        self.assertEqual((a.center, a.r), ((0.0, 0.0), 10.0))
+        self.assertAlmostEqual(a[0][0], 10)
+        self.assertAlmostEqual(a[-1][1], 10)
+        self.assertLessEqual(max(math.dist(a[i], a[i + 1]) for i in range(len(a) - 1)), 0.4 + 1e-9)   # the circle rule
+        cw = bb.arc((0, 0), 10, 90, -90)                                       # clockwise through 0 deg
+        self.assertAlmostEqual(cw[len(cw) // 2][0], 10, delta=0.01)
+        pts = bb.outline([(0, 0), (10, 0)], (10, 0), bb.arc((10, 5), 5, -90, 90), (0, 10), (0, 0))
+        self.assertEqual(pts[0], (0.0, 0.0))
+        self.assertNotEqual(pts[-1], (0.0, 0.0))                               # no closing repeat
+        self.assertEqual(len(pts), len(set(pts)))
+
+    def test_round_profile_on_straight_corners(self):
+        bb = self.bb
+        pts = bb.round_profile([(0, 0), (30, 0), (30, 20), (0, 20)], 2.0)
+        for cx, cy in ((2, 2), (28, 2), (28, 18), (2, 18)):
+            near = [p for p in pts if math.dist(p, (cx, cy)) < 2.5]
+            self.assertGreater(len(near), 3)
+            self.assertTrue(all(abs(math.dist(p, (cx, cy)) - 2.0) < 1e-9 for p in near))
+        self.assertAlmostEqual(min(p[0] for p in pts), 0.0)
+        one = bb.round_profile([(0, 0), (30, 0), (30, 20), (0, 20)], 2.0, corners=[1])
+        self.assertIn((0.0, 0.0), one)                                         # only corner 1 rounded
+        self.assertNotIn((30.0, 0.0), one)
+        with self.assertRaises(ValueError) as cm:
+            bb.round_profile([(0, 0), (3, 0), (3, 20), (0, 20)], 2.0)           # 4 mm of round on a 3 mm edge
+        self.assertIn("overlap", str(cm.exception))
+
+    def test_round_profile_against_an_arc(self):
+        """A plate with a half-round ridge: the feet are rounded against the ridge's circle, not
+        its facets; a C-ring lip is rounded where the opening meets the ring."""
+        bb = self.bb
+        ridge = [(0, 0), (40, 0), (40, 3), bb.arc((20, 3), 6, 0, 180), (0, 3)]
+        pts = bb.round_profile(ridge, 1.0, corners=[3, 4])
+        for c in ((20 + math.sqrt(48), 4.0), (20 - math.sqrt(48), 4.0)):      # 7 mm from the ridge centre, 1 above the plate
+            near = [p for p in pts if math.dist(p, c) < 1.0 + 1e-6]
+            self.assertGreater(len(near), 3)
+            self.assertTrue(all(abs(math.dist(p, c) - 1.0) < 1e-9 for p in near), near)
+        r_i, r_o, half, r, zc = 16.45, 19.65, 14.0, 1.0, 19.95
+        deg = math.degrees
+        a_o = deg(math.atan2(math.sqrt(r_o ** 2 - half ** 2), half))
+        a_i = deg(math.atan2(math.sqrt(r_i ** 2 - half ** 2), half))
+        c_ring = [bb.arc((0, zc), r_o, -30, a_o), bb.arc((0, zc), r_i, a_i, 180 - a_i - 360),
+                  bb.arc((0, zc), r_o, 180 - a_o, 210)]
+        lip = bb.round_profile(c_ring, r, corners=[1, 2, 3, 4])
+        top = max(p[1] for p in lip)
+        self.assertAlmostEqual(top, zc + math.sqrt((r_o - r) ** 2 - (half + r) ** 2) + r, delta=0.002)   # tangent inside the outer circle
+
+    def test_round_profile_turning_edges_are_not_corners(self):
+        bb = self.bb
+        pts = bb.round_profile([(0, 0), (20, 0), bb.arc((20, 10), 10, -90, 90), (0, 20)], 1.0)
+        self.assertTrue(all(p[0] <= 30 + 1e-9 for p in pts))                  # the arc's joints are smooth: left alone
+        self.assertTrue(any(abs(p[0]) < 1e-9 and 0.9 < p[1] < 19.1 for p in pts))
+
+
 # --------------------------------------------------------------------------- #
 # With Blender
 # --------------------------------------------------------------------------- #
@@ -450,6 +514,110 @@ emit(info=info)
                          f["metrics"])
         self.assertEqual(rep["info"][0]["welded_vertices"], 1)
         self.assertEqual(rep["info"][0]["triangles"], 12)
+
+    def test_fillet_has_a_true_radius_and_refuses_facets(self):
+        """0.6: bevel's width is Blender's offset (the radius only at 90 degrees); fillet gives the
+        same radius on a 90 and a 120 degree edge, and refuses to round along a curve's facets
+        before changing anything, pointing at round_profile."""
+        rep = run_in_blender(f"""
+import math
+bb.new_scene_mm()
+O = [(0, 0), (30, 0), (30, 20), (15, 20 + 15 * math.tan(math.radians(30))), (0, 20)]
+p = bb.prism(O, 10, name="p")
+sel = bb.edges(p, axis="z")
+bb.fillet(p, 2.0, sel)
+top = [(v.co.x, v.co.y) for v in p.data.vertices if abs(v.co.z - 10) < 1e-6]
+dist = {{}}
+for k in range(len(O)):
+    q, a_, b_ = O[k], O[k - 1], O[(k + 1) % len(O)]
+    u = [a_[0] - q[0], a_[1] - q[1]]; v = [b_[0] - q[0], b_[1] - q[1]]
+    lu, lv = math.hypot(*u), math.hypot(*v); u = [c / lu for c in u]; v = [c / lv for c in v]
+    al = math.acos(u[0] * v[0] + u[1] * v[1]); bis = [u[0] + v[0], u[1] + v[1]]; lb = math.hypot(*bis)
+    c = (q[0] + bis[0] / lb * 2 / math.sin(al / 2), q[1] + bis[1] / lb * 2 / math.sin(al / 2))
+    t = 2 / math.tan(al / 2)
+    ds = [math.hypot(x - c[0], y - c[1]) for x, y in top if 1e-6 < math.hypot(x - q[0], y - q[1]) <= t + 1e-6]
+    dist[round(math.degrees(al))] = dist.get(round(math.degrees(al)), []) + [min(ds), max(ds)]
+bb.part(p, "p")
+info = bb.export_parts({self.tmp!r})
+plate = bb.box([40, 30, 3], "plate")
+ridge = bb.prism(bb.outline(bb.arc((20, 3), 6, 180, 0)), 30, name="ridge", plane="XZ")
+bb.boolean(plate, ridge, "union")
+before = len(plate.data.vertices)
+try:
+    bb.fillet(plate, 1.0, bb.edges(plate, axis="y", inside=((0, -1, 2.9), (40, 31, 3.1)))); refused = None
+except ValueError as exc:
+    refused = str(exc)
+emit(selected=len(sel), dist=dist, refused=refused, untouched=len(plate.data.vertices) == before, mods=len(plate.modifiers))
+""")
+        self.assertEqual(rep["selected"], 5)
+        self.assertEqual([round(x, 4) for x in rep["dist"]["90"]], [2.0, 2.0, 2.0, 2.0])
+        lo, hi = min(rep["dist"]["120"]), max(rep["dist"]["120"])
+        self.assertTrue(2.0 * 0.985 <= lo <= hi <= 2.0 + 1e-4, rep["dist"])   # within 1.5 % (Blender's profile)
+        f = check(os.path.join(self.tmp, "p.stl"))
+        self.assertEqual({k: f["checks"][k]["state"] for k in ("M1", "M2", "M3", "M4")}, {k: "PASS" for k in ("M1", "M2", "M3", "M4")})
+        self.assertIn("facets of a curved face", rep["refused"])
+        self.assertIn("round_profile", rep["refused"])
+        self.assertTrue(rep["untouched"])
+        self.assertEqual(rep["mods"], 0)
+
+    @unittest.skipUnless(find_spec("manifold3d") is not None, "manifold3d not installed")
+    def test_parts_reach_blender_through_from_manifold(self):
+        """0.6: a parts.py countersunk hole cut from a Blender block (the bridge), the result
+        exported and checked; an STL read back with import_stl keeps its volume."""
+        rep = run_in_blender(f"""
+import parts
+bb.new_scene_mm()
+blk = bb.box([20, 20, 8], "blk")
+hole = bb.from_manifold(parts.screw_hole("M3", depth=8.5, kind="countersunk").translate([10, 10, 8]), "hole")
+bb.boolean(blk, hole, "difference")
+bb.part(blk, "blk")
+info = bb.export_parts({self.tmp!r})
+back = bb.import_stl(os.path.join({self.tmp!r}, "blk.stl"), "back")
+try:
+    bb.from_mesh([(0, 0, 0), (1, 0, 0), (0, 1, 0)], [(0, 1, 2)], "open"); open_refused = None
+except ValueError as exc:
+    open_refused = str(exc)
+emit(nm=bb.nonmanifold_edges(back), open_refused=open_refused, deps=[os.path.basename(d) for d in bb._deps()])
+""")
+        f = check(os.path.join(self.tmp, "blk.stl"))
+        self.assertEqual({k: f["checks"][k]["state"] for k in ("M1", "M2", "M3", "M4", "D3")}, {k: "PASS" for k in ("M1", "M2", "M3", "M4", "D3")}, f["metrics"])
+        csk = 3.14159 * 1.6 ** 2                                               # the shank alone, as a lower bound
+        self.assertLess(f["metrics"]["volume_mm3"], 20 * 20 * 8 - csk * 8)
+        self.assertEqual(rep["nm"], 0)
+        self.assertIn("open or non-manifold", rep["open_refused"])
+        self.assertIn("parts.py", rep["deps"])                                 # parts.py is hashed into the manifest
+
+    def test_planes_transforms_and_world_bed_chamfer(self):
+        rep = run_in_blender(f"""
+import math
+bb.new_scene_mm()
+def vol(o):
+    me = o.data; me.calc_loop_triangles()
+    return sum(me.vertices[t.vertices[0]].co.dot(me.vertices[t.vertices[1]].co.cross(me.vertices[t.vertices[2]].co)) / 6
+               for t in me.loop_triangles)
+vols, boxes = {{}}, {{}}
+for plane in ("XY", "XZ", "YZ"):
+    o = bb.prism([(0, 0), (10, 0), (10, 5), (0, 5)], 3, name=plane, plane=plane)
+    vols[plane] = round(vol(o), 3)
+    lo, hi, _ = bb.world_bbox(o)
+    boxes[plane] = [round(c, 3) for c in hi]
+c = bb.cone(2, 4, 2, name="c")
+bar = bb.box([30, 6, 4], "bar")
+bar.rotation_euler = (math.radians(90), 0, math.radians(30))
+bar.location = (5, 5, 0)
+bb.bed_chamfer(bar, 0.4)
+bb.part(bar, "bar")
+info = bb.export_parts({self.tmp!r})
+emit(vols=vols, boxes=boxes, cone=round(vol(c), 3), identity=bar.matrix_world == bar.matrix_world.Identity(4))
+""")
+        self.assertEqual(rep["vols"], {"XY": 150.0, "XZ": 150.0, "YZ": 150.0})
+        self.assertEqual(rep["boxes"], {"XY": [10.0, 5.0, 3.0], "XZ": [10.0, 3.0, 5.0], "YZ": [3.0, 10.0, 5.0]})
+        self.assertAlmostEqual(rep["cone"], math.pi * 2 / 3 * (4 + 8 + 16), delta=0.5)   # frustum, faceted
+        self.assertTrue(rep["identity"])
+        f = check(os.path.join(self.tmp, "bar.stl"))
+        self.assertEqual(f["checks"]["M1"]["state"], "PASS")
+        self.assertAlmostEqual(f["metrics"]["bbox_min_mm"][2], 0.0, delta=1e-4)            # the world bed
+        self.assertLess(f["metrics"]["bed_contact_mm2"], 30 * 4 - 1)                    # inset by the chamfer
 
     def test_text_single_letter_at_its_cap_height(self):
         rep = run_in_blender(f"""
