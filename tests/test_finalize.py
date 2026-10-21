@@ -8,6 +8,7 @@ import tempfile
 import unittest
 from contextlib import redirect_stdout
 from importlib.util import find_spec
+from unittest import mock
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, "..", "scripts"))
@@ -307,17 +308,54 @@ class Finalize(Workspace):
         self.assertEqual(finalize.check_build({"ran": True, "gate": "FAIL"}), ["the build's gate was FAIL, not PASS"])
         self.assertEqual(finalize.check_build({"ran": True, "gate": None}), ["the build's gate was None, not PASS"])
 
-    def test_machine_paths_are_matched_as_whole_folders(self):
+    def test_machine_paths_are_taken_out_in_every_form(self):
+        """Third review of 0.6: the report is scrubbed leniently (a file:// link, after -I, before
+        a dot or a bar, any case); the bundle refuses a source only for a whole folder of this
+        machine (not /home/anne for /home/ann), JSON-escaped or in MSYS form included."""
         here = os.getcwd()
-        self.assertEqual(finalize.scrub(f'"{here}/out/a.stl" {here}'), '"./out/a.stl" .')
-        self.assertEqual(finalize.scrub(f"{here}2/x.stl"), f"{here}2/x.stl")          # another folder
-        self.assertEqual(finalize.scrub(f"/srv{here}/x"), f"/srv{here}/x")              # not a prefix here
-        with open("a.txt", "w") as f:
-            f.write(f"FONT = '{here}-fonts/a.ttf'\n")
-        self.assertFalse(finalize.holds_machine_path("a.txt"))
-        with open("b.txt", "w") as f:
-            f.write(f"FONT = '{here}/a.ttf'\n")
-        self.assertTrue(finalize.holds_machine_path("b.txt"))
+        for text in (f"file://{here}/a.stl", f"-I{here}/include", f"<p>{here}</p>", f"{here}|x", f"saved in {here}.",
+                     here.upper() + "/x"):
+            self.assertNotIn(here.lower(), finalize.scrub(text).lower(), text)
+        self.assertEqual(finalize.scrub(f'"{here}/out/a.stl"'), '"./out/a.stl"')
+        for name, body, leaks in (("a.txt", f"FONT = '{here}-fonts/a.ttf'", False),
+                                  ("b.txt", f"FONT = '{here}/a.ttf'", True),
+                                  ("c.txt", f"CFLAGS = '-I{here}/inc'", True),
+                                  ("d.txt", f"saved in {here}.", True)):
+            with open(name, "w") as f:
+                f.write(body + "\n")
+            self.assertEqual(finalize.holds_machine_path(name), leaks, body)
+        win = "C:\\Users\\경우"
+        with mock.patch.object(finalize, "machine_prefixes", return_value=[win]):
+            for text in ("c:\\users\\경우\\x", "/c/Users/경우/x", "file:///C:/Users/경우/x", "/mnt/c/Users/경우/x",
+                         json.dumps({"p": win + "\\x"}), json.dumps({"p": win + "\\x"}, ensure_ascii=False)):
+                self.assertNotIn("경우", finalize.scrub(text), text)
+                self.assertNotIn("uacbd", finalize.scrub(text), text)
+            with open("e.json", "w") as f:
+                json.dump({"font": win + "\\fonts\\a.ttf"}, f)                    # \uXXXX escapes (ensure_ascii)
+            self.assertTrue(finalize.holds_machine_path("e.json"))
+
+    def test_object_checks_need_the_build_settings(self):
+        """Third review of 0.6: an object judged on one printer is not verified for another, nor
+        after printers.json changed since the build (each part is re-checked, the object is not)."""
+        self.params(self.full_verify(), _parts={"box": {"expect": [40, 30, 20], "object": "o"},
+                                                "lid": {"expect": [40, 30, 3], "object": "o", "role": "fused"}})
+        write_stl("out/lid.stl", box(40, 30, 3, 0, 0, 20))
+        self.record()
+        code, fin = self.finalize()
+        self.assertEqual(fin["settings_drift"], [])
+        self.assertFalse(any("other settings" in o for o in fin["open"]), fin["open"])
+        code, fin = self.finalize("--tools", "1")
+        self.assertTrue(any(o.startswith("object 'o': its checks (A1 / A2, D2, P1 / P2 on the whole) were made with "
+                                         "other settings") for o in fin["open"]), fin["open"])
+        self.assertEqual(fin["geometry"], "not verified")
+        with open(".3dprint/printers.json", encoding="utf-8") as f:
+            printers = json.load(f)
+        printers["_note"] = "edited after the build"
+        with open(".3dprint/printers.json", "w", encoding="utf-8") as f:
+            json.dump(printers, f)
+        code, fin = self.finalize()
+        self.assertIn(".3dprint/printers.json changed since the build", fin["settings_drift"])
+        self.assertEqual(fin["geometry"], "not verified")
 
     def test_bad_input_is_an_error(self):
         with open("out/build.json", "w") as f:

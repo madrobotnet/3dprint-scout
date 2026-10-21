@@ -607,19 +607,26 @@ emit(overlap=overlap, sharp=sharp, slab_mods=len(slab.modifiers), ok_nm=bb.nonma
         self.assertIn("round_profile", rep["sharp"])
 
     def test_fillet_overlap_check_keeps_rims_and_catches_holes(self):
-        """Second review of 0.6: the overlap check insets each flat face's outline (holes
-        included, across the faces a boolean splits it into). Rims of a cylinder, a rounded
-        rectangle, a hexagon and a hole pass; a hole too close to the edge, two holes too close,
-        and a hexagon past its inradius are refused."""
+        """Second and third review of 0.6: the overlap check insets each flat face's outline
+        (holes included, across the faces a boolean splits it into), and every result is checked
+        for faces that cross each other (validate.py does not look). A cut's face is split along
+        edges from the hole's rim; where one leaves a rim corner at a shallow angle the bevel ran
+        along it to the far corner (a slit, 101 crossing pairs), so those edges are turned onto the
+        corner's miter first. Rims of a cylinder, a rounded rectangle, a hexagon, a hole and a
+        boss's foot pass clean (the hole's round is a true radius); a hole too near the side, two
+        holes too close, a hexagon past its inradius, and a round whose end meets another round,
+        are refused, and a refusal after the bevel leaves the object as it was."""
         rep = run_in_blender("""
 import math
 def top(o, z):
     return bb.edges(o, inside=((-200, -200, z - 0.1), (200, 200, z + 0.1)))
+def sel(o, fn):
+    return [e.index for e in o.data.edges if fn([o.data.vertices[v].co for v in e.vertices])]
 def attempt(fn):
     bb.new_scene_mm()
     try:
         o = fn()
-        return [bb.nonmanifold_edges(o), bb.degenerate_triangles(o.data)]
+        return [bb.nonmanifold_edges(o), bb.degenerate_triangles(o.data), bb.self_intersections(o)]
     except ValueError as exc:
         return str(exc)
 def hole(at, r=4.0, size=(30, 30, 10)):
@@ -641,6 +648,17 @@ def rrect():
 def hole_rim():
     o = hole([(15, 15)])
     return bb.fillet(o, 0.5, top(o, 10))
+rim_r = []
+def rim_only():
+    o = hole([(15, 15)])
+    bb.fillet(o, 1.0, sel(o, lambda p: all(abs(q.z - 10) < 1e-3 and abs(math.hypot(q.x - 15, q.y - 15) - 4) < 0.01 for q in p)))
+    rim_r.append(min(math.hypot(v.co.x - 15, v.co.y - 15) for v in o.data.vertices if abs(v.co.z - 10) < 1e-4))
+    rim_r.append(max(v.co.z for v in o.data.vertices if math.hypot(v.co.x - 15, v.co.y - 15) < 4.001))
+    return o
+def boss_foot():
+    o = bb.box([30, 30, 4], "b"); c = bb.cylinder(5, 8, name="c"); c.location = (15, 15, 2)
+    bb.boolean(o, c, "union")
+    return bb.fillet(o, 1.0, sel(o, lambda p: all(abs(q.z - 4) < 1e-3 and abs(math.hypot(q.x - 15, q.y - 15) - 5) < 0.01 for q in p)))
 def near_edge():
     o = hole([(15, 5.5)])                                   # rim 1.5 mm from the side
     return bb.fillet(o, 1.0, top(o, 10))
@@ -650,15 +668,39 @@ def near_edge_ok():
 def two_holes():
     o = hole([(10, 10), (19, 10)], size=(30, 20, 5))        # 1 mm between the rims
     return bb.fillet(o, 0.6, top(o, 5))
-emit(**{n: attempt(f) for n, f in dict(hex3=lambda: hex_(3.0), hex44=lambda: hex_(4.4), cyl=cyl, rrect=rrect,
-                                       hole_rim=hole_rim, near_edge=near_edge, near_edge_ok=near_edge_ok,
-                                       two_holes=two_holes).items()})
+kept = []
+def end_meets():                                            # the top-front round's end meets the corner's round
+    o = bb.box([30, 4, 10], "b")
+    front = sel(o, lambda p: all(abs(q.z - 10) < 1e-6 and abs(q.y) < 1e-6 for q in p))
+    corner = sel(o, lambda p: all(abs(q.x) < 1e-6 and abs(q.y - 4) < 1e-6 for q in p))
+    n = len(o.data.vertices)
+    try:
+        return bb.fillet(o, 2.2, front + corner)
+    finally:
+        kept.append([n, len(o.data.vertices), len(o.modifiers)])
+def full_round():
+    o = bb.box([9.8, 30, 10], "b")
+    return bb.fillet(o, 4.9, top(o, 10) + bb.edges(o, axis="z"))
+def two_steps():
+    o = bb.box([20, 20, 10], "b")
+    bb.fillet(o, 1.0, top(o, 10))
+    return bb.fillet(o, 3.0, bb.edges(o, axis="z"))
+emit(rim_r=rim_r, kept=kept, **{n: attempt(f) for n, f in dict(
+    hex3=lambda: hex_(3.0), hex44=lambda: hex_(4.4), cyl=cyl, rrect=rrect, hole_rim=hole_rim, rim_only=rim_only,
+    boss_foot=boss_foot, near_edge=near_edge, near_edge_ok=near_edge_ok, two_holes=two_holes, end_meets=end_meets,
+    full_round=full_round, two_steps=two_steps).items()})
 """)
-        for name in ("hex3", "cyl", "rrect", "hole_rim", "near_edge_ok"):
-            self.assertEqual(rep[name], [0, 0], name)
+        for name in ("hex3", "cyl", "rrect", "hole_rim", "rim_only", "boss_foot", "near_edge_ok", "full_round",
+                     "two_steps"):
+            self.assertEqual(rep[name], [0, 0, 0], name)
+        self.assertAlmostEqual(rep["rim_r"][0], 5.0, delta=0.01)                 # the round meets the top 1 mm out
+        self.assertAlmostEqual(rep["rim_r"][1], 9.0, delta=0.01)                 # ... and the bore 1 mm down
         for name in ("hex44", "near_edge", "two_holes"):
             self.assertIsInstance(rep[name], str, name)
             self.assertIn("would overlap", rep[name], name)
+        self.assertIn("cross each other", rep["end_meets"])
+        self.assertEqual(rep["kept"][0][:2], [8, 8])                             # put back as it was
+        self.assertEqual(rep["kept"][0][2], 0)
 
     def test_apply_transform_keeps_shared_meshes_and_children(self):
         rep = run_in_blender("""
@@ -709,26 +751,70 @@ emit(nm=bb.nonmanifold_edges(back), open_refused=open_refused, deps=[os.path.bas
         self.assertIn(os.path.join(self.tmp, "blk.stl"), rep["deps_full"])      # so is an STL brought in
 
     def test_from_mesh_merges_split_facets_not_a_gentle_curve(self):
-        """Second review of 0.6: split facets are found by distance (float32 noise) and merged, so
-        two parts.py countersinks away from the origin cut a plate cleanly; the facets of an arc
-        of r = 1000 mm (0.023 deg apart, under any angle limit for noise) stay apart."""
+        """Second and third review of 0.6: split facets are merged back by flatness, never by an
+        angle alone (float32 noise on a thin triangle and the bend of a large radius overlap):
+        manifold3d's face groups when they are flat, else faces grown while every corner stays
+        within WELD / 2 of the seed's plane. Two parts.py countersinks cut a plate cleanly near
+        the origin and 300 mm out; the facets of an r = 1000 mm arc stay apart on both paths
+        (folded, a later cut replaced the arc with its chord); a merged face is flat."""
         rep = run_in_blender("""
 import math, parts
 from manifold3d import CrossSection, Manifold
-bb.new_scene_mm()
-plate = bb.box([70, 25, 4], "plate")
-for i, x in enumerate((10, 60)):
-    tool = bb.from_manifold(parts.screw_hole("M4", depth=4.1, kind="countersunk").translate([x, 12.5, 4]), f"h{i}")
-    bb.boolean(plate, tool, "difference")
+cuts = {}
+for x0 in (0, 300):
+    bb.new_scene_mm()
+    plate = bb.box([70, 25, 4], "plate"); plate.location = (x0, 0, 0); bb.apply_transform(plate)
+    for i, x in enumerate((10, 60)):
+        tool = bb.from_manifold(parts.screw_hole("M4", depth=4.1, kind="countersunk").translate([x0 + x, 12.5, 4]),
+                                f"h{i}")
+        bb.boolean(plate, tool, "difference")
+    cuts[x0] = [bb.degenerate_triangles(plate.data), bb.nonmanifold_edges(plate)]
 R, n = 1000.0, 100
 arc = [(R * math.sin(a), R - R * math.cos(a)) for a in (i * 0.0004 for i in range(n + 1))]
 pts = arc + [(arc[-1][0], arc[-1][1] + 5), (0, 5)]
-strip = bb.from_manifold(Manifold.extrude(CrossSection([pts]), 3), "strip")
-sides = sum(1 for p in strip.data.polygons if abs(p.normal.z) < 0.5)
-emit(deg=bb.degenerate_triangles(plate.data), nm=bb.nonmanifold_edges(plate), sides=sides, outline=len(pts))
+man = Manifold.extrude(CrossSection([pts]), 3)
+bb.new_scene_mm()
+strip = bb.from_manifold(man, "strip")
+mesh = man.to_mesh()
+raw = bb.from_mesh([tuple(v[:3]) for v in mesh.vert_properties.tolist()], mesh.tri_verts.tolist(), "raw")
+def sides(o):
+    return sum(1 for p in o.data.polygons if abs(p.normal.z) < 0.5)
+def worst(o):
+    me = o.data
+    return max(max(abs((me.vertices[v].co - me.vertices[p.vertices[0]].co).dot(p.normal)) for v in p.vertices)
+               for p in me.polygons)
+emit(cuts=cuts, sides=sides(strip), raw_sides=sides(raw), outline=len(pts), worst=max(worst(strip), worst(raw)))
 """)
-        self.assertEqual((rep["deg"], rep["nm"]), (0, 0))
+        self.assertEqual(rep["cuts"], {"0": [0, 0], "300": [0, 0]})
         self.assertEqual(rep["sides"], rep["outline"])                         # one face per outline edge
+        self.assertEqual(rep["raw_sides"], rep["outline"])
+        self.assertLess(rep["worst"], 1e-4)
+
+    def test_boolean_welds_only_degenerate_corners(self):
+        """Third review of 0.6: a boolean that leaves corners a hair apart merges only those
+        corners (as the export would) and counts again; two shells 0.07 um apart elsewhere stay
+        apart (a weld of the whole mesh joined them into a non-manifold edge, unreported)."""
+        rep = run_in_blender("""
+import bmesh
+E = 5e-5
+bb.new_scene_mm()
+bm = bmesh.new()
+for lo, hi in (((0, 0, 0), (10, 10, 10)), ((10 + E, 10 + E, 0), (20, 20, 10))):
+    vs = bmesh.ops.create_cube(bm, size=1.0)["verts"]
+    bmesh.ops.scale(bm, vec=[h - l for l, h in zip(lo, hi)], verts=vs)
+    bmesh.ops.translate(bm, vec=[(l + h) / 2 for l, h in zip(lo, hi)], verts=vs)
+o = bb.mesh_object("two", bm)
+t = bb.box([5, 6, 7], "t"); t.location = (-E, 2, 5); bb.apply_transform(t)
+try:
+    bb.boolean(o, t, "union"); err = None
+except ValueError as exc:
+    err = str(exc)
+emit(err=err, nm=bb.nonmanifold_edges(o), deg=bb.degenerate_triangles(o.data))
+""")
+        if rep["err"] is None:
+            self.assertEqual((rep["nm"], rep["deg"]), (0, 0))
+        else:
+            self.assertIn("non-manifold", rep["err"])                          # never returned silently
 
     def test_planes_transforms_and_world_bed_chamfer(self):
         rep = run_in_blender(f"""

@@ -122,23 +122,33 @@ def machine_prefixes():
     return sorted(out, key=len, reverse=True)
 
 
-def machine_patterns():
-    """(pattern, stand-in) for each form of this machine's folders, matched as whole path
-    prefixes: `/home/ann` is taken out of `/home/ann/out/x.stl`, not out of `/home/anne/x`."""
+def path_forms(p):
+    """The ways a folder is written in a report or a source: as is, with forward slashes, with
+    the doubled backslashes of JSON text, JSON-escaped (\\uXXXX for non-ASCII), and a Windows
+    drive as MSYS / WSL write it (/c/Users/..., /mnt/c/Users/...)."""
+    p = p.rstrip("/\\") or p
+    fwd = p.replace("\\", "/")
+    forms = {p, fwd, p.replace("\\", "\\\\"), json.dumps(p)[1:-1], json.dumps(fwd)[1:-1],
+             json.dumps(p, ensure_ascii=False)[1:-1]}
+    m = re.match(r"^([A-Za-z]):/(.*)$", fwd)
+    if m:
+        forms |= {f"/{m.group(1).lower()}/{m.group(2)}", f"/mnt/{m.group(1).lower()}/{m.group(2)}"}
+    return sorted(forms, key=len, reverse=True)
+
+
+def machine_forms():
+    """(form, stand-in) for every form of this machine's folders, longest first."""
     home = os.path.expanduser("~")
-    out = []
-    for p in machine_prefixes():
-        for form in sorted({p, p.replace("\\", "/"), p.replace("\\", "\\\\")}, key=len, reverse=True):
-            pat = re.compile(r"(?<![\w.~/\\-])" + re.escape(form.rstrip("/\\")) + r"(?=[/\\\s\"',;:)\]}]|$)")
-            out.append((pat, "~" if p == home else "."))
-    return out
+    out = [(f, "~" if p == home else ".") for p in machine_prefixes() for f in path_forms(p)]
+    return sorted(out, key=lambda x: len(x[0]), reverse=True)
 
 
 def scrub(text):
-    """The report's text with this machine's folders taken out: the working folder becomes `.`,
-    the home folder `~` (also in the doubled backslashes of JSON text)."""
-    for pat, stand_in in machine_patterns():
-        text = pat.sub(stand_in, text)
+    """The report's text with this machine's folders taken out wherever they appear, in any
+    case and form (a file:// link, after -I, in a JSON escape): the working folder becomes `.`,
+    the home folder `~`. Taking out too much is harmless here."""
+    for form, stand_in in machine_forms():
+        text = re.sub(re.escape(form), lambda _m, s_=stand_in: s_, text, flags=re.IGNORECASE)
     return text
 
 
@@ -173,6 +183,29 @@ def settings_for(build, args):
         s["wall_check"] = False
     s.setdefault("wall_check", True)
     return SimpleNamespace(**{f: s.get(f) for f in SETTINGS}, wall_check=s["wall_check"])
+
+
+def settings_drift(build, settings):
+    """What differs between the settings the build judged its objects with and this report's
+    (a field given here, or the printers.json changed since): the build's object checks do not
+    hold for these."""
+    b = build.get("validate_settings") or {}
+    out = []
+    for f in SETTINGS:
+        old, new = b.get(f), getattr(settings, f)
+        if f == "printer":
+            same = (not old and not new) or bool(old and new and os.path.normcase(os.path.abspath(old)) ==
+                                                  os.path.normcase(os.path.abspath(new)))
+        else:
+            same = old == new or (old is not None and new is not None and str(old) == str(new))
+        if not same:
+            out.append(f"{f} {old} -> {new}")
+    if bool(b.get("wall_check", True)) != bool(settings.wall_check):
+        out.append("wall_check")
+    pr = settings.printer
+    if b.get("printer_sha256") and pr and os.path.isfile(pr) and validate.file_sha256(pr) != b["printer_sha256"]:
+        out.append(f"{rel(pr)} changed since the build")
+    return out
 
 
 def check_parts(build, specs, params_path, settings):
@@ -248,7 +281,7 @@ def check_build(build):
     return reasons
 
 
-def check_objects(build, same_as_build):
+def check_objects(build, same_as_build, drift=()):
     """Object checks from the build (A1 / A2, an object's D2 / P1 / P2), only while every STL is
     the one that build judged."""
     entries, reasons, warns = [], [], []
@@ -260,6 +293,11 @@ def check_objects(build, same_as_build):
             entry["state"] = "UNVERIFIED"
             reasons.append(f"object '{o.get('name')}': its checks are from a build whose STLs have changed since; "
                            "build again and save that build's JSON")
+        elif drift:
+            entry["state"] = "UNVERIFIED"
+            reasons.append(f"object '{o.get('name')}': its checks (A1 / A2, D2, P1 / P2 on the whole) were made with "
+                           f"other settings than this report's ({'; '.join(drift)}); build again with them and save "
+                           "that build's JSON")
         else:
             if o.get("partial"):
                 reasons.append(f"object '{o.get('name')}' was built in part (--only): not judged as a whole")
@@ -472,7 +510,7 @@ def holds_machine_path(path):
             text = f.read()
     except OSError:
         return False
-    return any(pat.search(text) for pat, _ in machine_patterns())
+    return any(re.search(re.escape(form) + r"(?![\w-])", text, flags=re.IGNORECASE) for form, _ in machine_forms())
 
 
 def write_bundle(folder, build, params_path, settings, report):
@@ -559,7 +597,9 @@ def finalize(args):
     parts, r, warns, to_decide, copied, same_as_build = check_parts(build, specs, args.params, settings)
     out["parts"] = parts
     reasons += r
-    objs, r, w = check_objects(build, same_as_build)
+    drift = settings_drift(build, settings)
+    out["settings_drift"] = drift
+    objs, r, w = check_objects(build, same_as_build, drift)
     out["objects"] = objs
     reasons += r
     warns += w

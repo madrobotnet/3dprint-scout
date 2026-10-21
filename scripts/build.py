@@ -953,6 +953,8 @@ def finish(out, parts, sources, params, params_path, specs, args, engine):
     out["validate_settings"] = {f: (_relpath(getattr(args, f)) if f == "printer" and getattr(args, f, None)
                                     else getattr(args, f, None)) for f in VALIDATE_FLAGS}
     out["validate_settings"]["wall_check"] = bool(getattr(args, "wall_check", True))
+    pr = getattr(args, "printer", None)
+    out["validate_settings"]["printer_sha256"] = validate.file_sha256(pr) if pr and os.path.isfile(pr) else None
     gate = overall_gate(reports)
     if object_gates:
         gate = overall_gate([{"gate": gate}] + [{"gate": g} for g in object_gates])

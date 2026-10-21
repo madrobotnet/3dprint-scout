@@ -152,8 +152,9 @@ with `--only`, so it shows `seconds` per part and a `partial` object):
   (plus `partial` and `gate` when it is one part of a larger object built with `--only`).
 - `seconds` on a part is the engine's time for it (`run`); the top-level `seconds` is the
   whole command. `sha256` on a part is the STL its verdicts are about, and `validate_settings`
-  the printer, printer id, tools and tolerances they were made with: `finalize.py` re-checks with
-  the same, and only trusts the object checks while every STL still has that hash.
+  the printer, printer id, tools and tolerances they were made with (and `printer_sha256`, the
+  printers.json as it was): `finalize.py` re-checks with the same, and only trusts the object
+  checks while every STL still has that hash and the settings and printers.json are unchanged.
 - A `_parts` grouping that cannot be read (an unknown `role`, say) is in `errors` and makes the
   gate FAIL: the parts were validated, but no object check ran.
 - `record` only: a part whose STL already has a manifest from `run` that describes this very

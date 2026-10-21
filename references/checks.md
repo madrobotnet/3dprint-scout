@@ -84,6 +84,7 @@ The final report of Phase 6 (`references/phase-6-deliver.md`), schema `3dprint-s
                     "verified_from": ["front", "top"], "not_verified_from": ["back", "..."]}},
   "slicing": "unverified", "print": "unverified (test prints passed: hinge coupon; ...)",
   "settings": {"printer": ".3dprint/printers.json", "printer_id": null, "tools": "1", "tol": null, "...": "...", "wall_check": true},
+  "settings_drift": [],
   "parts": [{"name": "lid", "stl": "out/lid.stl", "sha256": "…", "same_as_build": true, "gate": "PASS", "checks": {"R3": "PASS", "...": "..."}}],
   "objects": [{"name": "box", "gate": "PASS", "parts": ["box", "lid"]}],
   "joints": [{"name": "lid on box", "report": "out/fit_box_lid.json", "fresh": "PASS", "checks": {"F3": "PASS"}}],
@@ -104,7 +105,9 @@ INCOMPLETE gate is named by the UNVERIFIED checks behind it), built every
 part in `_parts`, every part validates now (with the build's settings) with R3 PASS and no hard
 FAIL or UNVERIFIED and a D1 against an expect that was not copied from the model (or that the
 user accepted as `<part> D1` in `_verify.accepted`), every STL is
-the one the build JSON judged (so its object checks stand), every declared joint's
+the one the build JSON judged and the settings are the build's (`settings_drift` empty: no
+other printer, printer id, tools or tolerance given here, and printers.json unchanged since the
+build), so its object checks stand, every declared joint's
 report is fresh and its F3 / F3_sweep PASS against the delivered parts (or a declared proxy),
 every declared member's `strength.py` gate is PASS, no WARN is left unaccepted, the delivered
 copies (with `--deliver`) are the verified files, and `joints` and `strength` were declared at

@@ -23,7 +23,14 @@ for new features.
     circle there: +12 % at 60°, +75 % at 30°) and rounds that would meet on a flat face (its
     outline, holes included, inset by each round's reach must stay a proper outline: a hexagon's
     rim or a hole's rim passes, a hole nearer the side than the two reaches does not), and names
-    the way out: the profile, or a smaller radius.
+    the way out: the profile, or a smaller radius. A cut leaves its flat faces split along edges
+    from a hole's rim; those at a rounded corner are turned onto the corner's miter first (the
+    bevel ran along them: a slit from the rim to the far corner), so a hole's rim gets a true
+    round. After the bevel every result is checked for zero-area triangles, non-manifold edges
+    and faces that cross each other (`bb.self_intersections`, which validate.py does not look
+    for); any of them puts the object back as it was and raises. Known limit: a face cut by many
+    holes can still be refused there (a split edge passing near another hole); a hole's
+    chamfer or round then belongs in the cut's own tool.
   - `bb.arc`, `bb.outline`, `bb.round_profile`: 2D profiles from lines and true arcs, corners
     rounded with a circle tangent to both edges, straight or arc (a C-ring lip, a ridge foot);
     `bb.prism(plane="XZ" | "YZ")` extrudes them in any direction. `bb.cone`.
@@ -35,9 +42,11 @@ for new features.
   - Found on the way and fixed: a location or rotation set a moment before was not yet in
     `matrix_world` (Blender updates it when the scene is evaluated); an XZ prism came out inside
     out; a boolean with a triangulated tool left sliver triangles on flat faces (now turned into
-    proper ones); split facets of a parts.py tool are found by distance from each other's plane,
-    not by angle, so a countersink far from the origin cuts cleanly and the facets of a gentle
-    curve (r = 1000 mm) are never merged.
+    proper ones, and only corners closer than the weld distance merged, as the export does);
+    split facets of a parts.py tool are merged back by flatness, not by angle (manifold3d's face
+    groups when they are flat, otherwise grown while every corner stays within 0.05 um of the
+    seed's plane), so a countersink 300 mm from the origin cuts cleanly and the facets of a
+    gentle curve (r = 1000 mm) are never folded into one bent face.
 - **`finalize.py`**, the final report (Phase 6): from the saved build JSON and the evidence
   declared in `params.json` `_verify` (joints with their fit reports, members with their
   `strength.py` reports, test prints, accepted WARNs, unverified dimensions, reference coverage),
@@ -50,8 +59,10 @@ for new features.
   STL and 3MF in the delivery folder (a 3MF through the `<file>.3mf.manifest.json` that
   `build.py` and `bambu3mf.py` now write next to it). `--bundle` writes the generator,
   parameters, printers.json, the report and `REPRODUCE.md`, and refuses a file that holds a path
-  of this machine (matched as a whole folder). A D1 against an expect copied from the model stays
-  open until the user accepts it as `<part> D1`.
+  of this machine (a whole folder, in any form: JSON-escaped, MSYS, any case; the report itself
+  is scrubbed of every form). The build's object checks count only with the build's settings
+  and printers.json (`settings_drift`). A D1 against an expect copied from the model stays open
+  until the user accepts it as `<part> D1`.
 - **A `_parts` grouping that cannot be read** (a role with a typo) made no object check run and
   still gave the build a PASS; it is now a FAIL.
 - **References by direction** (#8): Phase 1 records which of the six directions the references
@@ -66,8 +77,11 @@ for new features.
   settings dropped on re-check, build errors ignored, two fillets that overlapped); each is
   fixed with a test that fails without the fix. Its re-check found the overlap check refusing
   valid rims (a cylinder's, a hole's, a hexagon's); the check was rebuilt on the flat face's
-  inset outline and tested on both sides.
-- **Tests**: 289 → 323, with Python 3.13 + Blender 5.2.2 and without Blender.
+  inset outline. A third pass found rounds on a cut's face that crossed themselves while every
+  mesh check passed, a weld that hid an overlap, a gentle curve folded flat, a round's end that
+  met another round, and an object judged on one printer reported as verified for another; all
+  are fixed or refused, with tests.
+- **Tests**: 289 → 325, with Python 3.13 + Blender 5.2.2 and without Blender.
 
 ## 0.5.1 — 2026-10-21
 
