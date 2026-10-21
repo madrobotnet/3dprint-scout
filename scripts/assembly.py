@@ -305,7 +305,8 @@ def check_object(obj: dict, stls: dict, specs: dict, bed=None, bed_source=None, 
                           "overlaps": overlap > allowed, "touches": overlap <= allowed and (overlap > 0 or gap <= TOUCH_EPS)})
         overlapping = [p for p in pairs if p["overlaps"]]
         fused_partners = [p for p in pairs if part_role(specs.get(p["part"]) or {}) == "fused"]
-        touching = [p for p in fused_partners if p["touches"]]      # a fused part shares faces with fused parts
+        touching = [p for p in fused_partners if p["touches"]]      # A1: a fused part shares faces with fused parts
+        touching_any = [p for p in pairs if p["touches"]]           # A2: a free part may touch nothing, free or fused
         nearest = min(pairs, key=lambda p: p["gap_mm"]) if pairs else None
         value = {"pairs": pairs}
         if role == "fused":
@@ -349,8 +350,8 @@ def check_object(obj: dict, stls: dict, specs: dict, bed=None, bed_source=None, 
         else:
             clearance = part_clearance(spec)
             value["clearance_mm"] = clearance
-            if overlapping or touching:
-                who = ", ".join(p["part"] for p in overlapping + touching)
+            if overlapping or touching_any:
+                who = ", ".join(dict.fromkeys(p["part"] for p in overlapping + touching_any))
                 entry["checks"]["A2"] = validate.chk(
                     "FAIL", "hard", value, f"touches or overlaps {who}: a print-in-place part would fuse to it; "
                     f"keep {clearance} mm all round", "phase4")

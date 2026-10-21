@@ -147,6 +147,11 @@ the X2D and H2D, objects that need both nozzles are placed where both can reach.
 
 ## Status
 
+**v0.5.1** fixes checks that could pass what they should not, found by an outside review: a
+move that passes through an obstacle on its way, a turn checked over less than the travel it
+needs (or with a negative travel) or past a stop between two steps, and two print-in-place parts
+that touch each other.
+
 **v0.5.0.** The Blender paths ran on a real Windows install (Blender 5.2.2 LTS, the binary and
 the official Blender Lab MCP server), and five scenario runs used the skill end to end (an
 organic pot, a snap clip, a mixed nameplate, a Gridfinity bin, a Hangul keyring). Their

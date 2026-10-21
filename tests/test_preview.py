@@ -164,7 +164,7 @@ class Preview(unittest.TestCase):
         end = preview.draw_text(img, "ISO 9", 2, 2)
         self.assertEqual(end, 2 + 6 * 2 * 5)
         self.assertGreater(int((img == preview.INK[0]).sum()), 50)
-        r = subprocess.run([sys.executable, "-I", os.path.join(SCRIPTS, "preview.py"), self.box, "-o",
+        r = subprocess.run([sys.executable, "-I", "-B", os.path.join(SCRIPTS, "preview.py"), self.box, "-o",
                             os.path.join(self.d, "cli.png"), "--views", "iso", "--size", "320x240"],
                            capture_output=True, text=True, encoding="utf-8")
         self.assertEqual(r.returncode, 0, r.stderr)
