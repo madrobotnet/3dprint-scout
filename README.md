@@ -2,7 +2,7 @@
 
 [한국어](README.ko.md)
 
-<img src="docs/demo.webp" width="100%" alt="Demo: one sentence becomes a printed phone stand. 3dprint-scout looks for existing models, draws the profile, builds two parts, checks the fit with three phones, slices in Bambu Studio, and the print matches the render.">
+<img src="https://raw.githubusercontent.com/madrobotnet/3dprint-scout/main/docs/demo.webp" width="100%" alt="Demo: one sentence becomes a printed phone stand. 3dprint-scout looks for existing models, draws the profile, builds two parts, checks the fit with three phones, slices in Bambu Studio, and the print matches the render.">
 
 An agent skill for designing things to 3D print, **reference-first**.
 
@@ -58,24 +58,24 @@ kit, a reference model), it measures the interface dimensions from the file and 
 ## Examples
 
 <p>
-<a href="examples/aa-battery-box/"><img src="examples/aa-battery-box/thumb.png" width="200" alt="AA battery box, OpenSCAD"></a>
-<a href="examples/snap-box/"><img src="examples/snap-box/thumb.png" width="200" alt="snap-fit box, part library"></a>
-<a href="examples/leaf-handle/"><img src="examples/leaf-handle/thumb.png" width="200" alt="leaf door handle, SDF"></a>
-<a href="examples/fit-test/"><img src="examples/fit-test/thumb.png" width="200" alt="fit-test rings"></a>
-<a href="examples/latch-box/"><img src="examples/latch-box/thumb.png" width="200" alt="latch box, colour part and print-in-place latch"></a>
-<a href="examples/blender-coaster/"><img src="examples/blender-coaster/thumb.png" width="200" alt="scalloped coaster, Blender"></a>
+<a href="https://github.com/madrobotnet/3dprint-scout/tree/main/examples/aa-battery-box/"><img src="https://raw.githubusercontent.com/madrobotnet/3dprint-scout/main/examples/aa-battery-box/thumb.png" width="200" alt="AA battery box, OpenSCAD"></a>
+<a href="https://github.com/madrobotnet/3dprint-scout/tree/main/examples/snap-box/"><img src="https://raw.githubusercontent.com/madrobotnet/3dprint-scout/main/examples/snap-box/thumb.png" width="200" alt="snap-fit box, part library"></a>
+<a href="https://github.com/madrobotnet/3dprint-scout/tree/main/examples/leaf-handle/"><img src="https://raw.githubusercontent.com/madrobotnet/3dprint-scout/main/examples/leaf-handle/thumb.png" width="200" alt="leaf door handle, SDF"></a>
+<a href="https://github.com/madrobotnet/3dprint-scout/tree/main/examples/fit-test/"><img src="https://raw.githubusercontent.com/madrobotnet/3dprint-scout/main/examples/fit-test/thumb.png" width="200" alt="fit-test rings"></a>
+<a href="https://github.com/madrobotnet/3dprint-scout/tree/main/examples/latch-box/"><img src="https://raw.githubusercontent.com/madrobotnet/3dprint-scout/main/examples/latch-box/thumb.png" width="200" alt="latch box, colour part and print-in-place latch"></a>
+<a href="https://github.com/madrobotnet/3dprint-scout/tree/main/examples/blender-coaster/"><img src="https://raw.githubusercontent.com/madrobotnet/3dprint-scout/main/examples/blender-coaster/thumb.png" width="200" alt="scalloped coaster, Blender"></a>
 </p>
 
 An AA battery box (OpenSCAD), a snap-fit box (part library), a leaf door handle (SDF toolkit),
 fit-test rings, a latch box with a separate colour part and a print-in-place latch, and a
 scalloped coaster with embossed text (Blender), built with the skill's scripts. Each comes with
 its source, parameters, check results and the commands that rebuild it: see
-[examples/](examples/).
+[examples/](https://github.com/madrobotnet/3dprint-scout/tree/main/examples).
 
 ## Install
 
 **Claude (web and desktop).** Download `3dprint-scout-v<version>.zip` from the
-[latest release](../../releases/latest), then go to **Customize > Skills**, click **+**, choose
+[latest release](https://github.com/madrobotnet/3dprint-scout/releases/latest), then go to **Customize > Skills**, click **+**, choose
 **Create skill > Upload a skill**, and upload the zip. Code execution must be enabled
 ([how skills work in Claude](https://support.claude.com/en/articles/12512180-use-skills-in-claude)).
 
@@ -239,8 +239,8 @@ entering the phase that names them.
 Thanks to everyone who has made 3dprint-scout better:
 
 - [@fivetaku](https://github.com/fivetaku): fit reports that record which STLs they measured, and
-  `fit.py --check` ([#9](../../pull/9)); workflow notes from a Blender MCP pipeline
-  ([#8](../../issues/8)).
+  `fit.py --check` ([#9](https://github.com/madrobotnet/3dprint-scout/pull/9)); workflow notes from a Blender MCP pipeline
+  ([#8](https://github.com/madrobotnet/3dprint-scout/issues/8)).
 
 Issues and pull requests are welcome.
 
