@@ -824,6 +824,16 @@ class FinalizePromises(Workspace):
                 out = self.run_use(self.verify([ribbon], dims=[], strength=[{"name": "ribbon",
                                                                             "report": "out/strength_ribbon.json"}]))
                 self.assertEqual(self.promise(out, "holds")["state"], state)
+        strength_report("out/strength_ribbon.json", "WARN")                    # accepted as "member <name>"
+        members = [{"name": "ribbon", "report": "out/strength_ribbon.json"}]
+        out = self.run_use(self.verify([ribbon], dims=[], strength=members, accepted=[
+            {"check": "member ribbon", "reason": "the user prints it first"}]))
+        self.assertEqual((out["strength"][0]["result"], out["geometry"]), ("accepted", "verified"))
+        self.assertEqual(self.promise(out, "holds")["state"], "not verified")   # still typed in
+        strength_report("out/strength_ribbon.json", "FAIL")                    # a FAIL is never accepted
+        out = self.run_use(self.verify([ribbon], dims=[], strength=members, accepted=[
+            {"check": "member ribbon", "reason": "the user prints it first"}]))
+        self.assertEqual((out["strength"][0]["result"], out["geometry"]), ("failed", "not verified"))
         strength_report("out/strength_ribbon.json", "PASS")
         out = self.run_use(self.verify([ribbon], dims=[], strength=[{"name": "ribbon", "report": "out/strength_ribbon.json"}]))
         self.assertIn("member 'ribbon': its inputs were typed in, not taken from the build's parameters",

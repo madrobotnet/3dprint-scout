@@ -127,8 +127,9 @@ copies (with `--deliver`) are the verified files, and `joints` and `strength` we
 all. Paths are relative to the folder it ran in. Exit 0 when it ran, 1 on a usage or file error
 (a missing or wrong `--build`, a bad `_verify`, an existing `--bundle` folder, a source outside
 the project folder). A malformed 3MF manifest is an `open` reason, not an error. A joint WARN
-the user accepted (`joint <name> <check>` in `_verify.accepted`) does not keep the geometry from
-being verified.
+the user accepted (`joint <name> <check>` in `_verify.accepted`), or a member's strength.py WARN
+accepted as `member <name>`, does not keep the geometry from being verified; a FAIL cannot be
+accepted.
 
 `use` is judged apart from `geometry`, from `_verify.promises` and `_verify.dims`. Each promise
 gets one state:

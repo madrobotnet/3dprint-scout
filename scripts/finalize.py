@@ -46,7 +46,8 @@ or without F3_sweep for a joint marked "sweep": true (a moving part), is not a p
 proxy names the dims it is built from and, as proxy_build, the saved JSON of the
 `build.py run --proxy` that made it from its own params file; the numbers in that file must be
 exactly the ones the dims declare. An empty list says the design has no joint. strength: strength.py reports
-(saved JSON), their gate must PASS; their inputs are numbers from the dimension table, not read
+(saved JSON), their gate must PASS (a WARN the user accepted as "member <name>" counts as
+accepted); their inputs are numbers from the dimension table, not read
 from the model, so the report says to keep them equal. test_prints: coupons and mechanism-first
 prints (status passed, failed, skipped, offered or pending). accepted: WARNs the user accepted,
 named "<part> <check>" or "object <name> <check>", with their reason; any other WARN is open
@@ -593,9 +594,10 @@ def measured_parts(rparts, by_sha):
     return names
 
 
-def check_strength(verify):
+def check_strength(verify, taken=frozenset()):
     """Every declared member's strength.py report; `result` as for joints (missing, failed, open,
-    passed) and `manual`: its inputs were typed in, not taken from the build."""
+    accepted: a WARN gate the user accepted as "member <name>", passed) and `manual`: its inputs
+    were typed in, not taken from the build."""
     if "strength" not in verify:
         return [], ["members not declared (_verify.strength): P7 is not counted; list each member's strength.py "
                     "report, or [] when nothing carries load"], []
@@ -613,7 +615,9 @@ def check_strength(verify):
             entry.update(gate=rep.get("gate"), case=rep.get("case"), worst=rep.get("worst"), inputs=rep.get("inputs"),
                          manual=True)
             entry["result"] = {"PASS": "passed", "FAIL": "failed"}.get(rep.get("gate"), "open")
-            if rep.get("gate") != "PASS":
+            if rep.get("gate") == "WARN" and norm(f"member {name}") in taken:
+                entry["result"], entry["accepted"] = "accepted", ["WARN"]
+            elif rep.get("gate") != "PASS":
                 reasons.append(f"member '{name}': strength.py {rep.get('case')} {rep.get('gate')} (worst: "
                                f"{rep.get('worst')})")
             notes.append(f"member '{name}': strength.py took its sizes from the numbers it was given "
@@ -889,6 +893,8 @@ def check_promises(verify, params, joints, strength, parts):
                               f"{what}: strength.py gate {entry.get('gate')}")
             elif res == "accepted":
                 acc.append(f"{what}: passed apart from WARNs the user accepted ({', '.join(entry['accepted'])})")
+                if k == "strength" and entry.get("manual"):
+                    notver.append(f"{what}: its inputs were typed in, not taken from the build's parameters")
             if k == "joint":
                 bad = [n for n in entry.get("measured") or [] if gate.get(n) == "FAIL"]
                 if bad:
@@ -1220,7 +1226,7 @@ def finalize(args):
     out["joints"] = joints
     reasons += r
     out["warnings"] += notes
-    strength, r, notes = check_strength(verify)
+    strength, r, notes = check_strength(verify, taken)
     out["strength"] = strength
     reasons += r
     out["warnings"] += notes
