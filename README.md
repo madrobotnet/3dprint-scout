@@ -157,7 +157,7 @@ the X2D and H2D, objects that need both nozzles are placed where both can reach.
 
 ## Status
 
-**Next: v0.6.1 (unreleased)** combines verification fixes with setup and workflow improvements.
+**v0.6.1** combines verification fixes with setup and workflow improvements.
 Assembly evidence now tracks object membership, roles and free-part clearances separately
 from STL geometry: changing those conditions requires a new build report. Older reports
 without an assembly fingerprint stay unverified until rebuilt or re-recorded. Engine detection
