@@ -726,8 +726,7 @@ def check_dims(verify, params, measurements=()):
             if not isinstance(d.get("where"), dict) or unplaced:
                 errs.append(f"{label}: a spec value needs where, for each parameter, the place in the spec its number "
                             f"comes from (missing: {', '.join(unplaced) or 'where'})")
-        if "tol" in d and not (isinstance(d["tol"], (int, float)) and not isinstance(d["tol"], bool)
-                               and d["tol"] == d["tol"] and 0 <= d["tol"] < float("inf")):
+        if "tol" in d and not (finite(d["tol"]) and d["tol"] >= 0):
             errs.append(f"{label}: tol must be a number of 0 or more")
         p = d.get("params")
         if not isinstance(p, dict) or not p:
@@ -779,13 +778,17 @@ def user_file_problems(d, measurements):
                             "user's file")
         elif len(exp) != 1 or exp[0].get("op") != "=":
             problems.append(f"{k}: measurement '{mname}' must hold one = expectation (it holds {len(exp)})")
-        elif not (isinstance(v, (int, float)) and not isinstance(v, bool)) or abs(exp[0]["value"] - v) > d["tol"] + 1e-9:
+        elif not finite(v) or abs(exp[0]["value"] - v) > d["tol"] + 1e-9:
             problems.append(f"{k}: measurement '{mname}' read {exp[0]['value']}, not {json.dumps(v)} within {d['tol']}")
     return problems
 
 
 def finite(v):
-    return isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)
+    """A real, finite number; an integer too large for a float (10**400 in edited JSON) is not."""
+    try:
+        return isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)
+    except OverflowError:
+        return False
 
 
 MEASURE_ARGS = {"info": ("file",), "slice": ("file", "z", "axis", "object", "center", "max_loops"),

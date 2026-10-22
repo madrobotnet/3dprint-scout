@@ -1118,6 +1118,8 @@ class FinalizePromises(Workspace):
                                 "levels": [{"level": 10, "loops": [{"size": [40, 31.0]}]}]},
                                f"value 31.0 is not what measure.py reads from the file now ({e0['value']})"),
                               ({"query": dict(good["query"], cmd="volume")}, "records no command"),
+                              ({"expect": [dict(e0, target=10 ** 400)]}, "lacks its path, op or target"),
+                              ({"expect": [dict(e0, tol=10 ** 400)]}, "has no tol"),
                               ({"expect": [dict(e0, state="PASS")], "gate": "PASS"}, "does not follow from its numbers"),
                               ({"gate": "PASS"}, "its gate does not follow"),
                               ({"expect": [dict(e0, tol=None)]}, "has no tol"),
@@ -1158,6 +1160,9 @@ class FinalizePromises(Workspace):
         self.assertEqual(out["dims"][0]["state"], "unbacked")
         self.assertIn("dims 'plug-head' is not backed by its measurements: plug_w: measurement 'plug width' read 13.1, "
                       "not 13.4 within 0.05", self.promise(out, "cable-out")["reasons"])
+        out = self.run_use(self.verify([self.CABLE], dims=[dict(head, tol=10 ** 400), rest], joints=joints, **members),
+                           values=values)
+        self.assertIn("dims 'plug-head': tol must be a number of 0 or more", out["promise_errors"])  # step 2 review
         write_stl("ref/plug.stl", box(13.2, 8, 9))                            # the file changed after its reading
         out = self.run_use(self.verify([self.CABLE], dims=[head, rest], joints=joints, **members), values=values)
         self.assertEqual(out["dims"][0]["problems"], ["plug_w: measurement 'plug width' is stale (the file it measured "
