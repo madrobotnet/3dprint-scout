@@ -42,9 +42,10 @@ is missing is reported as "not declared", which keeps its tier from being verifi
 joints: every joint F3 must cover, with its saved fit.py report: the report must be fresh (its
 STLs are the parts being delivered, or a declared proxy) and its own F3 / F3_sweep must PASS
 (a WARN the user accepted as "joint <name> <check>" counts as accepted); a report without F3,
-or without F3_sweep for a joint marked "sweep": true (a moving part), is not a passed fit. A proxy names the dims
-it is built from and, as proxy_build, the saved JSON of the build.py run that made it, which
-ties it to params.json as it is now. An empty list says the design has no joint. strength: strength.py reports
+or without F3_sweep for a joint marked "sweep": true (a moving part), is not a passed fit. A
+proxy names the dims it is built from and, as proxy_build, the saved JSON of the
+`build.py run --proxy` that made it from its own params file; the numbers in that file must be
+exactly the ones the dims declare. An empty list says the design has no joint. strength: strength.py reports
 (saved JSON), their gate must PASS; their inputs are numbers from the dimension table, not read
 from the model, so the report says to keep them equal. test_prints: coupons and mechanism-first
 prints (status passed, failed, skipped, offered or pending). accepted: WARNs the user accepted,
@@ -63,10 +64,10 @@ rests on, each tied to the params.json values the model is built from (they must
 with its source: assumed, caliper ("by": "user") or spec (its url, and where each number is in
 it: finalize reads no spec, so these are listed in open for the person to check). A promise rests on the
 dims its evidence names (and on its own `assumes`); a proxy joint that names none, or no
-proxy_build, rests on undeclared sizes. Each promise gets one state: error (declared wrongly),
+proxy_build, or built from numbers its dims do not declare, rests on undeclared sizes. Each promise gets one state: error (declared wrongly),
 failed (its evidence failed, whatever else), excluded (the user took it unverified), not
 verified (no evidence, stale evidence, evidence on a part whose checks FAIL, a proxy built from
-other parameters, a member's inputs typed in), assumed (it passed on an unmeasured size),
+other values, a member's inputs typed in), assumed (it passed on an unmeasured size),
 accepted (it passed with a WARN the user accepted) or verified.
 
 The report has five tiers and never folds them into one PASS:
@@ -427,7 +428,7 @@ def assembly_drift(build, specs):
     return []
 
 
-def check_joints(verify, parts, taken=frozenset(), params=None):
+def check_joints(verify, parts, taken=frozenset()):
     """Every declared joint's fit report. Each entry gets a `result` a promise can read: missing
     (no readable report), stale (not a report of the current parts), failed, open (a check that
     is neither PASS nor an accepted WARN), accepted (PASS apart from WARNs the user accepted as
@@ -490,9 +491,11 @@ def check_joints(verify, parts, taken=frozenset(), params=None):
             if len(unknown) == 2:
                 foreign = True
                 reasons.append(f"joint '{name}': neither STL the report measured is a part of this build")
-            entry["proxy_build"], note = proxy_provenance(j, [rparts.get(k) or {} for k in unknown], params)
+            entry["proxy_build"], note, built_from = proxy_provenance(j, [rparts.get(k) or {} for k in unknown])
             if note:
                 entry["proxy_note"] = note
+            if built_from is not None:
+                entry["proxy_params"] = built_from
         elif unknown:
             foreign = True
             reasons.append(f"joint '{name}': the report measured "
@@ -513,55 +516,65 @@ def check_joints(verify, parts, taken=frozenset(), params=None):
     return entries, reasons, notes
 
 
-def proxy_provenance(j, sides, params):
+def proxy_provenance(j, sides):
     """Whether the proxy a joint was fitted against is tied to the numbers it stands for: generated
     by `build.py run` (the joint's `proxy_build` names that build's JSON; a `record` manifest is
-    not the generator's word) from params.json as it is now. Returns (tied | untied | stale, note)."""
+    not the generator's word) from its params file as it is now. Returns (tied | untied | stale,
+    note, the engine parameters the proxy was built from when tied)."""
     if len(sides) != 1:                               # two: not this build's fit; none: no proxy in it
         return "stale", ("the fit report measured no proxy, only parts of this build: drop \"proxy\" or fit the proxy"
-                         if not sides else "neither STL the fit report measured is a part of this build")
+                         if not sides else "neither STL the fit report measured is a part of this build"), None
     pb = j.get("proxy_build")
     if not pb:
-        return "untied", "no proxy_build names the build.py run that made the proxy"
+        return "untied", "no proxy_build names the build.py run that made the proxy", None
     try:
         b = load_json(pb, "proxy build")
     except FinalizeError as exc:
-        return "stale", str(exc)
+        return "stale", str(exc), None
     if not isinstance(b, dict) or b.get("schema") != "3dprint-scout.build/1":
-        return "stale", f"{rel(pb)} is not a build.py run / record report"
+        return "stale", f"{rel(pb)} is not a build.py run / record report", None
     if not (isinstance(b.get("sources"), list) and isinstance(b.get("parts"), list)):
-        return "stale", f"{rel(pb)} lists no sources or parts"
+        return "stale", f"{rel(pb)} lists no sources or parts", None
     sources = [s for s in b["sources"] if isinstance(s, str)]
     missing = [s for s in sources if not os.path.isfile(s)]
     if not sources or missing:
-        return "stale", f"the sources {rel(pb)} hashed are missing: {', '.join(missing) or 'none listed'}"
+        return "stale", f"the sources {rel(pb)} hashed are missing: {', '.join(missing) or 'none listed'}", None
+    pp = b.get("params")
+    if not (isinstance(pp, str) and os.path.isfile(pp)):
+        return "stale", f"{rel(pb)} names no params file the proxy was built from (build it again)", None
+    try:
+        proxy_params = load_json(pp, "proxy params")
+    except FinalizeError as exc:
+        return "stale", str(exc), None
+    if not isinstance(proxy_params, dict):
+        return "stale", f"{rel(pp)} is not a params object", None
     for side in sides:
         sha = side.get("sha256")
         part = next((p for p in b["parts"] if isinstance(p, dict) and sha and p.get("sha256") == sha), None)
         if part is None:
-            return "stale", f"the proxy {rel(side.get('path'))} the fit measured is not one {rel(pb)} built"
+            return "stale", f"the proxy {rel(side.get('path'))} the fit measured is not one {rel(pb)} built", None
         stl = part.get("stl")
         mf = validate.manifest_path(stl) if isinstance(stl, str) else None
         try:
             with open(mf, encoding="utf-8") as f:
                 man = json.load(f)
         except (OSError, TypeError, ValueError):
-            return "stale", f"the proxy {rel(stl)} has no build manifest"
+            return "stale", f"the proxy {rel(stl)} has no build manifest", None
         built = man.get("sources") if isinstance(man, dict) else None
         if (man.get("schema") if isinstance(man, dict) else None) != "3dprint-scout.manifest/1" or not (
                 isinstance(built, list) and all(isinstance(x, str) for x in built)):
-            return "stale", f"the proxy {rel(stl)} has a malformed build manifest"
+            return "stale", f"the proxy {rel(stl)} has a malformed build manifest", None
         if man.get("by") != "run":                     # record stamps the parameters of the day on any STL
             return "untied", (f"the proxy {rel(stl)} was recorded (build.py record), not generated from "
-                              "params.json by build.py run")
+                              "its params by build.py run"), None
         own = ([s for s in sources if os.path.basename(s) in set(built)]
                if set(built) <= set(validate.source_names(sources)) else sources)
         if man.get("artifact_sha256") != sha:
-            return "stale", f"the proxy {rel(stl)} is not the STL its build recorded"
-        if man.get("input_hash") != validate.hash_inputs(own, params):
-            return "stale", (f"the proxy {rel(stl)} was not built from params.json as it is now (or its generator "
-                             "changed): build it again and fit again")
-    return "tied", ""
+            return "stale", f"the proxy {rel(stl)} is not the STL its build recorded", None
+        if man.get("input_hash") != validate.hash_inputs(own, proxy_params):
+            return "stale", (f"the proxy {rel(stl)} was not built from {rel(pp)} as it is now (or its generator "
+                             "changed): build it again and fit again"), None
+    return "tied", "", validate.engine_params(proxy_params)
 
 
 def measured_parts(rparts, by_sha):
@@ -874,6 +887,25 @@ def check_promises(verify, params, joints, strength, parts):
                                    f"{entry.get('proxy_note')}")
                 elif raw.get("proxy") and entry.get("proxy_build") == "stale":
                     notver.append(f"{what}: {entry.get('proxy_note')}")
+                elif raw.get("proxy") and isinstance(raw.get("dims"), list):
+                    # tied: the proxy got exactly the numbers its dims declare, no fewer and no others
+                    declared = {}
+                    for did in raw["dims"]:
+                        if isinstance(did, str) and isinstance((dims.get(did) or {}).get("params"), dict):
+                            declared.update(dims[did]["params"])
+                    got = entry.get("proxy_params") or {}
+                    differ = [k for k in got if k in declared and not same_value(got[k], declared[k])]
+                    loose = [k for k in got if k not in declared]
+                    unused = [k for k in declared if k not in got]
+                    if differ:
+                        notver.append(f"{what}: the proxy was built from "
+                                      + ", ".join(f"{k} = {json.dumps(got[k])}" for k in differ)
+                                      + ", not the values its dims declare")
+                    if loose:
+                        assumed.append(f"{what}: the proxy was also built from {', '.join(loose)}, which no dims "
+                                       "entry it names declares")
+                    if unused:
+                        assumed.append(f"{what}: the proxy was not given {', '.join(unused)}, which its dims declare")
             elif res == "passed" and entry.get("manual"):
                 notver.append(f"{what}: its inputs were typed in, not taken from the build's parameters")
             jd = raw.get("dims")
@@ -1171,7 +1203,7 @@ def finalize(args):
     accepted = verify.get("accepted") or []
     out["accepted"] = accepted
     taken = {norm(a["check"]) for a in accepted if valid_check_entry(a)}   # a malformed entry accepts nothing
-    joints, r, notes = check_joints(verify, parts, taken, params)
+    joints, r, notes = check_joints(verify, parts, taken)
     out["joints"] = joints
     reasons += r
     out["warnings"] += notes

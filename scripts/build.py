@@ -1011,6 +1011,7 @@ def finish(out, parts, sources, params, params_path, specs, args, engine):
         p["sha256"] = validate.file_sha256(p["stl"])      # the very STLs these verdicts are about (finalize.py)
     out["parts"] = parts
     out["sources"] = [_relpath(s) for s in sources]
+    out["params"] = _relpath(params_path) if params_path else None   # what the engine got (finalize ties proxies by it)
     # The settings the parts were validated with, so a later re-check (finalize.py) uses the same bed.
     out["validate_settings"] = {f: (_relpath(getattr(args, f)) if f == "printer" and getattr(args, f, None)
                                     else getattr(args, f, None)) for f in VALIDATE_FLAGS}

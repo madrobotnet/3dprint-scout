@@ -157,7 +157,8 @@ with `--only`, so it shows `seconds` per part and a `partial` object):
   exists only for parts in a group.
 - `objects[]` lists every object; a single-part object has only `name`, `parts`, `main`
   (plus `partial` and `gate` when it is one part of a larger object built with `--only`).
-- A `--proxy` build (`references/measure.md`) carries `"proxy": true` and no `threemf`.
+- `params` is the params file the engine got. A `--proxy` build (`references/measure.md`) carries
+  `"proxy": true` and no `threemf`.
 - `seconds` on a part is the engine's time for it (`run`); the top-level `seconds` is the
   whole command. `sha256` on a part is the STL its verdicts are about, and `validate_settings`
   the printer, printer id, tools and tolerances they were made with (and `printer_sha256`, the

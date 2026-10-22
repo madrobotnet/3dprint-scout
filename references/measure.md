@@ -59,18 +59,19 @@ def build(p):
     return {"housing_proxy": shell}
 ```
 
-Keep it to the faces the part touches or sweeps past; everything else can be a box. Put every
-number in the project's params.json with its source (the part reads the same numbers), and
-build and validate the proxy from that file with `--proxy`, which leaves `_parts` alone and
-writes no 3MF:
+Keep it to the faces the part touches or sweeps past; everything else can be a box. Take every
+size from the parameters, never a number written in the generator, and give the proxy a params
+file of its own that holds only its numbers, with the values in the project's params.json
+(`.3dprint/housing_proxy.json`). Build and validate it with `--proxy`, which writes no 3MF:
 
 ```bash
-python3 "$SKILL_DIR/scripts/build.py" run housing_proxy.py --params .3dprint/params.json \
+python3 "$SKILL_DIR/scripts/build.py" run housing_proxy.py --params .3dprint/housing_proxy.json \
   --proxy housing_proxy --out out/proxy > out/proxy_build.json
 ```
 
 Use it as part A in `fit.py` (seated fit) or with `--sweep-angles` (a lever's travel to its
 stop). The joint names `out/proxy_build.json` as `proxy_build` and the numbers as `dims`
-(`references/checks.md`); `finalize.py` then checks that the proxy was generated from
-params.json as it is now. Without them, or for a proxy taken in with `record`, a promise resting
-on the joint is only `assumed`. A proxy stays in `out/`: it is never delivered.
+(`references/checks.md`). `finalize.py` then checks that the proxy was generated from its params
+file as it is now, and that those numbers are exactly the ones the dims declare, with the same
+values. Without that, or for a proxy taken in with `record`, a promise resting on the joint is
+only `assumed`; a proxy built from other values is not verified. A proxy stays in `out/`: it is never delivered.

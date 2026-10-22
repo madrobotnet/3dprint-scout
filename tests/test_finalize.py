@@ -642,15 +642,18 @@ class FinalizePromises(Workspace):
         v.update(more)
         return v
 
-    def record_proxy(self):
-        """The proxy's own build, as `build.py run` leaves it (a run manifest from params.json as it
-        is now, and the build JSON): written directly, so these tests need no engine."""
+    def record_proxy(self, values=None):
+        """The proxy's own build, as `build.py run --proxy` leaves it: its params file (the plug's
+        numbers only), a run manifest from that file, and the build JSON naming it. Written
+        directly, so these tests need no engine."""
         import validate
-        with open(".3dprint/params.json") as f:
-            params = json.load(f)
-        validate.write_manifest("out/plug.stl", ["plug.py"], params, "python", by="run")
+        values = dict(self.PLUG if values is None else values)
+        with open(".3dprint/plug.json", "w") as f:
+            json.dump(values, f)
+        validate.write_manifest("out/plug.stl", ["plug.py"], values, "python", by="run")
         with open("out/plug_build.json", "w") as f:
             json.dump({"schema": "3dprint-scout.build/1", "ran": True, "engine": "python", "sources": ["plug.py"],
+                       "params": ".3dprint/plug.json", "proxy": True,
                        "parts": [{"name": "plug", "stl": "out/plug.stl",
                                   "sha256": validate.file_sha256("out/plug.stl")}]}, f)
 
@@ -660,7 +663,7 @@ class FinalizePromises(Workspace):
         self.params(verify, **dict(values or self.PLUG), **extra)
         self.record()
         if proxy:
-            self.record_proxy()
+            self.record_proxy(values)
         code, out = self.finalize()
         self.assertEqual(code, 0, out.get("errors"))
         return out
@@ -840,20 +843,35 @@ class FinalizePromises(Workspace):
                                             "proxy"])
         self.assertEqual(self.promise(self.run_use(self.verify([self.CABLE], dims=caliper)), "cable-out")["state"],
                          "verified")
-        wider = dict(self.PLUG, plug_w=14)                                      # params changed, the proxy not rebuilt
+        wider = dict(self.PLUG, plug_w=14)                                      # measured again, the proxy not rebuilt
         out = self.run_use(self.verify([self.CABLE], dims=[dict(caliper[0], params=wider)]), values=wider, proxy=False)
         cable = self.promise(out, "cable-out")
-        self.assertEqual(cable["state"], "not verified")
-        self.assertIn("joint 'plug through notch': the proxy out/plug.stl was not built from params.json as it is now "
-                      "(or its generator changed): build it again and fit again", cable["reasons"])
+        self.assertEqual((cable["state"], out["joints"][1]["proxy_build"]), ("not verified", "tied"))
+        self.assertIn("joint 'plug through notch': the proxy was built from plug_w = 13, not the values its dims "
+                      "declare", cable["reasons"])
+        with open(".3dprint/plug.json", "w") as f:                             # its numbers edited, not rebuilt
+            json.dump(wider, f)
+        out = self.run_use(self.verify([self.CABLE], dims=[dict(caliper[0], params=wider)]), values=wider, proxy=False)
         self.assertEqual(out["joints"][1]["proxy_build"], "stale")
-        self.record_proxy()
+        self.assertIn("joint 'plug through notch': the proxy out/plug.stl was not built from .3dprint/plug.json as it "
+                      "is now (or its generator changed): build it again and fit again",
+                      self.promise(out, "cable-out")["reasons"])
+        out = self.run_use(self.verify([self.CABLE], dims=[dict(caliper[0], params={"plug_w": 13})]))
+        cable = self.promise(out, "cable-out")                                 # ninth review (P1): dims cover one
+        self.assertEqual(cable["state"], "assumed")                           # of the proxy's four numbers
+        self.assertEqual(cable["reasons"], ["joint 'plug through notch': the proxy was also built from plug_h, plug_l, "
+                                            "cable_d, which no dims entry it names declares"])
+        self.record_proxy({"plug_w": 13, "plug_h": 8, "plug_l": 9})            # and the other way round
+        out = self.run_use(self.verify([self.CABLE], dims=caliper), proxy=False)
+        self.assertEqual(self.promise(out, "cable-out")["reasons"],
+                         ["joint 'plug through notch': the proxy was not given cable_d, which its dims declare"])
+        self.record_proxy(wider)
         with open("out/plug.stl.manifest.json", "w") as f:                    # JSON, but not a manifest
             json.dump([], f)
         out = self.run_use(self.verify([self.CABLE], dims=[dict(caliper[0], params=wider)]), values=wider, proxy=False)
         self.assertIn("joint 'plug through notch': the proxy out/plug.stl has a malformed build manifest",
                       self.promise(out, "cable-out")["reasons"])
-        self.record_proxy()
+        self.record_proxy(wider)
         with open("out/plug.stl.manifest.json") as f:
             man = json.load(f)
         with open("out/plug.stl.manifest.json", "w") as f:                    # a source that is not a name
@@ -869,9 +887,9 @@ class FinalizePromises(Workspace):
         out = self.run_use(self.verify([self.CABLE], dims=[dict(caliper[0], params=wider)]), values=wider, proxy=False)
         cable = self.promise(out, "cable-out")
         self.assertEqual(cable["state"], "assumed")                           # Codex review of step 1 (P1)
-        self.assertIn("the proxy out/plug.stl was recorded (build.py record), not generated from params.json by "
+        self.assertIn("the proxy out/plug.stl was recorded (build.py record), not generated from its params by "
                       "build.py run", cable["reasons"][0])
-        self.record_proxy()                                                    # fifth review (P1): a fit of two parts
+        self.record_proxy(wider)                                               # fifth review (P1): a fit of two parts
         fit_report("out/fit_plug.json", "out/box.stl", "out/lid.stl")          # named as the proxy's joint
         out = self.run_use(self.verify([self.CABLE], dims=[dict(caliper[0], params=wider)]), values=wider, proxy=False)
         self.assertIn("joint 'plug through notch': the fit report measured no proxy, only parts of this build: drop "
@@ -884,7 +902,7 @@ class FinalizePromises(Workspace):
 
     @unittest.skipUnless(HAS_M3D, "manifold3d not installed")
     def test_a_proxy_generated_by_build_run(self):
-        """The whole path: a proxy generator run by build.py from params.json, fitted, tied."""
+        """The whole path: a proxy generator run by build.py from its own params file, fitted, tied."""
         with open("plug.py", "w") as f:
             f.write("import manifold3d as m3d\n"
                     "def build(p):\n"
@@ -893,7 +911,9 @@ class FinalizePromises(Workspace):
         joint = dict(self.verify([])["joints"][1], proxy_build="out/plug/build.json")
         self.params(self.verify([self.CABLE], dims=caliper, joints=[joint]), **self.PLUG)
         self.record()
-        code, built = run(build, "run", "plug.py", "--params", ".3dprint/params.json", "--proxy", "plug",
+        with open(".3dprint/plug.json", "w") as f:                             # the proxy's numbers only
+            json.dump(self.PLUG, f)
+        code, built = run(build, "run", "plug.py", "--params", ".3dprint/plug.json", "--proxy", "plug",
                           "--out", "out/plug", "--no-wall-check")
         self.assertEqual(code, 0, built.get("errors"))
         self.assertEqual((built["proxy"], built.get("threemf")), (True, None))    # never delivered
@@ -907,7 +927,12 @@ class FinalizePromises(Workspace):
         self.record()
         code, out = self.finalize()
         self.assertEqual((out["joints"][0]["proxy_build"], self.promise(out, "cable-out")["state"]),
-                         ("stale", "not verified"))
+                         ("tied", "not verified"))                              # built from 13, measured 14
+        with open(".3dprint/plug.json", "w") as f:
+            json.dump(dict(self.PLUG, plug_w=14), f)
+        code, out = self.finalize()
+        self.assertEqual((out["joints"][0]["proxy_build"], self.promise(out, "cable-out")["state"]),
+                         ("stale", "not verified"))                              # its numbers changed, not rebuilt
         for extra, message in ((["--proxy", "box"], "--proxy names parts of _parts (box)"),
                                (["--proxy", "plug", "--only", "box"], "--proxy and --only do not go together"),
                                (["--proxy", " , "], "--proxy names no part")):
