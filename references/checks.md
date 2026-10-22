@@ -135,7 +135,7 @@ gets one state:
 
 | State | When |
 |---|---|
-| `error` | Declared wrongly: no id or the same id twice, an unknown field or kind, no `text`, a `use` without `conditions` and `success` or a `feature` without `success`, an evidence item that names no declared joint or member, names a part's own check (`box M1`) or a kind the promise does not take, or a dims entry that is missing or declared wrongly (a `caliper` value without `"by": "user"`, a `spec` without its `url`, values that differ from params.json) |
+| `error` | Declared wrongly: no id or the same id twice, an unknown field or kind, no `text`, a `use` without `conditions` and `success` or a `feature` without `success`, an evidence item that names no declared joint or member, names a part's own check (`box M1`) or a kind the promise does not take, or a dims entry that is missing or declared wrongly (a `caliper` value without `"by": "user"`, a `spec` without its `url` or without `where` (the place in the spec of each parameter's number), values that differ from params.json) |
 | `failed` | A joint or member it names failed, even if the user took the promise |
 | `excluded` | The user took it without verifying it (`{"promise": id, "reason": …, "by": "user"}` in `_verify.accepted`); its other reasons stay listed |
 | `not verified` | No evidence yet, a missing or stale report, a fit report without F3 (or without F3_sweep for a joint marked `"sweep": true`), a joint that fitted a part whose own checks FAIL, a proxy whose build is not of params.json as it is now, a check that is neither PASS nor an accepted WARN, or a member whose inputs were typed in (every strength.py report for now) |
@@ -150,4 +150,5 @@ nobody agreed to leave unproven weighs more than one the user did. It is `not de
 there is no promise list or it is empty, and `error` when any dims or accepted entry is
 declared wrongly (`promise_errors`).
 Evidence by kind: a `use` takes joints and members, a `feature` joints, a `look` nothing that is
-read yet. Every promise that is not verified is the first thing in `open`.
+read yet. Every promise that is not verified is the first thing in `open`; a dims entry taken
+from a spec is listed there too, with its URL and places, because finalize does not read the spec.

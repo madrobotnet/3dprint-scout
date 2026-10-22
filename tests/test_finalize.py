@@ -686,6 +686,15 @@ class FinalizePromises(Workspace):
         self.assertEqual(out["promise_counts"], {"use": {"verified": 1, "assumed": 1}})
         self.assertEqual(out["dims"][0]["state"], "assumed")
 
+    def test_a_spec_value_is_shown_for_checking(self):
+        where = {"plug_w": "table 3-2", "plug_h": "table 3-2", "plug_l": "fig. 3-5", "cable_d": "table 3-9"}
+        out = self.run_use(self.verify([self.CABLE], dims=[self.plug_dims("spec", url="https://example.org/usb-c",
+                                                                           where=where)]))
+        self.assertEqual((out["use"], out["dims"][0]["state"]), ("verified", "spec"))
+        self.assertIn("dims 'usb-c-plug' is taken from a spec, not checked here: compare plug_w = 13 (table 3-2); "
+                      "plug_h = 8 (table 3-2); plug_l = 9 (fig. 3-5); cable_d = 4.5 (table 3-9) with "
+                      "https://example.org/usb-c", out["open"])
+
     def test_measuring_the_plug_verifies_it(self):
         same = self.run_use(self.verify([self.SEAT, self.CABLE], dims=[self.plug_dims("caliper", by="user")]))
         self.assertEqual((same["use"], self.promise(same, "cable-out")["state"]), ("verified", "verified"))
@@ -727,6 +736,9 @@ class FinalizePromises(Workspace):
              "dims 'usb-c-plug': a caliper value needs \"by\": \"user\""),
             ("a caliper value the agent took", [cable], [self.plug_dims("caliper", by="agent")], "needs \"by\": \"user\""),
             ("a spec without its url", [cable], [self.plug_dims("spec")], "a spec value needs the url"),
+            ("a spec without where its numbers are", [cable],
+             [self.plug_dims("spec", url="https://example.org/usb-c", where={"plug_w": "table 3-2"})],
+             "the place in the spec its number comes from (missing: plug_h, plug_l, cable_d)"),
             ("a file value with no reading of it", [cable], [self.plug_dims("user-file", note="out/m.json")],
              "source must be one of assumed, caliper, spec"),
             ("dims that are not the model's numbers", [cable], [dict(self.plug_dims(), params=dict(self.PLUG, plug_w=12))],

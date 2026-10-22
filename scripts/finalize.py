@@ -60,7 +60,8 @@ user does with the object: needs conditions and success), `feature` (needs succe
 Evidence names a declared joint or member; a use takes joints and members, a feature joints; a
 part's own check (box M1) is never evidence of a promise. dims: the real-world sizes the design
 rests on, each tied to the params.json values the model is built from (they must be equal),
-with its source: assumed, caliper ("by": "user") or spec (its url). A promise rests on the
+with its source: assumed, caliper ("by": "user") or spec (its url, and where each number is in
+it: finalize reads no spec, so these are listed in open for the person to check). A promise rests on the
 dims its evidence names (and on its own `assumes`); a proxy joint that names none, or no
 proxy_build, rests on undeclared sizes. Each promise gets one state: error (declared wrongly),
 failed (its evidence failed, whatever else), excluded (the user took it unverified), not
@@ -120,7 +121,7 @@ NEEDS = {"use": ("conditions", "success"), "feature": ("success",), "look": ()}
 PROMISE_KEYS = ("id", "kind", "text", "conditions", "success", "evidence", "assumes", "note")
 DIM_SOURCES = ("assumed", "caliper", "spec")
 DIM_STATE = {"assumed": "assumed", "caliper": "measured", "spec": "spec"}
-DIM_KEYS = ("id", "what", "unit", "params", "source", "tol", "by", "url", "note")
+DIM_KEYS = ("id", "what", "unit", "params", "source", "tol", "by", "url", "where", "note")
 STATES = ("error", "failed", "not verified", "excluded", "assumed", "accepted", "verified")
 
 
@@ -660,6 +661,13 @@ def check_dims(verify, params):
             errs.append(f"{label}: a caliper value needs \"by\": \"user\" (only the user can measure the object)")
         elif src == "spec" and not text_field(d, "url"):
             errs.append(f"{label}: a spec value needs the url of the spec")
+        elif src == "spec":
+            where = d.get("where") if isinstance(d.get("where"), dict) else {}
+            given = d.get("params") if isinstance(d.get("params"), dict) else {}
+            unplaced = [k for k in given if not text_field(where, k)]
+            if not isinstance(d.get("where"), dict) or unplaced:
+                errs.append(f"{label}: a spec value needs where, for each parameter, the place in the spec its number "
+                            f"comes from (missing: {', '.join(unplaced) or 'where'})")
         if "tol" in d and not (isinstance(d["tol"], (int, float)) and not isinstance(d["tol"], bool)
                                and d["tol"] == d["tol"] and 0 <= d["tol"] < float("inf")):
             errs.append(f"{label}: tol must be a number of 0 or more")
@@ -675,7 +683,7 @@ def check_dims(verify, params):
                     errs.append(f"{label}: {k} is {json.dumps(v)} here but {json.dumps(cur)} in params.json")
         entry = {"id": did, "what": d.get("what"), "source": src, "params": p,
                  "state": "error" if errs else DIM_STATE[src]}
-        entry.update({k: d[k] for k in ("unit", "tol", "by", "url") if k in d})
+        entry.update({k: d[k] for k in ("unit", "tol", "by", "url", "where") if k in d})
         if errs:
             entry["errors"] = errs
             errors += errs
@@ -883,6 +891,11 @@ def check_promises(verify, params, joints, strength, parts):
         counts[state] = counts.get(state, 0) + 1
         if state != "verified":
             out["open"].append(f"{label} ({kind}) {state}: {'; '.join(reasons)}")
+    for d in dims.values():
+        if d.get("state") == "spec":
+            out["open"].append(f"dims '{d['id']}' is taken from a spec, not checked here: compare "
+                               + "; ".join(f"{k} = {json.dumps(v)} ({d['where'][k]})" for k, v in d["params"].items())
+                               + f" with {d['url']}")
     states = [p["state"] for p in out["promises"]]
     if errors:
         out["tier"] = "error"
