@@ -142,7 +142,11 @@ gets one state:
 | `accepted` | Everything passed with a WARN the user accepted |
 | `verified` | None of the above |
 
-The tier is the worst state in that order, `not declared` when there is no promise list or it is
-empty, and `error` when any dims or accepted entry is declared wrongly (`promise_errors`).
+The table is the order for one promise: a user's exclusion stands over a missing or weaker
+proof, never over a failure. The tier is the worst state of all promises in another order,
+`error`, `failed`, `not verified`, `excluded`, `assumed`, `accepted`, `verified`: a promise
+nobody agreed to leave unproven weighs more than one the user did. It is `not declared` when
+there is no promise list or it is empty, and `error` when any dims or accepted entry is
+declared wrongly (`promise_errors`).
 Evidence by kind: a `use` takes joints and members, a `feature` joints, a `look` nothing that is
 read yet. Every promise that is not verified is the first thing in `open`.

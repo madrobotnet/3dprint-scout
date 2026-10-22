@@ -904,6 +904,13 @@ class FinalizePromises(Workspace):
         self.assertEqual((out["use"], out["geometry"]), ("error", "not verified"))
         self.assertTrue(any(o.startswith("joint 'lid on box': F3 WARN") for o in out["open"]), out["open"])
         self.assertNotIn("accepted", out["joints"][0])
+        for entry in ({"check": "joint lid on box F3"}, {"check": "joint lid on box F3", "reason": ["x"]},
+                      {"check": ["joint lid on box F3"], "reason": "x"}):              # fourth review (P2)
+            with self.subTest(entry=entry):
+                out = self.run_use(self.verify([self.SEAT], dims=[], joints=joints, accepted=[entry]))
+                self.assertEqual(out["geometry"], "not verified")
+                self.assertEqual(self.promise(out, "seat")["state"], "not verified")
+                self.assertTrue(any("it accepts nothing" in o for o in out["open"]), out["open"])
 
     def test_a_proxy_without_its_sizes_is_assumed(self):
         joints = [{"name": "plug through notch", "report": "out/fit_plug.json", "proxy": True}]
@@ -973,6 +980,10 @@ class FinalizePromises(Workspace):
         self.assertEqual(out["use"], "not verified")
         self.assertEqual(out["promise_counts"], {"use": {"verified": 1, "assumed": 1}, "look": {"not verified": 1}})
         self.assertEqual(out["open"][1], "promise 'label' (look) not verified: no evidence yet")
+        out = self.run_use(self.verify([self.SEAT, self.CABLE, nothing, dict(nothing, id="badge")], accepted=[
+            {"promise": "badge", "reason": "the user judges it on the print", "by": "user"}]))
+        self.assertEqual([p["state"] for p in out["promises"]], ["verified", "assumed", "not verified", "excluded"])
+        self.assertEqual(out["use"], "not verified")             # an unagreed gap weighs more than an agreed one
 
 
 if __name__ == "__main__":

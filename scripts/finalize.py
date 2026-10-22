@@ -1133,7 +1133,15 @@ def finalize(args):
     warns += w
     accepted = verify.get("accepted") or []
     out["accepted"] = accepted
-    taken = {norm(a["check"]) for a in accepted if "check" in a and "promise" not in a}   # a malformed one counts for nothing
+    taken = set()
+    for a in accepted:                                 # a malformed entry accepts nothing
+        if "check" not in a or "promise" in a:
+            continue
+        if isinstance(a["check"], str) and text_field(a, "reason"):
+            taken.add(norm(a["check"]))
+        else:
+            reasons.append(f"accepted entry {json.dumps(a, ensure_ascii=False)}: names no check, or gives no reason "
+                           "(the user's, in words): it accepts nothing")
     joints, r, notes = check_joints(verify, parts, taken, params)
     out["joints"] = joints
     reasons += r
