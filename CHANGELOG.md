@@ -10,15 +10,19 @@ release; the separately proposed 0.6.2 work is included here.
   membership, roles or free-part clearances change, even when the STL bytes are unchanged.
   Notes, filament choices and dimensions that finalize checks again do not unnecessarily
   invalidate assembly evidence. Reports from before 0.6.1 need a fresh build/record report;
-  copying a fingerprint into an old report is not an upgrade.
+  copying a fingerprint into an old report is not an upgrade. A build of only some of the
+  parts (`--only`) is reported by the parts it left out, not as changed metadata.
 - **Engine detection reports usable engines.** A failed or outdated `BLENDER_PYTHON` candidate
-  no longer hides a supported bpy in the current interpreter. Explicit `--blender-python`
-  remains binding. Invalid probe output and subprocess failures remain visible. OpenSCAD
-  must pass its version probe and export a readable cube before it appears in `available`;
-  the default backend is tried when the Manifold backend is unsupported.
-- **One hole-compensation decision table.** Confirmed slicer correction, confirmed model
-  correction and unknown settings are separate states. Unknown no longer means "add model
-  compensation" in one phase and "nominal plus fit clearance" in another.
+  no longer hides a supported bpy in the current interpreter. An explicit `--blender-python` is
+  now binding (it used to fall through to the other candidates). Invalid probe output and
+  subprocess failures remain visible. OpenSCAD must pass its version probe and export a
+  readable cube before it appears in `available`; the default backend is tried when the
+  Manifold backend is unsupported.
+- **One hole-compensation decision table.** Slicer correction, model correction and unknown
+  settings are separate states, decided by the settings the part will be printed with. Unknown
+  no longer means "add model compensation" in one phase and "nominal plus fit clearance" in
+  another. A Bambu Studio project the skill delivers carries its settings, so a generated
+  template (system presets, both corrections off) stays `model`; `bambu-process.md` says the same.
 - **Reuse confirmed answers and finish the existing-model path.** A missing printers.json
   does not trigger questions already answered in the request. Choice D hands off the original
   link, licence, download location and unverified items without entering the modeling phases.
@@ -31,6 +35,10 @@ release; the separately proposed 0.6.2 work is included here.
   Python/Blender combination and readiness commands live in `references/development.md`.
   The real-binary smoke path checks STL, editable .blend and rendered PNG outputs separately
   from bpy and emulated-binary tests. Existing latest-dependency compatibility jobs remain.
+  The job's download step and `smoke_blender.py` ran once outside CI against the official
+  Blender 4.5.14 linux-x64 archive (SHA256 checked): build, reopened `.blend` and PNG passed,
+  and the full suite passed with that binary present (344 tests). The first CI run is the
+  weekly job after merge; GitHub dispatches it only from the default branch.
 - **Regression coverage:** assembly metadata drift and legacy reports; bpy fallback, strict
   explicit selection and invalid probe output; failed OpenSCAD readiness. Conversation
   walkthroughs cover complete input, choice D, unknown compensation, project updates and

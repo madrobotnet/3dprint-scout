@@ -108,11 +108,8 @@ checks the archive SHA256, then extracts and runs the executable. A missing rele
 or a mismatch fails the job; no unverified fallback is installed. The job preserves artifacts
 and logs. Other jobs retain the full bpy and cross-platform Python checks.
 
-During 0.6.1 development, this cloud machine blocked `download.blender.org` with a proxy 403;
-the system binary was 4.3.2 and was correctly rejected. The pinned bpy recipe was installed in
-a separate environment, but the new official-binary CI job still needs its first successful
-run before claiming this binary path is validated. In a restricted environment the required
-download hostname is `download.blender.org`; enabling access is separate from running the test.
+Behind a restricted network the job needs `download.blender.org`; allowing that host is a
+separate decision from running the test.
 
 ## Conversation checks when editing the skill
 
@@ -125,6 +122,7 @@ release and record its actual questions, actions and final claims.
 | Request already gives printer, slicer, dimensions and choice C | Reuse those answers; do not ask again because a settings file is absent. New concept/base-shape reviews still apply. |
 | User chooses D, an existing model | Deliver the source link, licence/download guidance and remaining checks; do not generate a substitute or claim mesh verification. |
 | Hole compensation settings unknown | Follow the single `unknown` row in tolerances.md; do not assume compensation is off. |
+| Bambu printer, project from a generated template | Record `model`: the delivered project carries the system preset with both corrections off. Do not ask the user for settings the project already fixes. |
 | User requests a change to the working project | Update relevant generator/state fields, preserve unrelated content, and write new delivery versions without overwriting originals. |
 | User explicitly requests unattended execution | Preserve supplied answers, record defaults at remaining stops, and stop for unsourced critical fit dimensions. Mere silence does not enable the mode. |
 

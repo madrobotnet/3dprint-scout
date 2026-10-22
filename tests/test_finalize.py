@@ -225,6 +225,9 @@ class Finalize(Workspace):
                 else:
                     self.assertEqual(out["geometry"], "not verified")
                     self.assertTrue(out["assembly_drift"])
+                    # nothing in _parts changed: the report names the parts left out, not a change
+                    self.assertIn("not built:", out["assembly_drift"][0])
+                    self.assertNotIn("changed", out["assembly_drift"][0])
                     self.assertTrue(any("in _parts but not in this build" in line for line in out["open"]))
 
     def test_shape_directions_and_test_prints(self):

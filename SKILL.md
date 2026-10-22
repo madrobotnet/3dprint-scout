@@ -148,7 +148,8 @@ to approve unchanged dimensions they already confirmed.
   is at hand and keep it in the table as a "reference member" note.
 - Compensation lives in one place: use the `slicer / model / unknown` decision table in
   `references/tolerances.md` (F1). Unknown is not the same as confirmed off; never add model
-  compensation merely because the user does not know their settings.
+  compensation merely because the user does not know their settings. A Bambu project the skill
+  delivers carries its settings, so those are known (a generated template: `model`).
 - The parameter table (parameter, value, source) with the bed margin; negative → say so now.
 
 ## Phase 3 — Base shape (review point, not skippable)

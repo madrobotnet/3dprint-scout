@@ -27,15 +27,16 @@ between mating parts; printer hole compensation is a separate correction, applie
 Convert per-side clearance to a diameter allowance by multiplying by two: a 10 mm pin with
 0.20 mm clearance per side needs a 10.40 mm modeled hole before any model compensation.
 
-| Confirmed setting | `compensation.holes` | Model hole size |
+| Settings the part will be printed with | `compensation.holes` | Model hole size |
 |---|---|---|
-| Circle compensation or XY hole compensation enabled in the active slicer preset | `slicer` | Nominal size plus the chosen fit clearance; no model compensation |
-| Both corrections confirmed off in the active preset | `model` | Nominal size plus fit clearance plus the radial hole compensation above (twice it on diameter) |
-| Settings unknown or preset not inspected | `unknown` | Nominal size plus fit clearance only; record the uncertainty and recommend a fit test before changing compensation |
+| Circle compensation or XY hole compensation on | `slicer` | Nominal size plus the chosen fit clearance; no model compensation |
+| Both corrections off, as read: the user's preset, or the Bambu project the skill delivers (a generated template has both off) | `model` | Nominal size plus fit clearance plus the radial hole compensation above (twice it on diameter) |
+| Not known: STLs for a slicer or preset nobody has seen | `unknown` | Nominal size plus fit clearance only; record the uncertainty and recommend a fit test before changing compensation |
 
 Apply this to every round hole that must fit, including bores. Pass `fit.py --min-clearance`
-the clearance actually modeled, including any model compensation. Bambu's system defaults
-are evidence only when that is the active preset (`phase-2-printer-dimensions.md`, step 4).
+the clearance actually modeled, including any model compensation. A delivered Bambu Studio
+project prints with the settings it carries (`phase-2-printer-dimensions.md`, step 4); a
+system default says nothing about a preset the user picks for loose STLs.
 - `fit_test.py` pieces carry no model compensation; say so. A step that fits is the clearance
   as printed without it: build the part's hole the same way (that step, nothing added), or add
   the compensation to the pieces' `--clearance` before printing them.

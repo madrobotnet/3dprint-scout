@@ -109,15 +109,17 @@ Use the single `slicer / model / unknown` decision table in `references/toleranc
 Unknown settings do not establish that compensation is off. Keep fit clearance separate from
 the printer correction and record the chosen state in `compensation.holes`.
 
-Bambu's system process presets ship with it off: the X2D's `0.20mm Standard` inherits
-`enable_circle_compensation` 0 and `xy_hole_compensation` 0 from `fdm_process_common` (public
-profiles 02.08.02.61). Record `"model"` only when that system preset is the confirmed active
-preset for the generated template, or when the user's saved preset shows both corrections off.
-A generated template names a preset; it does not establish the user's active settings or local
-overrides. If those are unknown, keep `"unknown"`; use `"slicer"` when the active preset has a
-correction enabled. The same system preset's
-elephant-foot compensation is 0.15 mm (`fdm_process_dual_0.20_nozzle_0.4`): `elephant_foot` is
-`"slicer"` there.
+What counts is the setting the part will be printed with. A Bambu Studio project from
+`bambu3mf.py` carries its process settings: the template's `project_settings.config` is copied
+byte for byte (`bambu-process.md`), and Bambu Studio applies a project's saved settings when it
+opens the file. Bambu's system process presets ship with both corrections off: the X2D's
+`0.20mm Standard` inherits `enable_circle_compensation` 0 and `xy_hole_compensation` 0 from
+`fdm_process_common` (public profiles 02.08.02.61). So with a generated template, or a saved
+template that shows both off, record `"model"`; `"slicer"` when the template's preset (or a
+per-object setting the skill writes) has one of them on. Keep `"unknown"` when the user will
+slice the STLs with a preset nobody has seen: another slicer, or no project file. The same
+system preset's elephant-foot compensation is 0.15 mm (`fdm_process_dual_0.20_nozzle_0.4`):
+`elephant_foot` is `"slicer"` there.
 
 ## 5. Show the parameter table and stop
 

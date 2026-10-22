@@ -362,6 +362,10 @@ def assembly_drift(build, specs):
     if not build.get("assembly_sha256"):
         return ["build has no assembly fingerprint (before 0.6.1): build again and save the new JSON"]
     if current != build["assembly_sha256"]:
+        unbuilt = sorted(set(specs) - {p["name"] for p in build.get("parts") or []})
+        if unbuilt:                                   # --only, or a part dropped from the generator
+            return [f"the build has only some of the parts in _parts (not built: {', '.join(unbuilt)}): "
+                    "object checks need a build of every part; build them all and save the new JSON"]
         return ["assembly metadata changed since the build: build again and save the new JSON"]
     return []
 
