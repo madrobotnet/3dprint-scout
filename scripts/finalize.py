@@ -505,12 +505,12 @@ def check_joints(verify, parts, taken=frozenset(), params=None):
 
 
 def proxy_provenance(j, sides, params):
-    """Whether the proxy a joint was fitted against is tied to the numbers it stands for: built
-    by build.py (the joint's `proxy_build` names that build's JSON) from params.json as it is now.
-    Returns (tied | untied | stale, note)."""
+    """Whether the proxy a joint was fitted against is tied to the numbers it stands for: generated
+    by `build.py run` (the joint's `proxy_build` names that build's JSON; a `record` manifest is
+    not the generator's word) from params.json as it is now. Returns (tied | untied | stale, note)."""
     pb = j.get("proxy_build")
     if not pb:
-        return "untied", "no proxy_build names the build that made the proxy"
+        return "untied", "no proxy_build names the build.py run that made the proxy"
     try:
         b = load_json(pb, "proxy build")
     except FinalizeError as exc:
@@ -535,11 +535,15 @@ def proxy_provenance(j, sides, params):
                 man = json.load(f)
         except (OSError, TypeError, ValueError):
             return "stale", f"the proxy {rel(stl)} has no build manifest"
-        if not isinstance(man, dict):
+        built = man.get("sources") if isinstance(man, dict) else None
+        if (man.get("schema") if isinstance(man, dict) else None) != "3dprint-scout.manifest/1" or not (
+                isinstance(built, list) and all(isinstance(x, str) for x in built)):
             return "stale", f"the proxy {rel(stl)} has a malformed build manifest"
-        built = man.get("sources")
+        if man.get("by") != "run":                     # record stamps the parameters of the day on any STL
+            return "untied", (f"the proxy {rel(stl)} was recorded (build.py record), not generated from "
+                              "params.json by build.py run")
         own = ([s for s in sources if os.path.basename(s) in set(built)]
-               if isinstance(built, list) and set(built) <= set(validate.source_names(sources)) else sources)
+               if set(built) <= set(validate.source_names(sources)) else sources)
         if man.get("artifact_sha256") != sha:
             return "stale", f"the proxy {rel(stl)} is not the STL its build recorded"
         if man.get("input_hash") != validate.hash_inputs(own, params):
@@ -834,8 +838,8 @@ def check_promises(verify, params, joints, strength, parts):
                 if raw.get("proxy") and not raw.get("dims"):
                     assumed.append(f"{what} is fitted against a proxy whose sizes are not declared (dims)")
                 elif raw.get("proxy") and entry.get("proxy_build") == "untied":
-                    assumed.append(f"{what} names the sizes of its proxy, but nothing ties the proxy to them "
-                                   "(proxy_build: the JSON of the build that made it)")
+                    assumed.append(f"{what} names the sizes of its proxy, but nothing ties the proxy to them: "
+                                   f"{entry.get('proxy_note')}")
                 elif raw.get("proxy") and entry.get("proxy_build") == "stale":
                     notver.append(f"{what}: {entry.get('proxy_note')}")
             elif res == "passed" and entry.get("manual"):

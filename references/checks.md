@@ -138,7 +138,7 @@ gets one state:
 | `failed` | A joint or member it names failed, even if the user took the promise |
 | `excluded` | The user took it without verifying it (`{"promise": id, "reason": …, "by": "user"}` in `_verify.accepted`); its other reasons stay listed |
 | `not verified` | No evidence yet, a missing or stale report, a joint that fitted a part whose own checks FAIL, a proxy whose build is not of params.json as it is now, a check that is neither PASS nor an accepted WARN, or a member whose inputs were typed in (every strength.py report for now) |
-| `assumed` | Everything passed, but it rests on a dims entry with `source: "assumed"`, or on a proxy joint that names no dims or no `proxy_build` (the saved JSON of the `build.py` run that made the proxy, which ties it to params.json) |
+| `assumed` | Everything passed, but it rests on a dims entry with `source: "assumed"`, or on a proxy joint that names no dims or no `proxy_build` (the saved JSON of the `build.py run` that generated the proxy, which ties it to params.json; a proxy taken in with `build.py record` is not tied) |
 | `accepted` | Everything passed with a WARN the user accepted |
 | `verified` | None of the above |
 
