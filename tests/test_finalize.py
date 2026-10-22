@@ -929,9 +929,15 @@ class FinalizePromises(Workspace):
                       {"check": ["joint lid on box F3"], "reason": "x"}):              # fourth review (P2)
             with self.subTest(entry=entry):
                 out = self.run_use(self.verify([self.SEAT], dims=[], joints=joints, accepted=[entry]))
-                self.assertEqual(out["geometry"], "not verified")
+                self.assertEqual((out["use"], out["geometry"]), ("error", "not verified"))
                 self.assertEqual(self.promise(out, "seat")["state"], "not verified")
                 self.assertTrue(any("it accepts nothing" in o for o in out["open"]), out["open"])
+        fit_report("out/fit_seat.json", "out/box.stl", "out/lid.stl")              # eighth review (P2): even with
+        for entry in ({}, {"check": "box P2", "reason": []}, {"reason": "x"}):     # nothing to accept, a malformed
+            with self.subTest(entry=entry):                                         # entry is a declaration error
+                out = self.run_use(self.verify([self.SEAT], dims=[], joints=joints, accepted=[entry]))
+                self.assertEqual((out["use"], self.promise(out, "seat")["state"]), ("error", "verified"))
+                self.assertTrue(any("it accepts nothing" in e for e in out["promise_errors"]), out["promise_errors"])
 
     def test_a_joint_passes_only_with_its_fit_check(self):
         """Codex review of step 1 (P2): a report without F3 (or without the sweep a moving joint

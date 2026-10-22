@@ -701,6 +701,11 @@ def check_dims(verify, params):
     return out, errors
 
 
+def valid_check_entry(a):
+    """An accepted WARN: a check name and the user's reason, both in words, and no promise."""
+    return "promise" not in a and isinstance(a.get("check"), str) and bool(a["check"].strip()) and text_field(a, "reason")
+
+
 def evidence_index(verify, key, entries):
     """{name: [(declaration, checked entry)]} for joints or strength, in declaration order."""
     index = {}
@@ -745,6 +750,9 @@ def check_promises(verify, params, joints, strength, parts):
     excluded = {}
     for a in verify.get("accepted") or []:
         if "promise" not in a:
+            if not valid_check_entry(a):
+                errors.append(f"accepted entry {json.dumps(a, ensure_ascii=False)}: names no check (or a promise), or "
+                              "gives no reason (the user's, in words): it accepts nothing")
             continue
         pid = a.get("promise")
         if not (isinstance(pid, str) and pid.strip()):
@@ -1162,15 +1170,7 @@ def finalize(args):
     warns += w
     accepted = verify.get("accepted") or []
     out["accepted"] = accepted
-    taken = set()
-    for a in accepted:                                 # a malformed entry accepts nothing
-        if "check" not in a or "promise" in a:
-            continue
-        if isinstance(a["check"], str) and text_field(a, "reason"):
-            taken.add(norm(a["check"]))
-        else:
-            reasons.append(f"accepted entry {json.dumps(a, ensure_ascii=False)}: names no check, or gives no reason "
-                           "(the user's, in words): it accepts nothing")
+    taken = {norm(a["check"]) for a in accepted if valid_check_entry(a)}   # a malformed entry accepts nothing
     joints, r, notes = check_joints(verify, parts, taken, params)
     out["joints"] = joints
     reasons += r
