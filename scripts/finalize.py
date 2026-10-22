@@ -516,6 +516,9 @@ def proxy_provenance(j, sides, params):
     """Whether the proxy a joint was fitted against is tied to the numbers it stands for: generated
     by `build.py run` (the joint's `proxy_build` names that build's JSON; a `record` manifest is
     not the generator's word) from params.json as it is now. Returns (tied | untied | stale, note)."""
+    if len(sides) != 1:                               # two: not this build's fit; none: no proxy in it
+        return "stale", ("the fit report measured no proxy, only parts of this build: drop \"proxy\" or fit the proxy"
+                         if not sides else "neither STL the fit report measured is a part of this build")
     pb = j.get("proxy_build")
     if not pb:
         return "untied", "no proxy_build names the build.py run that made the proxy"

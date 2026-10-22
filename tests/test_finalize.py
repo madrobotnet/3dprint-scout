@@ -857,6 +857,13 @@ class FinalizePromises(Workspace):
         self.assertEqual(cable["state"], "assumed")                           # Codex review of step 1 (P1)
         self.assertIn("the proxy out/plug.stl was recorded (build.py record), not generated from params.json by "
                       "build.py run", cable["reasons"][0])
+        self.record_proxy()                                                    # fifth review (P1): a fit of two parts
+        fit_report("out/fit_plug.json", "out/box.stl", "out/lid.stl")          # named as the proxy's joint
+        out = self.run_use(self.verify([self.CABLE], dims=[dict(caliper[0], params=wider)]), values=wider, proxy=False)
+        self.assertIn("joint 'plug through notch': the fit report measured no proxy, only parts of this build: drop "
+                      "\"proxy\" or fit the proxy", self.promise(out, "cable-out")["reasons"])
+        self.assertEqual(self.promise(out, "cable-out")["state"], "not verified")
+        fit_report("out/fit_plug.json", "out/box.stl", "out/plug.stl")
         os.remove("out/plug_build.json")
         out = self.run_use(self.verify([self.CABLE], dims=caliper), proxy=False)
         self.assertIn("proxy build out/plug_build.json", "\n".join(self.promise(out, "cable-out")["reasons"]))
