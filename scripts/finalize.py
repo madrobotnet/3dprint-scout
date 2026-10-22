@@ -28,7 +28,7 @@ is missing is reported as "not declared", which keeps its tier from being verifi
                   "params": {"plug_w": 13, "plug_h": 8}, "source": "assumed"}],
     "joints":   [{"name": "lid on box", "report": "out/fit_box_lid.json"},
                  {"name": "plug through notch", "report": "out/fit_plug.json", "proxy": true,
-                  "dims": ["usb-c-plug"]}],
+                  "dims": ["usb-c-plug"], "proxy_build": "out/plug/build.json"}],
     "strength": [{"name": "latch arm", "report": "out/strength_latch.json"}],
     "test_prints": [{"name": "hinge coupon", "status": "skipped", "note": "user had no time"}],
     "accepted": [{"check": "body P2", "reason": "the user wants supports there"},
@@ -42,7 +42,8 @@ is missing is reported as "not declared", which keeps its tier from being verifi
 joints: every joint F3 must cover, with its saved fit.py report: the report must be fresh (its
 STLs are the parts being delivered, or a declared proxy) and its own F3 / F3_sweep must PASS
 (a WARN the user accepted as "joint <name> <check>" counts as accepted). A proxy names the dims
-it is built from. An empty list says the design has no joint. strength: strength.py reports
+it is built from and, as proxy_build, the saved JSON of the build.py run that made it, which
+ties it to params.json as it is now. An empty list says the design has no joint. strength: strength.py reports
 (saved JSON), their gate must PASS; their inputs are numbers from the dimension table, not read
 from the model, so the report says to keep them equal. test_prints: coupons and mechanism-first
 prints (status passed, failed, skipped, offered or pending). accepted: WARNs the user accepted,
@@ -58,12 +59,13 @@ user does with the object: needs conditions and success), `feature` (needs succe
 Evidence names a declared joint or member; a use takes joints and members, a feature joints; a
 part's own check (box M1) is never evidence of a promise. dims: the real-world sizes the design
 rests on, each tied to the params.json values the model is built from (they must be equal),
-with its source: assumed, caliper ("by": "user") or spec (its url). A promise rests on the dims its evidence names (and on its own `assumes`); a proxy
-joint that names none rests on undeclared sizes. Each promise gets one state: error (declared
-wrongly), failed (its evidence failed, whatever else), excluded (the user took it unverified),
-not verified (no evidence, stale evidence, evidence on a part whose checks FAIL, a member's
-inputs typed in), assumed (it passed on an unmeasured size), accepted (it passed with a WARN the
-user accepted) or verified.
+with its source: assumed, caliper ("by": "user") or spec (its url). A promise rests on the
+dims its evidence names (and on its own `assumes`); a proxy joint that names none, or no
+proxy_build, rests on undeclared sizes. Each promise gets one state: error (declared wrongly),
+failed (its evidence failed, whatever else), excluded (the user took it unverified), not
+verified (no evidence, stale evidence, evidence on a part whose checks FAIL, a proxy built from
+other parameters, a member's inputs typed in), assumed (it passed on an unmeasured size),
+accepted (it passed with a WARN the user accepted) or verified.
 
 The report has five tiers and never folds them into one PASS:
   use       the worst state of its promises (error, failed, not verified, excluded, assumed,
@@ -222,7 +224,7 @@ def check_verify_shape(verify):
                 raise FinalizeError(f"_verify.{key} must be a list of {kind}")
     for key in ("joints", "strength"):
         for e in verify.get(key) or []:
-            bad = [f for f in ("name", "report") if f in e and not isinstance(e[f], str)]
+            bad = [f for f in ("name", "report", "proxy_build") if f in e and not isinstance(e[f], str)]
             if bad:
                 raise FinalizeError(f"_verify.{key}: {' and '.join(bad)} must be text ({json.dumps(e, ensure_ascii=False)})")
     if "references" in verify and not (isinstance(verify["references"], dict)
@@ -421,7 +423,7 @@ def assembly_drift(build, specs):
     return []
 
 
-def check_joints(verify, parts, taken=frozenset()):
+def check_joints(verify, parts, taken=frozenset(), params=None):
     """Every declared joint's fit report. Each entry gets a `result` a promise can read: missing
     (no readable report), stale (not a report of the current parts), failed, open (a check that
     is neither PASS nor an accepted WARN), accepted (PASS apart from WARNs the user accepted as
@@ -479,6 +481,9 @@ def check_joints(verify, parts, taken=frozenset()):
             if len(unknown) == 2:
                 foreign = True
                 reasons.append(f"joint '{name}': neither STL the report measured is a part of this build")
+            entry["proxy_build"], note = proxy_provenance(j, [rparts.get(k) or {} for k in unknown], params)
+            if note:
+                entry["proxy_note"] = note
         elif unknown:
             foreign = True
             reasons.append(f"joint '{name}': the report measured "
@@ -497,6 +502,46 @@ def check_joints(verify, parts, taken=frozenset()):
             entry["accepted"] = accepted
         entries.append(entry)
     return entries, reasons, notes
+
+
+def proxy_provenance(j, sides, params):
+    """Whether the proxy a joint was fitted against is tied to the numbers it stands for: built
+    by build.py (the joint's `proxy_build` names that build's JSON) from params.json as it is now.
+    Returns (tied | untied | stale, note)."""
+    pb = j.get("proxy_build")
+    if not pb:
+        return "untied", "no proxy_build names the build that made the proxy"
+    try:
+        b = load_json(pb, "proxy build")
+    except FinalizeError as exc:
+        return "stale", str(exc)
+    if not isinstance(b, dict) or b.get("schema") != "3dprint-scout.build/1":
+        return "stale", f"{rel(pb)} is not a build.py run / record report"
+    sources = [s for s in b.get("sources") or [] if isinstance(s, str)]
+    missing = [s for s in sources if not os.path.isfile(s)]
+    if not sources or missing:
+        return "stale", f"the sources {rel(pb)} hashed are missing: {', '.join(missing) or 'none listed'}"
+    for side in sides:
+        sha = side.get("sha256")
+        part = next((p for p in b.get("parts") or [] if isinstance(p, dict) and sha and p.get("sha256") == sha), None)
+        if part is None:
+            return "stale", f"the proxy {rel(side.get('path'))} the fit measured is not one {rel(pb)} built"
+        stl = part.get("stl")
+        mf = validate.manifest_path(stl) if isinstance(stl, str) else None
+        try:
+            with open(mf, encoding="utf-8") as f:
+                man = json.load(f)
+        except (OSError, TypeError, ValueError):
+            return "stale", f"the proxy {rel(stl)} has no build manifest"
+        built = man.get("sources") if isinstance(man, dict) else None
+        own = ([s for s in sources if os.path.basename(s) in set(built)]
+               if isinstance(built, list) and set(built) <= set(validate.source_names(sources)) else sources)
+        if man.get("artifact_sha256") != sha:
+            return "stale", f"the proxy {rel(stl)} is not the STL its build recorded"
+        if man.get("input_hash") != validate.hash_inputs(own, params):
+            return "stale", (f"the proxy {rel(stl)} was not built from params.json as it is now (or its generator "
+                             "changed): build it again and fit again")
+    return "tied", ""
 
 
 def measured_parts(rparts, by_sha):
@@ -784,6 +829,11 @@ def check_promises(verify, params, joints, strength, parts):
                     notver.append(f"{what} fitted {', '.join(bad)}, whose own checks FAIL")
                 if raw.get("proxy") and not raw.get("dims"):
                     assumed.append(f"{what} is fitted against a proxy whose sizes are not declared (dims)")
+                elif raw.get("proxy") and entry.get("proxy_build") == "untied":
+                    assumed.append(f"{what} names the sizes of its proxy, but nothing ties the proxy to them "
+                                   "(proxy_build: the JSON of the build that made it)")
+                elif raw.get("proxy") and entry.get("proxy_build") == "stale":
+                    notver.append(f"{what}: {entry.get('proxy_note')}")
             elif res == "passed" and entry.get("manual"):
                 notver.append(f"{what}: its inputs were typed in, not taken from the build's parameters")
             jd = raw.get("dims")
@@ -1075,8 +1125,8 @@ def finalize(args):
     warns += w
     accepted = verify.get("accepted") or []
     out["accepted"] = accepted
-    taken = {norm(a["check"]) for a in accepted if "check" in a}
-    joints, r, notes = check_joints(verify, parts, taken)
+    taken = {norm(a["check"]) for a in accepted if "check" in a and "promise" not in a}   # a malformed one counts for nothing
+    joints, r, notes = check_joints(verify, parts, taken, params)
     out["joints"] = joints
     reasons += r
     out["warnings"] += notes

@@ -137,8 +137,8 @@ gets one state:
 | `error` | Declared wrongly: no id or the same id twice, an unknown field or kind, no `text`, a `use` without `conditions` and `success` or a `feature` without `success`, an evidence item that names no declared joint or member, names a part's own check (`box M1`) or a kind the promise does not take, or a dims entry that is missing or declared wrongly (a `caliper` value without `"by": "user"`, a `spec` without its `url`, values that differ from params.json) |
 | `failed` | A joint or member it names failed, even if the user took the promise |
 | `excluded` | The user took it without verifying it (`{"promise": id, "reason": …, "by": "user"}` in `_verify.accepted`); its other reasons stay listed |
-| `not verified` | No evidence yet, a missing or stale report, a joint that fitted a part whose own checks FAIL, a check that is neither PASS nor an accepted WARN, or a member whose inputs were typed in (every strength.py report for now) |
-| `assumed` | Everything passed, but it rests on a dims entry with `source: "assumed"`, or on a proxy joint that names no dims |
+| `not verified` | No evidence yet, a missing or stale report, a joint that fitted a part whose own checks FAIL, a proxy whose build is not of params.json as it is now, a check that is neither PASS nor an accepted WARN, or a member whose inputs were typed in (every strength.py report for now) |
+| `assumed` | Everything passed, but it rests on a dims entry with `source: "assumed"`, or on a proxy joint that names no dims or no `proxy_build` (the saved JSON of the `build.py` run that made the proxy, which ties it to params.json) |
 | `accepted` | Everything passed with a WARN the user accepted |
 | `verified` | None of the above |
 

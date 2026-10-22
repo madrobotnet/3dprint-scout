@@ -60,6 +60,8 @@ def build(p):
 ```
 
 Keep it to the faces the part touches or sweeps past; everything else can be a box. Record
-every number with its source, validate it like any part (`build.py run`), and use it as
-part A in `fit.py` (seated fit) or with `--sweep-angles` (a lever's travel to its stop).
-A proxy stays in `out/`: it is never delivered.
+every number with its source in params.json, validate it like any part (`build.py run` with the
+project's params.json, its JSON saved as `out/<proxy>/build.json`), and use it as part A in
+`fit.py` (seated fit) or with `--sweep-angles` (a lever's travel to its stop). The joint names
+that JSON as `proxy_build` and the numbers as `dims` (`references/checks.md`): without them a
+promise resting on the joint is only `assumed`. A proxy stays in `out/`: it is never delivered.
