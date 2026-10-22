@@ -18,6 +18,17 @@ import finalize  # noqa: E402
 from test_validate import X2D, box, write_stl  # noqa: E402
 
 HAS_M3D = find_spec("manifold3d") is not None and find_spec("numpy") is not None
+HAS_NP = find_spec("numpy") is not None
+
+
+def measure_report(path, *argv):
+    """A saved measure.py report (with --expect, as finalize reads it)."""
+    import measure
+    code, rep = run(measure, *argv)
+    assert code == 0, rep["errors"]
+    with open(path, "w") as f:
+        json.dump(rep, f)
+    return rep
 
 
 def run(module, *argv):
@@ -730,8 +741,11 @@ class FinalizePromises(Workspace):
             ("a feature without success", [dict(feature, success="", evidence=[{"joint": "lid on box"}])], None,
              "a feature promise needs success"),
             ("strength for a feature", [dict(feature, evidence=[{"strength": "x"}])], None,
-             "strength is not evidence for a feature promise (it takes joint)"),
+             "strength is not evidence for a feature promise (it takes joint, measurement)"),
             ("a typo in a field", [dict(seat, evidance=[])], None, "unknown field evidance"),
+            ("a measurement for a look", [{"id": "look", "kind": "look", "text": "a wave",
+                                           "evidence": [{"measurement": "m"}]}], None,
+             "measurement is not evidence for a look promise"),
             ("a kind that does not exist", [dict(seat, kind="usage")], None, "kind must be one of use, feature, look"),
             ("an unknown dims id", [dict(seat, assumes=["phone"])], None, "the promise rests on dims 'phone', which is "
                                                                           "not in _verify.dims"),
@@ -743,7 +757,12 @@ class FinalizePromises(Workspace):
              [self.plug_dims("spec", url="https://example.org/usb-c", where={"plug_w": "table 3-2"})],
              "the place in the spec its number comes from (missing: plug_h, plug_l, cable_d)"),
             ("a file value with no reading of it", [cable], [self.plug_dims("user-file", note="out/m.json")],
-             "source must be one of assumed, caliper, spec"),
+             "needs from, for each parameter, the name of the measurement of that file it was read from"),
+            ("a file value with no tolerance", [cable], [self.plug_dims("user-file", **{"from": {
+                "plug_w": "w", "plug_h": "h", "plug_l": "l", "cable_d": "d"}})], "needs tol"),
+            ("a file value read by no measurement", [cable], [self.plug_dims("user-file", tol=0.1, **{"from": {
+                "plug_w": "w", "plug_h": "h", "plug_l": "l", "cable_d": "d"}})],
+             "plug_w comes from measurement 'w', which is not in _verify.measurements"),
             ("dims that are not the model's numbers", [cable], [dict(self.plug_dims(), params=dict(self.PLUG, plug_w=12))],
              "plug_w is 12 here but 13 in params.json"),
             ("dims not in params.json", [cable], [dict(self.plug_dims(), params={"plug_depth": 9})],
@@ -1061,6 +1080,98 @@ class FinalizePromises(Workspace):
         os.remove("deliver/lid.stl")                                           # one file for two parts is not enough
         code, fin = self.finalize("--deliver", "deliver")
         self.assertIn("lid: not in the delivery (deliver) as an STL or in a 3MF", fin["open"])
+
+    @unittest.skipUnless(HAS_NP, "numpy not installed")
+    def test_a_measurement_confirms_a_size_on_the_built_part(self):
+        """0.7.0 step 2: a hand-calculated size is reported only once the built STL is measured."""
+        depth = {"id": "depth", "kind": "feature", "text": "the box is 30 mm deep", "success": "30 mm within 0.05",
+                 "evidence": [{"measurement": "box depth"}]}
+        members = {"measurements": [{"name": "box depth", "report": "out/m_depth.json"}]}
+        measure_report("out/m_depth.json", "slice", "out/box.stl", "--z", "10", "--expect",
+                       "levels[0].loops[0].size[1]=30", "--tol", "0.05")
+        out = self.run_use(self.verify([depth], dims=[], **members))
+        self.assertEqual((out["use"], self.promise(out, "depth")["state"]), ("verified", "verified"))
+        self.assertEqual(out["measurements"][0]["measured"], ["box"])
+        measure_report("out/m_depth.json", "slice", "out/box.stl", "--z", "10", "--expect",
+                       "levels[0].loops[0].size[1]=31", "--tol", "0.05")
+        out = self.run_use(self.verify([depth], dims=[], **members))
+        self.assertEqual(self.promise(out, "depth")["state"], "failed")
+        self.assertIn("measurement 'box depth' failed: levels[0].loops[0].size[1] = 30.0, expected = 31.0",
+                      self.promise(out, "depth")["reasons"])
+        write_stl("out/box.stl", box(40, 32, 20))                              # rebuilt after the measurement
+        out = self.run_use(self.verify([depth], dims=[], **members))
+        self.assertEqual(self.promise(out, "depth")["reasons"],
+                         ["measurement 'box depth': the file it measured has changed since, or is gone"])
+        write_stl("out/other.stl", box(40, 30, 20, 0, 0, 0))                  # not a part of this build
+        measure_report("out/m_depth.json", "slice", "out/other.stl", "--z", "10", "--expect",
+                       "levels[0].loops[0].size[1]=30", "--tol", "0.05")
+        out = self.run_use(self.verify([depth], dims=[], **members))
+        self.assertIn("measurement 'box depth': it read out/other.stl, which is not a part of this build",
+                      self.promise(out, "depth")["reasons"])
+        good = measure_report("out/m_depth.json", "slice", "out/box.stl", "--z", "10", "--expect",
+                              "levels[0].loops[0].size[1]=31", "--tol", "0.05")          # a FAIL, then edited by hand
+        e0 = good["expect"][0]
+        for edit, message in (({"expect": [{"state": "PASS"}], "gate": "PASS"}, "lacks its path, op or target"),
+                              ({"expect": [dict(e0, value=31.0, state="PASS")], "gate": "PASS"},
+                               f"value 31.0 is not what measure.py reads from the file now ({e0['value']})"),
+                              ({"expect": [dict(e0, value=31.0, state="PASS")], "gate": "PASS",
+                                "levels": [{"level": 10, "loops": [{"size": [40, 31.0]}]}]},
+                               f"value 31.0 is not what measure.py reads from the file now ({e0['value']})"),
+                              ({"query": dict(good["query"], cmd="volume")}, "records no command"),
+                              ({"expect": [dict(e0, target=10 ** 400)]}, "lacks its path, op or target"),
+                              ({"expect": [dict(e0, tol=10 ** 400)]}, "has no tol"),
+                              ({"expect": [dict(e0, state="PASS")], "gate": "PASS"}, "does not follow from its numbers"),
+                              ({"gate": "PASS"}, "its gate does not follow"),
+                              ({"expect": [dict(e0, tol=None)]}, "has no tol"),
+                              ({"expect": [dict(e0, path="levels[0].loops[5].size[1]")]}, "index [5] is outside")):
+            with self.subTest(edit=edit):                                       # Codex review of step 2 (P1)
+                with open("out/m_depth.json", "w") as f:
+                    json.dump(dict(good, **edit), f)
+                out = self.run_use(self.verify([depth], dims=[], **members))
+                self.assertEqual((out["measurements"][0]["result"], self.promise(out, "depth")["state"]),
+                                 ("missing", "not verified"))
+                self.assertIn(message, out["measurements"][0]["note"])
+        measure_report("out/m_depth.json", "slice", "out/box.stl", "--z", "10")  # no --expect
+        out = self.run_use(self.verify([depth], dims=[], **members))
+        self.assertEqual(self.promise(out, "depth")["reasons"],
+                         ["measurement 'box depth': no report (out/m_depth.json has no expectations "
+                          "(measure.py --expect))"])
+
+    @unittest.skipUnless(HAS_NP, "numpy not installed")
+    def test_a_size_read_from_the_users_file(self):
+        """0.7.0 step 2: a user-file dims entry is backed only by a fresh, passed measurement of
+        that file whose value is the params value within tol (Codex review of the plan, #17)."""
+        os.makedirs("ref")
+        write_stl("ref/plug.stl", box(13.1, 8, 9))                            # the user's model of the plug
+        measure_report("out/m_plug.json", "info", "ref/plug.stl", "--expect", "objects[0].size_mm[0]=13", "--tol", "0.2")
+        head = {"id": "plug-head", "what": "plug head width, from the maker's model", "params": {"plug_w": 13.1},
+                "source": "user-file", "from": {"plug_w": "plug width"}, "tol": 0.05}
+        rest = dict(self.plug_dims("caliper", by="user"), id="plug-rest",
+                    params={"plug_h": 8, "plug_l": 9, "cable_d": 4.5})
+        joints = [dict(self.verify([])["joints"][1], dims=["plug-head", "plug-rest"])]
+        values = dict(self.PLUG, plug_w=13.1)
+        members = {"measurements": [{"name": "plug width", "report": "out/m_plug.json"}]}
+        out = self.run_use(self.verify([self.CABLE], dims=[head, rest], joints=joints, **members), values=values)
+        self.assertEqual([d["state"] for d in out["dims"]], ["measured", "measured"])
+        self.assertEqual(self.promise(out, "cable-out")["state"], "verified", self.promise(out, "cable-out")["reasons"])
+        far = dict(values, plug_w=13.4)                                        # the model's number is not the reading
+        out = self.run_use(self.verify([self.CABLE], dims=[dict(head, params={"plug_w": 13.4}), rest], joints=joints,
+                                       **members), values=far)
+        self.assertEqual(out["dims"][0]["state"], "unbacked")
+        self.assertIn("dims 'plug-head' is not backed by its measurements: plug_w: measurement 'plug width' read 13.1, "
+                      "not 13.4 within 0.05", self.promise(out, "cable-out")["reasons"])
+        out = self.run_use(self.verify([self.CABLE], dims=[dict(head, tol=10 ** 400), rest], joints=joints, **members),
+                           values=values)
+        self.assertIn("dims 'plug-head': tol must be a number of 0 or more", out["promise_errors"])  # step 2 review
+        write_stl("ref/plug.stl", box(13.2, 8, 9))                            # the file changed after its reading
+        out = self.run_use(self.verify([self.CABLE], dims=[head, rest], joints=joints, **members), values=values)
+        self.assertEqual(out["dims"][0]["problems"], ["plug_w: measurement 'plug width' is stale (the file it measured "
+                                                      "(ref/plug.stl) has changed since, or is gone)"])
+        measure_report("out/m_plug.json", "info", "out/box.stl", "--expect", "objects[0].size_mm[0]=40", "--tol", "0.2")
+        out = self.run_use(self.verify([self.CABLE], dims=[dict(head, params={"plug_w": 40})], joints=joints, **members),
+                           values=dict(values, plug_w=40))
+        self.assertEqual(out["dims"][0]["problems"], ["plug_w: measurement 'plug width' read box, a part of this build, "
+                                                      "not the user's file"])
 
     def test_the_tier_is_the_worst_promise(self):
         nothing = {"id": "label", "kind": "look", "text": "the name on the front"}
