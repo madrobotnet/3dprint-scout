@@ -30,6 +30,7 @@ is missing is reported as "not declared", which keeps its tier from being verifi
                  {"name": "plug through notch", "report": "out/fit_plug.json", "proxy": true,
                   "dims": ["usb-c-plug"], "proxy_build": "out/plug/build.json"}],
     "strength": [{"name": "latch arm", "report": "out/strength_latch.json"}],
+    "measurements": [{"name": "lip height", "report": "out/m_lip.json"}],
     "test_prints": [{"name": "hinge coupon", "status": "skipped", "note": "user had no time"}],
     "accepted": [{"check": "body P2", "reason": "the user wants supports there"},
                  {"check": "object box P2", "reason": "..."},
@@ -59,11 +60,16 @@ reference shows (`real`), or was generated or inferred (`estimated`), or given u
 
 promises: what the user was promised, each judged by its own evidence. kind `use` (a thing the
 user does with the object: needs conditions and success), `feature` (needs success) or `look`.
-Evidence names a declared joint or member; a use takes joints and members, a feature joints; a
-part's own check (box M1) is never evidence of a promise. dims: the real-world sizes the design
-rests on, each tied to the params.json values the model is built from (they must be equal),
-with its source: assumed, caliper ("by": "user") or spec (its url, and where each number is in
-it: finalize reads no spec, so these are listed in open for the person to check). A promise rests on the
+Evidence names a declared joint, member or measurement; a use takes all three, a feature joints
+and measurements; a part's own check (box M1) is never evidence of a promise. measurements:
+saved `measure.py ... --expect` reports, each fresh while the file it read is unchanged (its
+sha256), passed when every expectation passed; as evidence it must have read a part of this
+build. dims: the real-world sizes the design rests on, each tied to the params.json values the
+model is built from (they must be equal), with its source: assumed, caliper ("by": "user"),
+spec (its url, and where each number is in it: finalize reads no spec, so these are listed in
+open for the person to check) or user-file (from: each parameter's measurement of the user's
+file, which must be fresh, passed, of no part of this build, and within tol of the value;
+otherwise the entry is unbacked and a promise on it not verified). A promise rests on the
 dims its evidence names (and on its own `assumes`); a proxy joint that names none, or no
 proxy_build, or built from numbers its dims do not declare, rests on undeclared sizes. Each promise gets one state: error (declared wrongly),
 failed (its evidence failed, whatever else), excluded (the user took it unverified), not
@@ -117,13 +123,13 @@ SETTINGS = ("tol", "printer", "printer_id", "tools", "overhang_angle", "min_wall
 
 # The use tier: what the user was promised, and the evidence that it holds.
 KINDS = ("use", "feature", "look")
-EVIDENCE = ("joint", "strength")
-ALLOWED = {"use": ("joint", "strength"), "feature": ("joint",), "look": ()}
+EVIDENCE = ("joint", "strength", "measurement")
+ALLOWED = {"use": ("joint", "strength", "measurement"), "feature": ("joint", "measurement"), "look": ()}
 NEEDS = {"use": ("conditions", "success"), "feature": ("success",), "look": ()}
 PROMISE_KEYS = ("id", "kind", "text", "conditions", "success", "evidence", "assumes", "note")
-DIM_SOURCES = ("assumed", "caliper", "spec")
-DIM_STATE = {"assumed": "assumed", "caliper": "measured", "spec": "spec"}
-DIM_KEYS = ("id", "what", "unit", "params", "source", "tol", "by", "url", "where", "note")
+DIM_SOURCES = ("assumed", "caliper", "spec", "user-file")
+DIM_STATE = {"assumed": "assumed", "caliper": "measured", "spec": "spec", "user-file": "measured"}
+DIM_KEYS = ("id", "what", "unit", "params", "source", "tol", "by", "url", "where", "from", "note")
 STATES = ("error", "failed", "not verified", "excluded", "assumed", "accepted", "verified")
 
 
@@ -218,7 +224,8 @@ def plural(n, word):
 
 
 def check_verify_shape(verify):
-    lists = {"joints": dict, "strength": dict, "test_prints": dict, "accepted": dict, "unverified": str,
+    lists = {"joints": dict, "strength": dict, "measurements": dict, "test_prints": dict, "accepted": dict,
+             "unverified": str,
              "promises": dict, "dims": dict}
     for key, item in lists.items():
         if key in verify:
@@ -226,7 +233,7 @@ def check_verify_shape(verify):
             if not isinstance(v, list) or not all(isinstance(x, item) for x in v):
                 kind = "objects" if item is dict else "strings"
                 raise FinalizeError(f"_verify.{key} must be a list of {kind}")
-    for key in ("joints", "strength"):
+    for key in ("joints", "strength", "measurements"):
         for e in verify.get(key) or []:
             bad = [f for f in ("name", "report", "proxy_build") if f in e and not isinstance(e[f], str)]
             if key == "joints" and "sweep" in e and not isinstance(e["sweep"], bool):
@@ -663,10 +670,12 @@ def text_field(entry, key):
     return isinstance(v, str) and bool(v.strip())
 
 
-def check_dims(verify, params):
+def check_dims(verify, params, measurements=()):
     """_verify.dims: the real-world sizes the design rests on (a phone, a plug), each tied to the
-    params.json values the model is built from, with where they came from. Returns ({id: entry},
-    declaration errors)."""
+    params.json values the model is built from, with where they came from. A user-file value is
+    backed by a measurement of the user's file for each parameter (`from`); one that is not (the
+    measurement missing, stale, failed, of a part of this build, or another value) is `unbacked`,
+    with its problems. Returns ({id: entry}, declaration errors)."""
     out, errors = {}, []
     engine = validate.engine_params(params)
     raw = verify.get("dims") or []
@@ -695,6 +704,19 @@ def check_dims(verify, params):
             errs.append(f"{label}: a caliper value needs \"by\": \"user\" (only the user can measure the object)")
         elif src == "spec" and not text_field(d, "url"):
             errs.append(f"{label}: a spec value needs the url of the spec")
+        elif src == "user-file":
+            frm = d.get("from") if isinstance(d.get("from"), dict) else {}
+            given = d.get("params") if isinstance(d.get("params"), dict) else {}
+            unmapped = [k for k in given if not text_field(frm, k)]
+            if not isinstance(d.get("from"), dict) or unmapped:
+                errs.append(f"{label}: a value from the user's file needs from, for each parameter, the name of the "
+                            f"measurement of that file it was read from (missing: {', '.join(unmapped) or 'from'})")
+            if "tol" not in d:
+                errs.append(f"{label}: a value from the user's file needs tol, how far the measured value may differ")
+            for k in given:
+                mname = frm.get(k)
+                if text_field(frm, k) and not any(m.get("name") == mname for m in measurements):
+                    errs.append(f"{label}: {k} comes from measurement '{mname}', which is not in _verify.measurements")
         elif src == "spec":
             where = d.get("where") if isinstance(d.get("where"), dict) else {}
             given = d.get("params") if isinstance(d.get("params"), dict) else {}
@@ -718,7 +740,11 @@ def check_dims(verify, params):
                     errs.append(f"{label}: {k} is {json.dumps(v)} here but {json.dumps(cur)} in params.json")
         entry = {"id": did, "what": d.get("what"), "source": src, "params": p,
                  "state": "error" if errs else DIM_STATE[src]}
-        entry.update({k: d[k] for k in ("unit", "tol", "by", "url", "where") if k in d})
+        entry.update({k: d[k] for k in ("unit", "tol", "by", "url", "where", "from") if k in d})
+        if not errs and src == "user-file":
+            problems = user_file_problems(d, measurements)
+            if problems:
+                entry.update(state="unbacked", problems=problems)
         if errs:
             entry["errors"] = errs
             errors += errs
@@ -729,6 +755,74 @@ def check_dims(verify, params):
         else:
             out[f"#{i + 1}"] = entry
     return out, errors
+
+
+def user_file_problems(d, measurements):
+    """Why a user-file dims entry is not backed by its measurements, each parameter by its own:
+    the measurement must be a fresh, passed reading of a file that is not a part of this build,
+    with one = expectation whose measured value is the params value within the entry's tol."""
+    problems = []
+    for k, v in d["params"].items():
+        mname = d["from"][k]
+        same = [m for m in measurements if m.get("name") == mname]
+        if len(same) != 1:
+            problems.append(f"{k}: {len(same)} measurements are named '{mname}'")
+            continue
+        m = same[0]
+        exp = m.get("expect") or []
+        if m.get("result") != "passed":
+            problems.append(f"{k}: measurement '{mname}' is {m.get('result')}" + (f" ({m['note']})" if m.get("note") else ""))
+        elif m.get("measured"):
+            problems.append(f"{k}: measurement '{mname}' read {', '.join(m['measured'])}, a part of this build, not the "
+                            "user's file")
+        elif len(exp) != 1 or exp[0].get("op") != "=":
+            problems.append(f"{k}: measurement '{mname}' must hold one = expectation (it holds {len(exp)})")
+        elif not (isinstance(v, (int, float)) and not isinstance(v, bool)) or abs(exp[0]["value"] - v) > d["tol"] + 1e-9:
+            problems.append(f"{k}: measurement '{mname}' read {exp[0]['value']}, not {json.dumps(v)} within {d['tol']}")
+    return problems
+
+
+def check_measurements(verify, parts):
+    """_verify.measurements: saved measure.py reports with --expect. Each entry gets a `result`:
+    missing (no readable report with expectations), stale (the file it measured has changed or is
+    gone), failed (an expectation failed) or passed; `measured` names the parts of this build it
+    read (none for the user's own file) and `expect` repeats its expectations."""
+    by_sha = {}
+    for p in parts:
+        if p.get("sha256"):
+            by_sha.setdefault(p["sha256"], []).append(p)
+    entries = []
+    for m in verify.get("measurements") or []:
+        name, report = m.get("name") or m.get("report"), m.get("report")
+        entry = {"name": name, "report": rel(report)}
+        entries.append(entry)
+        if not report or not os.path.isfile(report):
+            entry.update(result="missing", note=f"report {rel(report)} not found; run measure.py --expect and save it")
+            continue
+        try:
+            rep = load_json(report, "measure report")
+        except FinalizeError as exc:
+            entry.update(result="missing", note=str(exc))
+            continue
+        exp = rep.get("expect") if isinstance(rep, dict) else None
+        if not isinstance(rep, dict) or rep.get("schema") != "3dprint-scout.measure/1" or not rep.get("ran"):
+            entry.update(result="missing", note=f"{rel(report)} is not a measure.py report that ran")
+            continue
+        if (not isinstance(exp, list) or not exp or rep.get("gate") not in ("PASS", "FAIL")
+                or not all(isinstance(e, dict) and e.get("state") in ("PASS", "FAIL") for e in exp)):
+            entry.update(result="missing", note=f"{rel(report)} has no expectations (measure.py --expect)")
+            continue
+        f, sha = rep.get("file"), rep.get("file_sha256")
+        entry.update(file=rel(f) if isinstance(f, str) else None, expect=exp)
+        if not (isinstance(f, str) and isinstance(sha, str) and os.path.isfile(f) and validate.file_sha256(f) == sha):
+            entry.update(result="stale", note=f"the file it measured ({rel(f) if isinstance(f, str) else '?'}) has "
+                                              "changed since, or is gone")
+            continue
+        here = [p for p in by_sha.get(sha, []) if p.get("stl") and
+                os.path.normcase(os.path.abspath(p["stl"])) == os.path.normcase(os.path.abspath(f))]
+        entry["measured"] = [p.get("name") for p in (here or by_sha.get(sha, []))]
+        entry["result"] = "passed" if rep["gate"] == "PASS" and all(e["state"] == "PASS" for e in exp) else "failed"
+    return entries
 
 
 def valid_check_entry(a):
@@ -761,20 +855,20 @@ def promise_state(errs, failed, notver, excluded, assumed, accepted):
     return "verified"
 
 
-def check_promises(verify, params, joints, strength, parts):
+def check_promises(verify, params, joints, strength, parts, measurements=()):
     """The use tier: each promise made to the user, judged by its own evidence. A promise is
     verified only when it says under which conditions it holds and what counts as success, its
     evidence is of a kind allowed for it, of the current parts and passed, and nothing it rests
     on is an unmeasured size. Returns a dict with tier, promises, counts, dims, errors, open."""
-    dims, errors = check_dims(verify, params)
+    dims, errors = check_dims(verify, params, measurements)
     out = {"tier": "not declared", "promises": [], "counts": {}, "dims": list(dims.values()), "errors": errors,
            "open": []}
-    for key in ("joints", "strength"):
+    for key, kind_name in (("joints", "joint"), ("strength", "member"), ("measurements", "measurement")):
         for raw in verify.get(key) or []:
             jd = raw.get("dims")
             if jd is not None and not (isinstance(jd, list) and all(isinstance(x, str) for x in jd)):
-                errors.append(f"{key[:-1] if key == 'joints' else 'member'} '{raw.get('name') or raw.get('report')}': "
-                              "dims must be a list of _verify.dims ids")
+                errors.append(f"{kind_name} '{raw.get('name') or raw.get('report')}': dims must be a list of "
+                              "_verify.dims ids")
     promises = verify.get("promises")
     ids = [p.get("id") for p in promises or []]
     excluded = {}
@@ -806,7 +900,9 @@ def check_promises(verify, params, joints, strength, parts):
                            "the user was promised")
     gate = {p.get("name"): p.get("gate") for p in parts}
     index = {"joint": evidence_index(verify, "joints", joints),
-             "strength": evidence_index(verify, "strength", strength)}
+             "strength": evidence_index(verify, "strength", strength),
+             "measurement": evidence_index(verify, "measurements", measurements)}
+    where_of = {"joint": "_verify.joints", "strength": "_verify.strength", "measurement": "_verify.measurements"}
     for i, pr in enumerate(promises or []):
         pid, kind = pr.get("id"), pr.get("kind")
         ok_id = isinstance(pid, str) and bool(pid.strip())
@@ -868,7 +964,7 @@ def check_promises(verify, params, joints, strength, parts):
                                "no evidence of it is read here yet") + ")")
                 continue
             matches = index[k].get(name, [])
-            where = "_verify.joints" if k == "joint" else "_verify.strength"
+            where = where_of[k]
             if not matches:
                 errs.append(f"there is no {k} '{name}' in {where}")
                 continue
@@ -881,13 +977,16 @@ def check_promises(verify, params, joints, strength, parts):
             if "covers" in item:
                 ev["covers"] = item["covers"]
             ev_out.append(ev)
-            what = f"joint '{name}'" if k == "joint" else f"member '{name}'"
+            what = {"joint": f"joint '{name}'", "strength": f"member '{name}'"}.get(k, f"measurement '{name}'")
             if res == "missing":
-                notver.append(f"{what}: no report")
+                notver.append(f"{what}: no report" + (f" ({entry['note']})" if entry.get("note") else ""))
             elif res == "stale":
-                notver.append(f"{what}: its fit report is not of the current parts")
+                notver.append(f"{what}: the file it measured has changed since, or is gone" if k == "measurement" else
+                              f"{what}: its fit report is not of the current parts")
             elif res == "failed":
-                failed.append(f"{what} failed")
+                failed.append(f"{what} failed" + (": " + "; ".join(
+                    f"{e.get('path')} = {json.dumps(e.get('value'))}, expected {e.get('op')} {e.get('target')}"
+                    for e in entry.get("expect") or [] if e.get("state") == "FAIL") if k == "measurement" else ""))
             elif res == "open":
                 notver.append(f"{what}: not every check passed" if k == "joint" else
                               f"{what}: strength.py gate {entry.get('gate')}")
@@ -925,6 +1024,12 @@ def check_promises(verify, params, joints, strength, parts):
                                        "entry it names declares")
                     if unused:
                         assumed.append(f"{what}: the proxy was not given {', '.join(unused)}, which its dims declare")
+            elif k == "measurement" and res in ("passed", "failed"):
+                if not entry.get("measured"):
+                    notver.append(f"{what}: it read {entry.get('file')}, which is not a part of this build")
+                bad = [n for n in entry.get("measured") or [] if gate.get(n) == "FAIL"]
+                if bad:
+                    notver.append(f"{what} read {', '.join(bad)}, whose own checks FAIL")
             elif res == "passed" and entry.get("manual"):
                 notver.append(f"{what}: its inputs were typed in, not taken from the build's parameters")
             jd = raw.get("dims")
@@ -939,6 +1044,10 @@ def check_promises(verify, params, joints, strength, parts):
                 errs.append(f"{via} rests on dims '{did}', which is not in _verify.dims")
             elif d["state"] == "error":
                 errs.append(f"dims '{did}' has a declaration error")
+            elif d["state"] == "unbacked":
+                line = f"dims '{did}' is not backed by its measurements: {'; '.join(d.get('problems') or [])}"
+                if line not in notver:
+                    notver.append(line)
             elif d["state"] == "assumed":
                 line = f"rests on '{did}' ({d.get('what')}), which is assumed, not measured"
                 if line not in assumed:
@@ -1232,7 +1341,9 @@ def finalize(args):
     out["warnings"] += notes
     prints, print_lines = check_prints(verify)
     out["test_prints"] = prints
-    use = check_promises(verify, params, joints, strength, parts)
+    measurements = check_measurements(verify, parts)
+    out["measurements"] = measurements
+    use = check_promises(verify, params, joints, strength, parts, measurements)
     out["use"] = use["tier"]
     out["promises"], out["promise_counts"], out["dims"] = use["promises"], use["counts"], use["dims"]
     out["promise_errors"] = use["errors"]

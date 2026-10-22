@@ -28,8 +28,17 @@ other two axes in the order they come (y, z for axis x; x, z for y; x, y for z).
 holds the depth of the first hit measured from the outer face, or null beyond --max-depth
 (a through-hole or a deep recess). `text` holds the same map as rows for reading.
 
+--expect PATH=VALUE (or >=, <=) checks one number of the output, named by its path
+(levels[0].loops[0].size[0], depth_mm[3][5], objects[0].size_mm[2]); repeat it for several.
+`=` needs --tol. The report then carries `expect` (path, op, target, tol, value, state) and
+`gate` (PASS when every expectation passes; a path to no number, such as a through-hole's null
+depth, is a FAIL), plus `file_sha256` and `query`, which tie it to the very file and command:
+finalize.py takes such a report as a `measurement` (a hand calculation confirmed on the built
+part, or a size read from the user's file). Save it: `measure.py ... > out/m_lip.json`.
+
 Needs numpy; manifold3d, when installed, adds volume and watertightness to `info`. Prints
-one JSON document; exit 0 on success, 1 on a usage or file error.
+one JSON document; exit 0 on success (a FAIL expectation included: read `gate`), 1 on a usage
+or file error.
 """
 from __future__ import annotations
 
@@ -45,7 +54,7 @@ from xml.sax.saxutils import unescape
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-from validate import ArtifactError, read_stl  # noqa: E402
+from validate import ArtifactError, file_sha256, read_stl  # noqa: E402
 
 SCHEMA = "3dprint-scout.measure/1"
 CORE_NS = "{http://schemas.microsoft.com/3dmanufacturing/core/2015/02}"
@@ -516,6 +525,78 @@ def cmd_raymap(args):
 
 
 # --------------------------------------------------------------------------- #
+# expect: a number of the output, checked against a target
+# --------------------------------------------------------------------------- #
+EXPECT_RE = re.compile(r"^\s*(?P<path>[^<>=]+?)\s*(?P<op>>=|<=|=)\s*(?P<target>\S+)\s*$")
+PATH_TOKEN = re.compile(r"(?:^|\.)([A-Za-z_][A-Za-z0-9_]*)|\[(-?\d+)\]")
+
+
+def parse_path(path):
+    """levels[0].loops[0].size[1] -> [("levels", None), (None, 0), ("loops", None), ...]."""
+    tokens, pos = [], 0
+    for m in PATH_TOKEN.finditer(path):
+        if m.start() != pos:
+            break
+        tokens.append((m.group(1), None) if m.group(1) else (None, int(m.group(2))))
+        pos = m.end()
+    if not tokens or pos != len(path):
+        raise MeasureError(f"--expect: '{path}' is not a path into the output (e.g. levels[0].loops[0].size[0], "
+                           "depth_mm[3][5], objects[0].size_mm[2])")
+    return tokens
+
+
+def parse_expect(text):
+    m = EXPECT_RE.match(text)
+    if not m:
+        raise MeasureError(f"--expect {text!r}: write PATH=VALUE, PATH>=VALUE or PATH<=VALUE")
+    try:
+        target = float(m.group("target"))
+    except ValueError:
+        target = float("nan")
+    if not math.isfinite(target):
+        raise MeasureError(f"--expect {text!r}: the target must be a finite number")
+    parse_path(m.group("path"))
+    return {"path": m.group("path"), "op": m.group("op"), "target": target}
+
+
+def resolve(doc, path):
+    cur = doc
+    for key, idx in parse_path(path):
+        if key is not None:
+            if not isinstance(cur, dict) or key not in cur:
+                raise MeasureError(f"--expect {path}: the output has no '{key}' there")
+            cur = cur[key]
+        else:
+            if not isinstance(cur, list) or not -len(cur) <= idx < len(cur):
+                raise MeasureError(f"--expect {path}: index [{idx}] is outside the list there")
+            cur = cur[idx]
+    return cur
+
+
+def judge(doc, expects, tol):
+    """Each expectation with the measured value and PASS / FAIL; the gate PASS only when all pass.
+    A path that leads to nothing that is a number (a through-hole's null depth) is a FAIL."""
+    out = []
+    for e in expects:
+        v = resolve(doc, e["path"])
+        entry = dict(e)
+        number = isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)
+        entry["value"] = v if number else None
+        if e["op"] == "=":
+            entry["tol"] = tol
+        if not number:
+            entry.update(state="FAIL", note=f"no number there ({json.dumps(v)})")
+        elif e["op"] == "=":
+            entry["state"] = "PASS" if abs(v - e["target"]) <= tol + 1e-9 else "FAIL"
+        elif e["op"] == ">=":
+            entry["state"] = "PASS" if v >= e["target"] - 1e-9 else "FAIL"
+        else:
+            entry["state"] = "PASS" if v <= e["target"] + 1e-9 else "FAIL"
+        out.append(entry)
+    return out, ("PASS" if all(e["state"] == "PASS" for e in out) else "FAIL")
+
+
+# --------------------------------------------------------------------------- #
 # CLI
 # --------------------------------------------------------------------------- #
 NEGATIVE_OK = ("--z", "--u", "--v")      # options whose value may start with a minus sign
@@ -569,10 +650,26 @@ def main(argv=None):
         p_ray.add_argument("--max-depth", type=float, default=6.0, help="deeper hits count as 'through' (mm)")
         p_ray.add_argument("--object")
         p_ray.add_argument("--center", action="store_true")
+        for p in (p_info, p_slice, p_ray):
+            p.add_argument("--expect", action="append", help="PATH=VALUE, PATH>=VALUE or PATH<=VALUE on a number of "
+                           "this output (levels[0].loops[0].size[0]=6); repeatable; adds expect and gate")
+            p.add_argument("--tol", type=float, help="allowed difference for PATH=VALUE (mm)")
+            p.add_argument("--what", help="what the expectation measures, in words (lip height)")
         args = ap.parse_args(join_negative_values(sys.argv[1:] if argv is None else argv))
         if args.cmd is None:
             raise MeasureError("usage error: choose a subcommand: info, slice, raymap")
+        expects = [parse_expect(t) for t in args.expect or []]
+        if any(e["op"] == "=" for e in expects) and args.tol is None:
+            raise MeasureError("--tol is needed with PATH=VALUE (the allowed difference, mm)")
+        if args.tol is not None and not (math.isfinite(args.tol) and args.tol >= 0):
+            raise MeasureError("--tol must be a number of 0 or more")
         out.update({"info": cmd_info, "slice": cmd_slice, "raymap": cmd_raymap}[args.cmd](args))
+        out["file_sha256"] = file_sha256(args.file)       # the very file these numbers are about (finalize.py)
+        out["query"] = {k: v for k, v in sorted(vars(args).items()) if k not in ("expect", "tol", "what", "extract")}
+        if expects:
+            if args.what:
+                out["what"] = args.what
+            out["expect"], out["gate"] = judge(out, expects, args.tol)
         out["ran"] = True
     except (MeasureError, OSError, ValueError, ET.ParseError) as exc:
         out["errors"].append(str(exc))

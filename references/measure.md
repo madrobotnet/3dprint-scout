@@ -38,6 +38,32 @@ python3 "$SKILL_DIR/scripts/measure.py" raymap ref_mesh/obj_15_housing.stl --axi
   depth, a rib stands at 0. Read the `text` rows (v from high to low) to size windows and
   locate them; refine the step around the edges you need (0.25 mm for a 0.1 mm answer).
 
+## A number kept as evidence: `--expect`
+
+A size read once in a chat is gone at the next rebuild. To keep it as evidence, run the same
+command with `--expect` on the number you read, named by its path in the output, and save the
+report:
+
+```bash
+# a hand calculation confirmed on the built part (the lip holds at least 7.5 mm)
+python3 "$SKILL_DIR/scripts/measure.py" slice out/sled.stl --axis x --z 0 \
+  --expect "levels[0].loops[0].size[1]>=7.5" --what "lip height" > out/m_lip.json
+# a size read from the user's file (the plug head is 13 mm wide)
+python3 "$SKILL_DIR/scripts/measure.py" info ref/plug.stl --expect "objects[0].size_mm[0]=13" --tol 0.2 \
+  --what "plug head width" > out/m_plug_w.json
+```
+
+- The path follows the JSON: `levels[0].loops[0].size[1]` (slice), `depth_mm[3][5]`
+  (raymap, row by v then u), `objects[0].size_mm[2]` (info). Look at the output first and
+  choose the number that is the size you mean; loops are sorted by area, largest first.
+- `=` needs `--tol`; `>=` and `<=` are bounds, for success criteria such as "at least 6 mm".
+- The report records the file's sha256 and the command, and `gate` is PASS only when every
+  expectation passes. A rebuilt part has a new hash, so the report goes stale: measure again.
+- Declare it in params.json `_verify.measurements` (`{"name": "lip height", "report":
+  "out/m_lip.json"}`) and name it in a promise's evidence, or, for the user's file, in the
+  `from` of a `user-file` dims entry (`references/checks.md`). Evidence of a promise must have
+  read a part of this build; a `user-file` dims entry must have read the user's file.
+
 ## A watertight proxy of the mating part
 
 A fit or a sweep needs a closed mesh of the thing the part mates with. The supplied file is

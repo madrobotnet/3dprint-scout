@@ -92,6 +92,9 @@ The final report of Phase 6 (`references/phase-6-deliver.md`), schema `3dprint-s
               "measured": ["box", "lid"], "result": "passed"}],
   "strength": [{"name": "latch arm", "report": "out/strength_latch.json", "gate": "PASS", "case": "pin",
                 "manual": true, "result": "passed"}],
+  "measurements": [{"name": "lip height", "report": "out/m_lip.json", "file": "out/sled.stl", "measured": ["sled"],
+                    "expect": [{"path": "levels[0].loops[0].size[1]", "op": ">=", "target": 7.5, "value": 8.1,
+                                "state": "PASS"}], "result": "passed"}],
   "promises": [{"id": "cable-out", "kind": "use", "text": "…", "conditions": "…", "success": "…",
                 "state": "assumed", "reasons": ["rests on 'usb-c-plug' (…), which is assumed, not measured"],
                 "evidence": [{"joint": "plug through notch", "result": "passed", "covers": "…"}],
@@ -136,10 +139,10 @@ gets one state:
 
 | State | When |
 |---|---|
-| `error` | Declared wrongly: no id or the same id twice, an unknown field or kind, no `text`, a `use` without `conditions` and `success` or a `feature` without `success`, an evidence item that names no declared joint or member, names a part's own check (`box M1`) or a kind the promise does not take, or a dims entry that is missing or declared wrongly (a `caliper` value without `"by": "user"`, a `spec` without its `url` or without `where` (the place in the spec of each parameter's number), values that differ from params.json) |
+| `error` | Declared wrongly: no id or the same id twice, an unknown field or kind, no `text`, a `use` without `conditions` and `success` or a `feature` without `success`, an evidence item that names no declared joint or member, names a part's own check (`box M1`) or a kind the promise does not take, or a dims entry that is missing or declared wrongly (a `caliper` value without `"by": "user"`, a `spec` without its `url` or without `where` (the place in the spec of each parameter's number), a `user-file` value without `from` for each parameter or without `tol`, or naming a measurement that is not declared, values that differ from params.json) |
 | `failed` | A joint or member it names failed, even if the user took the promise |
 | `excluded` | The user took it without verifying it (`{"promise": id, "reason": …, "by": "user"}` in `_verify.accepted`); its other reasons stay listed |
-| `not verified` | No evidence yet, a missing or stale report, a fit report without F3 (or without F3_sweep for a joint marked `"sweep": true`), a joint that fitted a part whose own checks FAIL, a proxy whose params file changed since it was built or that was built from other values than its dims declare, a check that is neither PASS nor an accepted WARN, or a member whose inputs were typed in (every strength.py report for now) |
+| `not verified` | No evidence yet, a missing or stale report, a measurement of a file that is not a part of this build, a dims entry not backed by its measurements, a fit report without F3 (or without F3_sweep for a joint marked `"sweep": true`), a joint that fitted a part whose own checks FAIL, a proxy whose params file changed since it was built or that was built from other values than its dims declare, a check that is neither PASS nor an accepted WARN, or a member whose inputs were typed in (every strength.py report for now) |
 | `assumed` | Everything passed, but it rests on a dims entry with `source: "assumed"`, or on a proxy joint that names no dims or no `proxy_build` (the saved JSON of the `build.py run --proxy` that generated the proxy from its own params file; a proxy taken in with `build.py record` is not tied), or a proxy built from numbers its dims do not declare, or not given numbers they do |
 | `accepted` | Everything passed with a WARN the user accepted |
 | `verified` | None of the above |
@@ -150,6 +153,16 @@ proof, never over a failure. The tier is the worst state of all promises in anot
 nobody agreed to leave unproven weighs more than one the user did. It is `not declared` when
 there is no promise list or it is empty, and `error` when any dims or accepted entry is
 declared wrongly (`promise_errors`).
-Evidence by kind: a `use` takes joints and members, a `feature` joints, a `look` nothing that is
-read yet. Every promise that is not verified is the first thing in `open`; a dims entry taken
+Evidence by kind: a `use` takes joints, members and measurements, a `feature` joints and
+measurements, a `look` nothing that is read yet.
+
+A measurement is a saved `measure.py ... --expect` report (`references/measure.md`). Its
+`result` is `missing` (no readable report with expectations), `stale` (the file it read is not
+the one whose `file_sha256` it recorded, or is gone), `failed` (an expectation failed) or
+`passed`; `measured` names the parts of this build it read. As evidence of a promise it must
+have read a part of this build, and that part's own checks must not FAIL. A dims entry with
+`source: "user-file"` names in `from`, for each parameter, the measurement of the user's file
+it was read from, and a `tol`: each measurement must be fresh and passed, read no part of this
+build, hold one `=` expectation and have measured the params value within `tol`; otherwise the
+entry is `unbacked` and lists its `problems`, and a promise resting on it is not verified. Every promise that is not verified is the first thing in `open`; a dims entry taken
 from a spec is listed there too, with its URL and places, because finalize does not read the spec.

@@ -240,3 +240,56 @@ class RayMap(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+@unittest.skipUnless(HAS_NP, "numpy not installed")
+class Expect(unittest.TestCase):
+    """0.7.0: --expect checks a number of the output against a target and ties the report to the
+    file by its hash, so finalize.py can take it as a measurement."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.stl = os.path.join(self.tmp.name, "part.stl")
+        write_stl(self.stl, box(40, 30, 20))
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_targets_bounds_and_the_file_hash(self):
+        import validate
+        code, rep = run("slice", self.stl, "--z", "10", "--expect", "levels[0].loops[0].size[0]=40", "--tol", "0.05",
+                        "--expect", "levels[0].loops[0].size[1] >= 29.5", "--what", "box footprint")
+        self.assertEqual(code, 0, rep["errors"])
+        self.assertEqual(rep["gate"], "PASS")
+        self.assertEqual([(e["path"], e["op"], e["value"], e["state"]) for e in rep["expect"]],
+                         [("levels[0].loops[0].size[0]", "=", 40.0, "PASS"), ("levels[0].loops[0].size[1]", ">=", 30.0, "PASS")])
+        self.assertEqual(rep["expect"][0]["tol"], 0.05)
+        self.assertNotIn("tol", rep["expect"][1])
+        self.assertEqual(rep["file_sha256"], validate.file_sha256(self.stl))
+        self.assertEqual((rep["query"]["cmd"], rep["query"]["z"], rep["what"]), ("slice", "10", "box footprint"))
+        code, rep = run("slice", self.stl, "--z", "10", "--expect", "levels[0].loops[0].size[0]=41", "--tol", "0.5")
+        self.assertEqual((code, rep["gate"], rep["expect"][0]["state"]), (0, "FAIL", "FAIL"))
+        code, rep = run("slice", self.stl, "--z", "10", "--expect", "levels[0].loops[0].size[1]<=29")
+        self.assertEqual(rep["gate"], "FAIL")
+        code, rep = run("info", self.stl, "--expect", "objects[0].size_mm[2]=20", "--tol", "0")
+        self.assertEqual(rep["gate"], "PASS")
+
+    def test_a_path_to_no_number_fails(self):
+        code, rep = run("raymap", self.stl, "--axis", "z", "--sign", "+1", "--u", "50:51:1", "--v", "5:5:1",
+                        "--expect", "depth_mm[0][0]>=0")
+        self.assertEqual(code, 0, rep["errors"])
+        self.assertEqual((rep["gate"], rep["expect"][0]["value"]), ("FAIL", None))
+        self.assertIn("no number there (null)", rep["expect"][0]["note"])
+
+    def test_bad_expectations_are_usage_errors(self):
+        for extra, message in ((["--expect", "levels[0].loops[0].size[0]=40"], "--tol is needed"),
+                               (["--expect", "size=4", "--tol", "-1"], "--tol must be"),
+                               (["--expect", "levels[0].loops[9].size[0]=40", "--tol", "1"], "index [9] is outside"),
+                               (["--expect", "levels[0].nope=1", "--tol", "1"], "has no 'nope'"),
+                               (["--expect", "levels[0]..loops=1", "--tol", "1"], "is not a path"),
+                               (["--expect", "levels[0].loops[0].size[0]~40"], "write PATH=VALUE"),
+                               (["--expect", "levels[0].loops[0].size[0]=nan", "--tol", "1"], "finite number")):
+            with self.subTest(extra=extra):
+                code, rep = run("slice", self.stl, "--z", "10", *extra)
+                self.assertEqual(code, 1)
+                self.assertTrue(any(message in e for e in rep["errors"]), rep["errors"])
