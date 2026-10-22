@@ -2,7 +2,7 @@
 
 [English](README.md)
 
-<img src="docs/demo.ko.webp" width="100%" alt="데모: 문장 하나가 출력된 폰 거치대가 되기까지. 3dprint-scout가 기존 모델을 찾고, 옆 단면을 그리고, 부품 두 개를 만들고, 폰 세 대로 맞춤을 검사하고, Bambu Studio에서 슬라이스하고, 렌더와 같은 모양으로 출력돼요.">
+<img src="https://raw.githubusercontent.com/madrobotnet/3dprint-scout/main/docs/demo.ko.webp" width="100%" alt="데모: 문장 하나가 출력된 폰 거치대가 되기까지. 3dprint-scout가 기존 모델을 찾고, 옆 단면을 그리고, 부품 두 개를 만들고, 폰 세 대로 맞춤을 검사하고, Bambu Studio에서 슬라이스하고, 렌더와 같은 모양으로 출력돼요.">
 
 3D 프린팅할 물건을 **레퍼런스부터** 설계하는 에이전트 스킬이에요.
 
@@ -55,22 +55,22 @@
 ## 예제
 
 <p>
-<a href="examples/aa-battery-box/"><img src="examples/aa-battery-box/thumb.png" width="200" alt="AA battery box, OpenSCAD"></a>
-<a href="examples/snap-box/"><img src="examples/snap-box/thumb.png" width="200" alt="snap-fit box, part library"></a>
-<a href="examples/leaf-handle/"><img src="examples/leaf-handle/thumb.png" width="200" alt="leaf door handle, SDF"></a>
-<a href="examples/fit-test/"><img src="examples/fit-test/thumb.png" width="200" alt="fit-test rings"></a>
-<a href="examples/latch-box/"><img src="examples/latch-box/thumb.png" width="200" alt="latch box, colour part and print-in-place latch"></a>
-<a href="examples/blender-coaster/"><img src="examples/blender-coaster/thumb.png" width="200" alt="scalloped coaster, Blender"></a>
+<a href="https://github.com/madrobotnet/3dprint-scout/tree/main/examples/aa-battery-box/"><img src="https://raw.githubusercontent.com/madrobotnet/3dprint-scout/main/examples/aa-battery-box/thumb.png" width="200" alt="AA battery box, OpenSCAD"></a>
+<a href="https://github.com/madrobotnet/3dprint-scout/tree/main/examples/snap-box/"><img src="https://raw.githubusercontent.com/madrobotnet/3dprint-scout/main/examples/snap-box/thumb.png" width="200" alt="snap-fit box, part library"></a>
+<a href="https://github.com/madrobotnet/3dprint-scout/tree/main/examples/leaf-handle/"><img src="https://raw.githubusercontent.com/madrobotnet/3dprint-scout/main/examples/leaf-handle/thumb.png" width="200" alt="leaf door handle, SDF"></a>
+<a href="https://github.com/madrobotnet/3dprint-scout/tree/main/examples/fit-test/"><img src="https://raw.githubusercontent.com/madrobotnet/3dprint-scout/main/examples/fit-test/thumb.png" width="200" alt="fit-test rings"></a>
+<a href="https://github.com/madrobotnet/3dprint-scout/tree/main/examples/latch-box/"><img src="https://raw.githubusercontent.com/madrobotnet/3dprint-scout/main/examples/latch-box/thumb.png" width="200" alt="latch box, colour part and print-in-place latch"></a>
+<a href="https://github.com/madrobotnet/3dprint-scout/tree/main/examples/blender-coaster/"><img src="https://raw.githubusercontent.com/madrobotnet/3dprint-scout/main/examples/blender-coaster/thumb.png" width="200" alt="scalloped coaster, Blender"></a>
 </p>
 
 AA 건전지 상자(OpenSCAD), 스냅핏 상자(부품 라이브러리), 나뭇잎 문 손잡이(SDF 도구), 끼워보기
 링, 색을 따로 줄 수 있는 라벨 부품과 한 번에 출력하는 걸쇠가 달린 걸쇠 상자, 그리고 글자를 돋을새김한
 물결 테두리 컵받침(Blender)을 스킬의 스크립트로 만들었어요. 예제마다 소스, 매개변수, 검사 결과,
-다시 빌드하는 명령이 들어 있어요. [examples/](examples/)를 보세요.
+다시 빌드하는 명령이 들어 있어요. [examples/](https://github.com/madrobotnet/3dprint-scout/tree/main/examples)를 보세요.
 
 ## 설치
 
-**Claude (웹·데스크톱).** [최신 릴리스](../../releases/latest)에서 `3dprint-scout-v<버전>.zip`을
+**Claude (웹·데스크톱).** [최신 릴리스](https://github.com/madrobotnet/3dprint-scout/releases/latest)에서 `3dprint-scout-v<버전>.zip`을
 받은 뒤 **Customize > Skills**에서 **+**를 누르고 **Create skill > Upload a skill**로 올려요. 코드
 실행 기능이 켜져 있어야 해요([Claude에서 스킬 사용하기](https://support.claude.com/en/articles/12512180-use-skills-in-claude)).
 
@@ -224,7 +224,7 @@ Bambu 관련 내용은 `references/`에 있고 그 단계에 들어갈 때 읽�
 3dprint-scout를 함께 다듬어 주신 분들이에요.
 
 - [@fivetaku](https://github.com/fivetaku): fit 보고서에 측정한 STL을 기록하고 `fit.py --check`로
-  확인하는 기능([#9](../../pull/9)), Blender MCP 작업 흐름 메모([#8](../../issues/8)).
+  확인하는 기능([#9](https://github.com/madrobotnet/3dprint-scout/pull/9)), Blender MCP 작업 흐름 메모([#8](https://github.com/madrobotnet/3dprint-scout/issues/8)).
 
 이슈와 PR은 언제든 환영해요.
 
