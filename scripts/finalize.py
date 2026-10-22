@@ -63,7 +63,8 @@ user does with the object: needs conditions and success), `feature` (needs succe
 Evidence names a declared joint, member or measurement; a use takes all three, a feature joints
 and measurements; a part's own check (box M1) is never evidence of a promise. measurements:
 saved `measure.py ... --expect` reports, each fresh while the file it read is unchanged (its
-sha256), passed when every expectation passed; as evidence it must have read a part of this
+sha256), passed when every expectation passed (finalize runs the report's command again on the
+file and reads each value itself); as evidence it must have read a part of this
 build. dims: the real-world sizes the design rests on, each tied to the params.json values the
 model is built from (they must be equal), with its source: assumed, caliper ("by": "user"),
 spec (its url, and where each number is in it: finalize reads no spec, so these are listed in
@@ -787,12 +788,33 @@ def finite(v):
     return isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)
 
 
+MEASURE_ARGS = {"info": ("file",), "slice": ("file", "z", "axis", "object", "center", "max_loops"),
+                "raymap": ("file", "axis", "sign", "u", "v", "max_depth", "object", "center")}
+
+
+def remeasure(rep):
+    """The report's command run again on its file (its `query`), so that no number in the report
+    is taken on trust. Returns (output, None) or (None, why not)."""
+    import measure
+    q = rep.get("query")
+    if not isinstance(q, dict) or q.get("cmd") not in MEASURE_ARGS or q.get("file") != rep.get("file"):
+        return None, "it records no command that can be run again (query)"
+    args = argparse.Namespace(**{k: q.get(k) for k in MEASURE_ARGS[q["cmd"]]}, extract=None)
+    try:
+        return {"info": measure.cmd_info, "slice": measure.cmd_slice, "raymap": measure.cmd_raymap}[q["cmd"]](args), None
+    except Exception as exc:                          # numpy missing, a bad query: the report cannot stand
+        return None, f"measuring {rel(q.get('file'))} again failed: {exc}"
+
+
 def expectation_problem(rep, exp):
     """Why a report's expectations cannot be trusted as written, or None. Every expectation needs
-    its path, op, target (and tol for =), a value that is the number its path leads to in the
-    report, and the state that follows from them; the gate must follow from the states. The
-    report's own numbers are read again: a state or value written by hand does not count."""
+    its path, op, target (and tol for =), a value that is the number its path leads to when the
+    report's command runs again on the file, and the state that follows from them; the gate must
+    follow from the states. Nothing written in the report is taken on trust."""
     import measure
+    fresh, why = remeasure(rep)
+    if why:
+        return why
     states = []
     for e in exp:
         if not isinstance(e, dict):
@@ -803,12 +825,13 @@ def expectation_problem(rep, exp):
         if op == "=" and not (finite(e.get("tol")) and e["tol"] >= 0):
             return f"expectation {path} = {target} has no tol"
         try:
-            found = measure.resolve(rep, path)
+            found = measure.resolve(fresh, path)
         except measure.MeasureError as exc:
             return str(exc)
         found = found if finite(found) else None
         if value != found or (value is not None and not finite(value)):
-            return f"expectation {path}: value {json.dumps(value)} is not the report's number there ({json.dumps(found)})"
+            return (f"expectation {path}: value {json.dumps(value)} is not what measure.py reads from the file now "
+                    f"({json.dumps(found)})")
         ok = value is not None and (abs(value - target) <= e["tol"] + 1e-9 if op == "=" else
                                     value >= target - 1e-9 if op == ">=" else value <= target + 1e-9)
         if state != ("PASS" if ok else "FAIL"):
@@ -848,15 +871,15 @@ def check_measurements(verify, parts):
         if not isinstance(exp, list) or not exp or rep.get("gate") not in ("PASS", "FAIL"):
             entry.update(result="missing", note=f"{rel(report)} has no expectations (measure.py --expect)")
             continue
-        broken = expectation_problem(rep, exp)
-        if broken:
-            entry.update(result="missing", note=f"{rel(report)}: {broken}")
-            continue
         f, sha = rep.get("file"), rep.get("file_sha256")
         entry.update(file=rel(f) if isinstance(f, str) else None, expect=exp)
         if not (isinstance(f, str) and isinstance(sha, str) and os.path.isfile(f) and validate.file_sha256(f) == sha):
             entry.update(result="stale", note=f"the file it measured ({rel(f) if isinstance(f, str) else '?'}) has "
                                               "changed since, or is gone")
+            continue
+        broken = expectation_problem(rep, exp)        # the file is the one it read: read it again
+        if broken:
+            entry.update(result="missing", note=f"{rel(report)}: {broken}")
             continue
         here = [p for p in by_sha.get(sha, []) if p.get("stl") and
                 os.path.normcase(os.path.abspath(p["stl"])) == os.path.normcase(os.path.abspath(f))]

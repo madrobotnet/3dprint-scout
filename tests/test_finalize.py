@@ -1113,7 +1113,11 @@ class FinalizePromises(Workspace):
         e0 = good["expect"][0]
         for edit, message in (({"expect": [{"state": "PASS"}], "gate": "PASS"}, "lacks its path, op or target"),
                               ({"expect": [dict(e0, value=31.0, state="PASS")], "gate": "PASS"},
-                               f"value 31.0 is not the report's number there ({e0['value']})"),
+                               f"value 31.0 is not what measure.py reads from the file now ({e0['value']})"),
+                              ({"expect": [dict(e0, value=31.0, state="PASS")], "gate": "PASS",
+                                "levels": [{"level": 10, "loops": [{"size": [40, 31.0]}]}]},
+                               f"value 31.0 is not what measure.py reads from the file now ({e0['value']})"),
+                              ({"query": dict(good["query"], cmd="volume")}, "records no command"),
                               ({"expect": [dict(e0, state="PASS")], "gate": "PASS"}, "does not follow from its numbers"),
                               ({"gate": "PASS"}, "its gate does not follow"),
                               ({"expect": [dict(e0, tol=None)]}, "has no tol"),
