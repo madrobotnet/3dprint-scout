@@ -1108,6 +1108,23 @@ class FinalizePromises(Workspace):
         out = self.run_use(self.verify([depth], dims=[], **members))
         self.assertIn("measurement 'box depth': it read out/other.stl, which is not a part of this build",
                       self.promise(out, "depth")["reasons"])
+        good = measure_report("out/m_depth.json", "slice", "out/box.stl", "--z", "10", "--expect",
+                              "levels[0].loops[0].size[1]=31", "--tol", "0.05")          # a FAIL, then edited by hand
+        e0 = good["expect"][0]
+        for edit, message in (({"expect": [{"state": "PASS"}], "gate": "PASS"}, "lacks its path, op or target"),
+                              ({"expect": [dict(e0, value=31.0, state="PASS")], "gate": "PASS"},
+                               f"value 31.0 is not the report's number there ({e0['value']})"),
+                              ({"expect": [dict(e0, state="PASS")], "gate": "PASS"}, "does not follow from its numbers"),
+                              ({"gate": "PASS"}, "its gate does not follow"),
+                              ({"expect": [dict(e0, tol=None)]}, "has no tol"),
+                              ({"expect": [dict(e0, path="levels[0].loops[5].size[1]")]}, "index [5] is outside")):
+            with self.subTest(edit=edit):                                       # Codex review of step 2 (P1)
+                with open("out/m_depth.json", "w") as f:
+                    json.dump(dict(good, **edit), f)
+                out = self.run_use(self.verify([depth], dims=[], **members))
+                self.assertEqual((out["measurements"][0]["result"], self.promise(out, "depth")["state"]),
+                                 ("missing", "not verified"))
+                self.assertIn(message, out["measurements"][0]["note"])
         measure_report("out/m_depth.json", "slice", "out/box.stl", "--z", "10")  # no --expect
         out = self.run_use(self.verify([depth], dims=[], **members))
         self.assertEqual(self.promise(out, "depth")["reasons"],

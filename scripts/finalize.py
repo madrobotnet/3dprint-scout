@@ -103,6 +103,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import re
 import shutil
@@ -782,6 +783,42 @@ def user_file_problems(d, measurements):
     return problems
 
 
+def finite(v):
+    return isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)
+
+
+def expectation_problem(rep, exp):
+    """Why a report's expectations cannot be trusted as written, or None. Every expectation needs
+    its path, op, target (and tol for =), a value that is the number its path leads to in the
+    report, and the state that follows from them; the gate must follow from the states. The
+    report's own numbers are read again: a state or value written by hand does not count."""
+    import measure
+    states = []
+    for e in exp:
+        if not isinstance(e, dict):
+            return "an expectation is not an object"
+        path, op, target, value, state = (e.get(k) for k in ("path", "op", "target", "value", "state"))
+        if not (isinstance(path, str) and path.strip()) or op not in ("=", ">=", "<=") or not finite(target):
+            return f"an expectation lacks its path, op or target ({json.dumps(e, ensure_ascii=False)})"
+        if op == "=" and not (finite(e.get("tol")) and e["tol"] >= 0):
+            return f"expectation {path} = {target} has no tol"
+        try:
+            found = measure.resolve(rep, path)
+        except measure.MeasureError as exc:
+            return str(exc)
+        found = found if finite(found) else None
+        if value != found or (value is not None and not finite(value)):
+            return f"expectation {path}: value {json.dumps(value)} is not the report's number there ({json.dumps(found)})"
+        ok = value is not None and (abs(value - target) <= e["tol"] + 1e-9 if op == "=" else
+                                    value >= target - 1e-9 if op == ">=" else value <= target + 1e-9)
+        if state != ("PASS" if ok else "FAIL"):
+            return f"expectation {path}: state {json.dumps(state)} does not follow from its numbers"
+        states.append(state)
+    if rep.get("gate") != ("PASS" if all(st == "PASS" for st in states) else "FAIL"):
+        return "its gate does not follow from its expectations"
+    return None
+
+
 def check_measurements(verify, parts):
     """_verify.measurements: saved measure.py reports with --expect. Each entry gets a `result`:
     missing (no readable report with expectations), stale (the file it measured has changed or is
@@ -808,9 +845,12 @@ def check_measurements(verify, parts):
         if not isinstance(rep, dict) or rep.get("schema") != "3dprint-scout.measure/1" or not rep.get("ran"):
             entry.update(result="missing", note=f"{rel(report)} is not a measure.py report that ran")
             continue
-        if (not isinstance(exp, list) or not exp or rep.get("gate") not in ("PASS", "FAIL")
-                or not all(isinstance(e, dict) and e.get("state") in ("PASS", "FAIL") for e in exp)):
+        if not isinstance(exp, list) or not exp or rep.get("gate") not in ("PASS", "FAIL"):
             entry.update(result="missing", note=f"{rel(report)} has no expectations (measure.py --expect)")
+            continue
+        broken = expectation_problem(rep, exp)
+        if broken:
+            entry.update(result="missing", note=f"{rel(report)}: {broken}")
             continue
         f, sha = rep.get("file"), rep.get("file_sha256")
         entry.update(file=rel(f) if isinstance(f, str) else None, expect=exp)
@@ -821,7 +861,7 @@ def check_measurements(verify, parts):
         here = [p for p in by_sha.get(sha, []) if p.get("stl") and
                 os.path.normcase(os.path.abspath(p["stl"])) == os.path.normcase(os.path.abspath(f))]
         entry["measured"] = [p.get("name") for p in (here or by_sha.get(sha, []))]
-        entry["result"] = "passed" if rep["gate"] == "PASS" and all(e["state"] == "PASS" for e in exp) else "failed"
+        entry["result"] = "passed" if rep["gate"] == "PASS" else "failed"
     return entries
 
 

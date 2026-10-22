@@ -157,7 +157,8 @@ Evidence by kind: a `use` takes joints, members and measurements, a `feature` jo
 measurements, a `look` nothing that is read yet.
 
 A measurement is a saved `measure.py ... --expect` report (`references/measure.md`). Its
-`result` is `missing` (no readable report with expectations), `stale` (the file it read is not
+`result` is `missing` (no readable report with expectations, or one whose values, states and
+gate do not follow from its own numbers: finalize reads each path again), `stale` (the file it read is not
 the one whose `file_sha256` it recorded, or is gone), `failed` (an expectation failed) or
 `passed`; `measured` names the parts of this build it read. As evidence of a promise it must
 have read a part of this build, and that part's own checks must not FAIL. A dims entry with
