@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.6.1 — Unreleased
+## 0.6.1 — 2026-10-22
 
 Verification fixes and development setup/workflow improvements are shipped together in this
 release; the separately proposed 0.6.2 work is included here.
