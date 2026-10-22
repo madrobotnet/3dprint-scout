@@ -99,6 +99,11 @@ npx skills add madrobotnet/3dprint-scout
 
 ## 필요한 것
 
+가상환경 설치법, 확인한 Python/Blender 조합, 실행 확인 명령은
+[개발 환경 안내](references/development.md)에 정리했어요. 표준 라이브러리 검사 / Python 모델링 /
+Blender 모델링 중 필요한 구성을 선택하세요. 아래 Python 최소 버전을 만족한다고 모든 버전에
+맞는 bpy 패키지가 있는 것은 아니에요.
+
 - Python 3.9 이상 (3.9, 3.13에서 시험). 검증기와 3MF 작성기는 표준 라이브러리만 써요.
 - 모델링 엔진 하나: MCP로 연결한 **Fusion**, **OpenSCAD**(2021.01 또는 Manifold 백엔드가 있는 최신
   빌드), 또는 `pip install manifold3d`. **Blender**는 선택 사항인데, 있으면 첫 번째 엔진이 되고
@@ -143,6 +148,14 @@ Bambu Lab 프린터에서는 Bambu Studio 프로젝트 파일을 만들어요(**
 | 새 전달 폴더 | 최종 파일. 기존 파일은 절대 덮어쓰지 않아요 |
 
 ## 현황
+
+**다음 버전: v0.6.1 (미출시)**은 검증 오류 수정과 설치·사용 흐름 개선을 함께 담아요.
+부품 그룹·역할·가동 부품의 간격을 STL 형상과 별도로 기록해, 조립 조건이 바뀌면 이전 검증을
+그대로 쓰지 않아요. 조립 기록이 없는 이전 보고서는 다시 빌드하거나 기록해야 해요. Blender
+Python 후보가 실패하면 다음 정상 후보를 찾고, OpenSCAD는 실제 작은 모델 내보내기까지 확인해요.
+이미 받은 답은 재사용하고, 기존 모델 사용 선택의 완료 경로와 작업 상태·전달물의 수정 규칙을
+구분했어요. 설치 방법과 실제 Blender 실행 파일 검사는 [개발 환경 안내](references/development.md)를
+참고하세요.
 
 **v0.6.0**은 Blender를 모든 모양의 첫 번째 엔진으로 올렸어요. 새 도우미(정확한 반지름의 필렛, 단면에서
 곡면을 따라가는 라운드, Blender 안에서 쓰는 Python 부품 라이브러리)로 C클립과 카드 슬롯 블록을 다시
@@ -191,11 +204,16 @@ v0.3의 여러 파트로 된 Bambu 객체, 서포트 인터페이스 설정, v0.
 
 ## 개발
 
+[개발 환경 안내](references/development.md)에 따라 환경을 준비한 뒤 실행하세요.
+
 ```bash
 python3 -m unittest discover -s tests
 ```
 
 `tests/test_examples.py`는 모든 예제를 각 README의 명령 그대로 다시 빌드해요.
+의존성 설치를 끝낸 뒤 테스트하고, Blender가 실행 중일 때 bpy를 다시 설치하지 마세요.
+스킬 지침 변경은 개발 환경 안내의 대화 시나리오로도 검토해요. Python 단위 테스트만으로
+에이전트의 질문과 판단까지 검증되지는 않아요.
 
 진입점은 `SKILL.md`예요. 항상 지켜야 하는 규칙, 단계별 짧은 뼈대, 체크리스트가 거기에 있어요.
 각 단계의 진행 방법(`references/phase-0-detect.md`부터 `phase-6-deliver.md`까지), 엔진별 규칙, 공차,

@@ -36,6 +36,8 @@ Standard library plus optional manifold3d/numpy.
 """
 from __future__ import annotations
 
+import hashlib
+import json
 import math
 import os
 import sys
@@ -108,6 +110,25 @@ def part_role(spec: dict) -> str:
 def part_clearance(spec: dict) -> float:
     c = (spec or {}).get("clearance")
     return float(c) if c is not None else DEFAULT_FREE_CLEARANCE
+
+
+def input_fingerprint(specs: dict) -> str:
+    """Hash the assembly contract, separately from the engine's geometry inputs.
+
+    Expect dimensions are checked again by finalize; notes and filament choices do not
+    affect assembly checks. Normalize defaults, and ignore dictionary ordering.
+    """
+    contract = []
+    for group in group_parts(specs):
+        grouped = len(group["parts"]) > 1
+        for name in group["parts"]:
+            spec = specs.get(name) or {}
+            role = part_role(spec) if grouped else None
+            contract.append({"name": name, "object": group["name"], "role": role,
+                             "clearance": part_clearance(spec) if role == "free" else None})
+    payload = json.dumps(sorted(contract, key=lambda p: p["name"]), sort_keys=True,
+                         separators=(",", ":"), allow_nan=False)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
 # --------------------------------------------------------------------------- #

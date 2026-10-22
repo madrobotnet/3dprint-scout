@@ -15,15 +15,18 @@ Read `.3dprint/printers.json`. It is an envelope, not a flat profile:
 
 Per printer: `process` (`fdm`), `slicer` (`name`, and for Bambu Studio `template_3mf`,
 `template_kind`), `bed` (`area` polygon in mm, `height`, `exclude` zones, `source`), optional
-`tools` (one area and height per nozzle), `compensation` (`holes`, `elephant_foot`: `slicer` or
-`model`) and `tolerance` with its `source`. `default` names the printer the scripts use; with
+`tools` (one area and height per nozzle), `compensation` (`holes`: `slicer`, `model` or `unknown`;
+`elephant_foot`: `slicer` or `model`) and `tolerance` with its `source`. `default` names the printer the scripts use; with
 exactly one printer it may be omitted, with several pass `--printer-id`. A bed without
-`height` leaves D2 UNVERIFIED. If the file is missing, **always ask; never skip this question**, in
-plain words: "Which printer do you have, and which program do you open print files in? It's fine
+`height` leaves D2 UNVERIFIED. Resolve each answer from the current request, confirmed earlier
+conversation, then saved settings; ask only for missing or conflicting values. Create or update
+the working settings from confirmed answers without asking them again just because the file is
+missing. When both answers are missing, ask in plain words: "Which printer do you have, and which program do you open print files in? It's fine
 if you don't know the program." Both answers change the result: the printer sets the bed and
 nozzles, and the program (the slicer) sets the output file (Phase 6) and who compensates holes.
-One printer brand can be paired with several slicers, so ask even when the printer seems to
-imply it. Many users do not know the word "slicer"; never make them feel they should.
+One printer brand can be paired with several slicers: if only the slicer is unknown, ask only
+that question rather than inferring it from the brand. Many users do not know the word "slicer";
+never make them feel they should.
 For a Bambu Lab printer the same message may ask for the Bambu Studio version, as optional
 ("Help > About; fine if you do not know"): a generated template must not be newer than the app
 (`references/bambu-process.md`). Unknown, attended or not: use the version of the profiles you
@@ -31,10 +34,16 @@ read, say so, and record it in `_assumptions`.
 
 **Defaults when an answer is missing or unclear** (record each one in `_assumptions`):
 
+If you have asked for the printer or slicer in an attended run, wait for the answer; use its
+fallback after the user says they do not know or asks you to choose. Other documented defaults
+(such as nozzle and material) do not require a new question when suitable for the stated task;
+record them as assumptions. Silence does not answer a pending choice. Explicit unattended runs
+may take defaults for missing answers.
+
 - Slicer unknown, Bambu Lab printer → Bambu Studio (Bambu Lab's own slicer).
 - Slicer unknown, any other printer → `unknown`: deliver STL plus core 3MF, which every slicer opens.
-- Hole compensation unknown → model holes at nominal size plus the fit clearance, and tell the
-  user that tight holes mean their slicer's hole compensation should be turned on.
+- Hole compensation unknown → use the `unknown` row of `tolerances.md`, "Compensation lives in
+  one place"; record the uncertainty. Do not treat unknown as confirmed off.
 - Nozzle 0.4 mm, material PLA.
 - Printer unknown → no bed size is assumed; D2 stays UNVERIFIED and the report says so.
 - Printer named → read its bed in this order: the user's installed slicer profiles (read-only;
@@ -54,7 +63,8 @@ read, say so, and record it in `_assumptions`.
   separate objects use both); give both scripts the same `--tools`.
 - Never store access codes, serial numbers, or IP addresses.
 - FDM only. For resin, say so and stop.
-- With several saved printers, ask which one in a single line.
+- With several saved printers, ask which one in a single line only if the user has not already
+  selected one for this project.
 
 ## 2. Purpose
 
@@ -95,14 +105,17 @@ would have shown up with half the member thickness and a sixth of the material.
 
 ## 4. Compensation lives in one place
 
-If the slicer is Bambu Studio or OrcaSlicer with circle compensation on, model holes at nominal
-size and record `compensation.holes = "slicer"`. Otherwise add the radial compensation from
-`references/tolerances.md` in the model, on every round hole the part must fit, bores too.
+Use the single `slicer / model / unknown` decision table in `references/tolerances.md`.
+Unknown settings do not establish that compensation is off. Keep fit clearance separate from
+the printer correction and record the chosen state in `compensation.holes`.
 
 Bambu's system process presets ship with it off: the X2D's `0.20mm Standard` inherits
 `enable_circle_compensation` 0 and `xy_hole_compensation` 0 from `fdm_process_common` (public
-profiles 02.08.02.61). So with a generated template, or a saved one that shows them off, record
-`"model"`; `"slicer"` only when the user's preset has one of them on. The same preset's
+profiles 02.08.02.61). Record `"model"` only when that system preset is the confirmed active
+preset for the generated template, or when the user's saved preset shows both corrections off.
+A generated template names a preset; it does not establish the user's active settings or local
+overrides. If those are unknown, keep `"unknown"`; use `"slicer"` when the active preset has a
+correction enabled. The same system preset's
 elephant-foot compensation is 0.15 mm (`fdm_process_dual_0.20_nozzle_0.4`): `elephant_foot` is
 `"slicer"` there.
 
@@ -112,3 +125,6 @@ elephant-foot compensation is 0.15 mm (`fdm_process_dual_0.20_nozzle_0.4`): `ele
 |---|---|---|
 
 Include the bed margin (usable area minus footprint). If it is negative, say so now.
+Reuse unchanged dimensions the user already confirmed; stop for new or changed design choices
+and unresolved dimensions that matter. A new derived dimension or assumption is not approved
+merely because some other dimensions were supplied.

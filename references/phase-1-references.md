@@ -4,6 +4,9 @@ Read this on entering Phase 1 (SKILL.md names the rules that hold at all times).
 
 ## Steps
 
+If the user already chose D and identified a model, go to its handoff below; do not search
+for four alternatives or ask them to choose again.
+
 1. Restate the request in one or two sentences.
 2. Find **4** existing models (Printables, Thingiverse, MakerWorld, Cults3D, MyMiniFactory). Cap
    the research at about six page fetches to pick the four; more only when the user asks. The
@@ -14,12 +17,27 @@ Read this on entering Phase 1 (SKILL.md names the rules that hold at all times).
 
    Tier C (no marketplace tool, no web search): give 3–5 search queries and ask the user to
    paste links.
-3. Offer the choice, then **stop**:
+3. Reuse a choice already stated in the request or confirmed conversation. Otherwise offer the
+   choice, then **stop**:
    - **A. Reference** one model (say which parts of it).
    - **B. Mix** ideas from several.
    - **C. Original**, from scratch.
    - **D. Use an existing model as is** — when one already does the job, say so; do not model for the sake of it.
    Offer "show 4 more" as well.
+
+## D — Use the existing model and finish
+
+When the user chooses D, hand off the original rather than building a replacement. Provide the
+model's original page, creator and licence ("not shown" when unavailable), and where the user
+can download it themselves. Do not download the mesh, write a generator, create build.json or
+run finalize.py for a model you did not build or inspect.
+
+Reuse the printer and slicer if already known. List the remaining checks: actual file dimensions,
+bed fit, joints, slicing and a test print. Only report a page's dimensions or print advice as
+claims from that page, not as measured or verified facts. If the printer is unknown, say bed fit
+is unverified; do not force the Phase 2 questionnaire merely to deliver the link. End here with
+the link and limitations. A later request to design a new part enters the modeling workflow;
+editing or repairing an existing STL remains outside this skill's scope.
 
 ## What a reference may give
 
@@ -68,4 +86,5 @@ the chosen variant's parameters become the first `params.json`. Keep it to a few
 work: concepts prove the idea, not the fit. Concept builds go to `out/concepts/` and are not
 gated: with no `expect` or printer yet their verdicts decide nothing; the checks start in
 Phase 3. Choice A and D skip this step. Unattended runs take
-the first variant and record it in `_assumptions`.
+the first variant only when the user has not already chosen one, and record it in `_assumptions`.
+Unattended means the explicit mode defined in SKILL.md, not a question left unanswered.

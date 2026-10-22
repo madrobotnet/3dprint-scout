@@ -46,6 +46,11 @@ Write one generator script:
 
 ## `.3dprint/params.json`
 
+This is working project state: update relevant keys during the requested design, keeping the
+user's unrelated values. The same applies to the current generator and printer settings.
+Do not apply this exception to user-supplied originals, already delivered versions, files open
+in the slicer, or calibration records that the user has not agreed to save.
+
 Keys starting with `_` are metadata and never reach the engine:
 
 ```json
@@ -60,6 +65,10 @@ a copied value makes D1 circular, and `validate.py` flags one. Parts of one obje
 `object` name and a `role`: `fused` (must share faces with another part) or `free`
 (print-in-place, keeps `clearance`); all parts of an object are modelled in the same frame, so
 the STLs hold the assembled positions (`references/parts.md`, schema and checks).
+
+Changing `object`, `role`, group membership or a free part's `clearance` requires a new build
+report, even if no triangle changed. Since 0.6.1 the report's `assembly_sha256` records these
+validation inputs separately from the geometry hash.
 
 ## Build, preview, stop
 
@@ -92,9 +101,11 @@ yourself first, **one view at a time**, never the grid as one picture: would som
 object from this view; silhouette, main volumes, thickness, edge radii. A view the references
 do not show stays unverified (say so; do not call it right), and passing sizes, mesh checks or
 a triangle count say nothing about the shape. Then report size, volume and verdicts in two or
-three lines with the image, and **stop for the user's look**. For
+three lines with the image, and **stop for the user's look**. In attended runs, for
 a part with several bodies or a mechanism (lever, latch, hinge) this stop is never skipped: a
 fit-test piece comes after it, not instead of it.
+In explicit unattended mode, use SKILL.md's preview-and-assumption rule; still produce and
+inspect the preview, and never describe an unreviewed shape as user-approved.
 
 - `out/` is the build's working folder: every build rewrites `out/<part>.stl`, its manifest,
   `out/<model>.3mf` with its `out/<model>.3mf.manifest.json` (the 3MF's sha256 and the sha256 of

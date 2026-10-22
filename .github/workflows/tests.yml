@@ -4,12 +4,16 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 3 * * 1"
 
 permissions:
   contents: read
 
 jobs:
   test:
+    if: github.event_name != 'schedule' && github.event_name != 'workflow_dispatch'
     strategy:
       fail-fast: false
       matrix:
@@ -37,6 +41,7 @@ jobs:
   # test_examples) run only where the bpy module imports; the jobs above skip them. Two bpy
   # versions: the 4.5 LTS floor (a wheel for Python 3.11) and the current release (3.13).
   blender:
+    if: github.event_name != 'schedule' && github.event_name != 'workflow_dispatch'
     strategy:
       fail-fast: false
       matrix:
@@ -54,7 +59,11 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y libgl1 libegl1 libglx-mesa0 libgl1-mesa-dri libsm6 libice6 libxi6 \
             libxrender1 libxfixes3 libxkbcommon0 libxxf86vm1 libxext6
-      - name: Optional libraries and the bpy module (pinned; a large wheel)
+      - name: Reproducible 4.5 LTS environment
+        if: matrix.bpy == '4.5.14'
+        run: python -m pip install -r references/requirements/blender-4.5.txt
+      - name: Latest compatible libraries with the current bpy module
+        if: matrix.bpy != '4.5.14'
         run: python -m pip install manifold3d numpy rtree matplotlib bpy==${{ matrix.bpy }}
       - name: bpy imports
         run: python -c "import bpy; print(bpy.app.version_string)"
@@ -62,6 +71,7 @@ jobs:
         run: python -m unittest discover -s tests -v
 
   skill-format:
+    if: github.event_name != 'schedule' && github.event_name != 'workflow_dispatch'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
@@ -71,3 +81,87 @@ jobs:
       - run: python -m pip install skills-ref==0.1.1
       - name: Agent Skills format
         run: agentskills validate "$GITHUB_WORKSPACE"
+
+  # Kept separate from bpy tests: this must invoke the official Blender executable.
+  # Weekly and manual runs avoid downloading another large artifact for every PR.
+  blender-binary-smoke:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      BLENDER_VERSION: "4.5.14"
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - name: Host libraries and Mesa for headless rendering
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgl1 libegl1 libglx-mesa0 libgl1-mesa-dri libsm6 libice6 libxi6 \
+            libxrender1 libxfixes3 libxkbcommon0 libxxf86vm1 libxext6
+          python -m pip install -r references/requirements/python-modeling.txt
+      - name: Download and verify the official Blender archive
+        shell: bash
+        run: |
+          python - <<'PY'
+          import hashlib
+          from html.parser import HTMLParser
+          import os
+          from pathlib import Path
+          import re
+          import tarfile
+          import urllib.request
+
+          version = os.environ["BLENDER_VERSION"]
+          if not re.fullmatch(r"4\.5\.\d+", version):
+              raise SystemExit("Expected a Blender 4.5 LTS version")
+          base = "https://download.blender.org/release/Blender4.5/"
+          archive = f"blender-{version}-linux-x64.tar.xz"
+          checksums = f"blender-{version}.sha256"
+
+          class Links(HTMLParser):
+              def __init__(self):
+                  super().__init__()
+                  self.links = set()
+              def handle_starttag(self, tag, attrs):
+                  if tag == "a":
+                      self.links.add(dict(attrs).get("href", ""))
+
+          listing = Links()
+          with urllib.request.urlopen(base, timeout=60) as response:
+              listing.feed(response.read().decode("utf-8"))
+          if not {archive, checksums} <= listing.links:
+              raise SystemExit("Pinned archive/checksum is not listed by the official release server")
+          with urllib.request.urlopen(base + checksums, timeout=60) as response:
+              lines = response.read().decode("utf-8").splitlines()
+          hashes = [fields[0] for line in lines if len(fields := line.split()) == 2
+                    and fields[1].lstrip("*") == archive and re.fullmatch(r"[0-9a-fA-F]{64}", fields[0])]
+          if len(hashes) != 1:
+              raise SystemExit("Missing or ambiguous archive SHA256")
+          destination = Path(os.environ["RUNNER_TEMP"]) / archive
+          digest = hashlib.sha256()
+          with urllib.request.urlopen(base + archive, timeout=120) as response, destination.open("wb") as output:
+              while chunk := response.read(1024 * 1024):
+                  digest.update(chunk)
+                  output.write(chunk)
+          if digest.hexdigest().lower() != hashes[0].lower():
+              raise SystemExit("Blender archive SHA256 mismatch")
+          with tarfile.open(destination, "r:xz") as bundle:
+              bundle.extractall(destination.parent, filter="data")
+          binary = destination.parent / f"blender-{version}-linux-x64" / "blender"
+          if not binary.is_file():
+              raise SystemExit("Verified archive has no expected Blender executable")
+          with open(os.environ["GITHUB_ENV"], "a", encoding="utf-8") as output:
+              output.write(f"BLENDER_BINARY={binary}\n")
+          print(f"Verified Blender {version}: {digest.hexdigest()}")
+          PY
+      - name: Build STL, reopen blend, render PNG through the real binary
+        run: python scripts/smoke_blender.py --blender "$BLENDER_BINARY" --out out/blender-binary-smoke
+      - name: Preserve smoke artifacts and logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: blender-binary-smoke
+          path: out/blender-binary-smoke
+          if-no-files-found: ignore
