@@ -744,7 +744,9 @@ class FinalizePromises(Workspace):
             ("dims that are not the model's numbers", [cable], [dict(self.plug_dims(), params=dict(self.PLUG, plug_w=12))],
              "plug_w is 12 here but 13 in params.json"),
             ("dims not in params.json", [cable], [dict(self.plug_dims(), params={"plug_depth": 9})],
-             "plug_depth is not in params.json"),
+             "plug_depth is not an engine parameter in params.json"),
+            ("dims bound to metadata", [cable], [dict(self.plug_dims(), params={"_parts.box.expect": [40, 30, 20]})],
+             "_parts.box.expect is not an engine parameter in params.json"),
         ]
         for name, promises, dims, message in cases:
             with self.subTest(name):
@@ -983,6 +985,7 @@ class FinalizePromises(Workspace):
                 ([dict(seat, evidence=[{"strength": 3}])], [], None),
                 ([dict(seat, id=["seat"])], [], None),
                 ([dict(seat, kind=["use"])], [], None),
+                ([dict(seat, kind=[], evidence=[{"check": "box M1"}])], [], None),
                 ([seat], [{"promise": ["seat"], "reason": "x", "by": "user"}], None),
                 ([seat], [], [dict(self.plug_dims(), id=["usb-c-plug"])]),
                 ([seat], [], [dict(self.plug_dims(), source=["assumed"], tol="0.5")])):

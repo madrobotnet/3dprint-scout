@@ -638,6 +638,7 @@ def check_dims(verify, params):
     params.json values the model is built from, with where they came from. Returns ({id: entry},
     declaration errors)."""
     out, errors = {}, []
+    engine = validate.engine_params(params)
     raw = verify.get("dims") or []
     ids = [d.get("id") for d in raw]
     for i, d in enumerate(raw):
@@ -654,6 +655,9 @@ def check_dims(verify, params):
             errs.append(f"{label}: unknown field {', '.join(unknown)} (fields: {', '.join(DIM_KEYS)})")
         if not text_field(d, "what"):
             errs.append(f"{label}: needs what (the object and the sizes, in words)")
+        bad_text = [k for k in ("unit", "by", "url", "note") if k in d and not isinstance(d[k], str)]
+        if bad_text:
+            errs.append(f"{label}: {', '.join(bad_text)} must be text")
         src = d.get("source")
         if src not in DIM_SOURCES:
             errs.append(f"{label}: source must be one of {', '.join(DIM_SOURCES)}")
@@ -676,9 +680,10 @@ def check_dims(verify, params):
             errs.append(f"{label}: params must map the params.json keys the model is built from to their values")
         else:
             for k, v in p.items():
-                found, cur = lookup(params, k)
+                found, cur = lookup(engine, k)          # what the generator gets: no _-prefixed metadata
                 if not found:
-                    errs.append(f"{label}: {k} is not in params.json (the model must be built from these numbers)")
+                    errs.append(f"{label}: {k} is not an engine parameter in params.json (the model must be built "
+                                "from these numbers; keys starting with _ never reach the generator)")
                 elif not same_value(cur, v):
                     errs.append(f"{label}: {k} is {json.dumps(v)} here but {json.dumps(cur)} in params.json")
         entry = {"id": did, "what": d.get("what"), "source": src, "params": p,
@@ -814,7 +819,7 @@ def check_promises(verify, params, joints, strength, parts):
                 continue
             if k == "check":
                 errs.append(f"'{name}' is a check of a part: it proves the part, not a promise; use "
-                            f"{', '.join(ALLOWED.get(kind) or EVIDENCE)}")
+                            f"{', '.join((ALLOWED[kind] if kind in KINDS else ()) or EVIDENCE)}")
                 continue
             if k not in EVIDENCE:
                 errs.append(f"unknown evidence kind '{k}' (finalize reads {', '.join(EVIDENCE)})")
