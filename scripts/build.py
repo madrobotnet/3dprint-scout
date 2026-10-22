@@ -48,7 +48,8 @@ A missing printers.json is a warning (D2 stays UNVERIFIED), not a failure.
 manifests and <source>.3mf. Deliverables are copied elsewhere as new files (SKILL.md).
 `run --only latch,keeper` builds only those parts: a few-gram test print of a mechanism
 before the whole part (SKILL.md, Phase 4). Use a separate --out so the full build's
-artifacts stay fresh.
+artifacts stay fresh. `run plug.py --proxy plug --out out/plug` builds a proxy of a mating
+object from the project's params.json (references/measure.md): _parts is not read, no 3MF.
 
 Output (one JSON document, schema 3dprint-scout.build/1; references/parts.md has the
 full description):
@@ -1010,6 +1011,7 @@ def finish(out, parts, sources, params, params_path, specs, args, engine):
         p["sha256"] = validate.file_sha256(p["stl"])      # the very STLs these verdicts are about (finalize.py)
     out["parts"] = parts
     out["sources"] = [_relpath(s) for s in sources]
+    out["params"] = _relpath(params_path) if params_path else None   # what the engine got (finalize ties proxies by it)
     # The settings the parts were validated with, so a later re-check (finalize.py) uses the same bed.
     out["validate_settings"] = {f: (_relpath(getattr(args, f)) if f == "printer" and getattr(args, f, None)
                                     else getattr(args, f, None)) for f in VALIDATE_FLAGS}
@@ -1041,7 +1043,23 @@ def cmd_run(args) -> dict:
     specs = part_specs(params, stem)
     only_notes = []
     args.partial_objects = {}
-    if args.only is not None:
+    proxy = getattr(args, "proxy", None)
+    if proxy is not None:
+        # A proxy of the mating object (references/measure.md), built from the project's own
+        # params.json so that finalize.py can tie a fit against it to these numbers: _parts
+        # names the delivered parts, never the proxy, and nothing here is delivered (no 3MF).
+        if args.only is not None:
+            raise ValueError("--proxy and --only do not go together: a proxy build has no _parts to choose from")
+        names = [n.strip() for n in proxy.split(",") if n.strip()]
+        if not names:
+            raise ValueError("--proxy names no part; give the names the proxy generator returns")
+        clash = [n for n in names if params.get("_parts") and n in specs]
+        if clash:
+            raise ValueError(f"--proxy names parts of _parts ({', '.join(clash)}): a proxy stands for the mating "
+                             "object and is never a part")
+        specs = {n: {} for n in names}
+        args.no_3mf = True
+    elif args.only is not None:
         wanted = [n.strip() for n in args.only.split(",") if n.strip()]
         if not wanted:
             raise ValueError("--only names no part; give a comma list of _parts names")
@@ -1093,6 +1111,8 @@ def cmd_run(args) -> dict:
     if engine == "blender" and info.get("blend"):
         out["blend"] = info["blend"]
     out["warnings"] += only_notes
+    if proxy is not None:
+        out["proxy"] = True
     out["seconds"] = round(time.time() - t0, 2)
     return out
 
@@ -1259,6 +1279,9 @@ def main(argv=None):
     r.add_argument("--timeout", type=int, default=900, help="seconds per generator run (default 900)")
     r.add_argument("--only", help="build only these _parts (comma list), e.g. the mechanism and the bit of its mating "
                                   "part it needs, for a test print before the full part")
+    r.add_argument("--proxy", help="build a proxy of the mating object instead (the comma list of names its generator "
+                                   "returns) from this params.json: _parts is not read and no 3MF is written; save "
+                                   "the JSON and name it as the joint's proxy_build for finalize.py")
     _common(r)
     rec = sub.add_parser("record", help="record STLs built elsewhere (Fusion, a live Blender): manifests, core 3MF, "
                                         "validation",

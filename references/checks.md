@@ -79,6 +79,7 @@ The final report of Phase 6 (`references/phase-6-deliver.md`), schema `3dprint-s
 ```json
 {
   "schema": "3dprint-scout.finalize/1", "ran": true, "build": "out/build.json", "engine": "python",
+  "use": "error | failed | not verified | excluded | assumed | accepted | verified | not declared",
   "geometry": "verified | not verified",
   "shape": {"lid": {"coverage": {"front": "real", "back": "estimated", "...": "..."},
                     "verified_from": ["front", "top"], "not_verified_from": ["back", "..."]}},
@@ -87,15 +88,26 @@ The final report of Phase 6 (`references/phase-6-deliver.md`), schema `3dprint-s
   "settings_drift": [],
   "parts": [{"name": "lid", "stl": "out/lid.stl", "sha256": "…", "same_as_build": true, "gate": "PASS", "checks": {"R3": "PASS", "...": "..."}}],
   "objects": [{"name": "box", "gate": "PASS", "parts": ["box", "lid"]}],
-  "joints": [{"name": "lid on box", "report": "out/fit_box_lid.json", "fresh": "PASS", "checks": {"F3": "PASS"}}],
-  "strength": [{"name": "latch arm", "report": "out/strength_latch.json", "gate": "PASS", "case": "pin"}],
+  "joints": [{"name": "lid on box", "report": "out/fit_box_lid.json", "fresh": "PASS", "checks": {"F3": "PASS"},
+              "measured": ["box", "lid"], "result": "passed"}],
+  "strength": [{"name": "latch arm", "report": "out/strength_latch.json", "gate": "PASS", "case": "pin",
+                "manual": true, "result": "passed"}],
+  "promises": [{"id": "cable-out", "kind": "use", "text": "…", "conditions": "…", "success": "…",
+                "state": "assumed", "reasons": ["rests on 'usb-c-plug' (…), which is assumed, not measured"],
+                "evidence": [{"joint": "plug through notch", "result": "passed", "covers": "…"}],
+                "rests_on": ["usb-c-plug"]}],
+  "promise_counts": {"use": {"assumed": 1, "verified": 2}, "look": {"not verified": 1}},
+  "dims": [{"id": "usb-c-plug", "what": "…", "source": "assumed", "params": {"plug_w": 13}, "state": "assumed"}],
+  "promise_errors": [],
   "test_prints": [{"name": "hinge coupon", "status": "skipped", "note": "…"}],
   "accepted": [{"check": "body P2", "reason": "…"}],
   "delivered": [{"file": "deliver/2026-10-21/lid.stl", "kind": "stl", "part": "lid", "same_as_verified": true},
                 {"file": "deliver/2026-10-21/box.3mf", "kind": "3mf", "manifest": true, "parts": ["box", "lid"], "same_as_verified": true}],
   "bundle": ["deliver/2026-10-21/source/REPRODUCE.md", "..."],
-  "open": ["joint 'lid on box': F3_fresh FAIL: STALE: …", "assumption: …"],
-  "summary": ["geometry: …", "shape: …", "slicing: unverified (not sliced here)", "print: …"],
+  "open": ["promise 'cable-out' (use) assumed: rests on 'usb-c-plug' …", "joint 'lid on box': F3_fresh FAIL: STALE: …",
+           "assumption: …"],
+  "summary": ["use: not verified (4 promises: 1 not verified, 1 assumed, 2 verified)", "geometry: …", "shape: …",
+              "slicing: unverified (not sliced here)", "print: …"],
   "assumptions": ["…"], "unverified_dimensions": ["…"], "warnings": [], "errors": []
 }
 ```
@@ -108,9 +120,36 @@ user accepted as `<part> D1` in `_verify.accepted`), every STL is
 the one the build JSON judged and the settings are the build's (`settings_drift` empty: no
 other printer, printer id, tools or tolerance given here, and printers.json unchanged since the
 build), so its object checks stand, every declared joint's
-report is fresh and its F3 / F3_sweep PASS against the delivered parts (or a declared proxy),
+report is fresh and its F3 / F3_sweep PASS against the delivered parts (or a declared proxy;
+F3 must be in it, and F3_sweep too for a joint marked `"sweep": true`),
 every declared member's `strength.py` gate is PASS, no WARN is left unaccepted, the delivered
 copies (with `--deliver`) are the verified files, and `joints` and `strength` were declared at
 all. Paths are relative to the folder it ran in. Exit 0 when it ran, 1 on a usage or file error
 (a missing or wrong `--build`, a bad `_verify`, an existing `--bundle` folder, a source outside
-the project folder). A malformed 3MF manifest is an `open` reason, not an error.
+the project folder). A malformed 3MF manifest is an `open` reason, not an error. A joint WARN
+the user accepted (`joint <name> <check>` in `_verify.accepted`), or a member's strength.py WARN
+accepted as `member <name>`, does not keep the geometry from being verified; a FAIL cannot be
+accepted.
+
+`use` is judged apart from `geometry`, from `_verify.promises` and `_verify.dims`. Each promise
+gets one state:
+
+| State | When |
+|---|---|
+| `error` | Declared wrongly: no id or the same id twice, an unknown field or kind, no `text`, a `use` without `conditions` and `success` or a `feature` without `success`, an evidence item that names no declared joint or member, names a part's own check (`box M1`) or a kind the promise does not take, or a dims entry that is missing or declared wrongly (a `caliper` value without `"by": "user"`, a `spec` without its `url` or without `where` (the place in the spec of each parameter's number), values that differ from params.json) |
+| `failed` | A joint or member it names failed, even if the user took the promise |
+| `excluded` | The user took it without verifying it (`{"promise": id, "reason": …, "by": "user"}` in `_verify.accepted`); its other reasons stay listed |
+| `not verified` | No evidence yet, a missing or stale report, a fit report without F3 (or without F3_sweep for a joint marked `"sweep": true`), a joint that fitted a part whose own checks FAIL, a proxy whose params file changed since it was built or that was built from other values than its dims declare, a check that is neither PASS nor an accepted WARN, or a member whose inputs were typed in (every strength.py report for now) |
+| `assumed` | Everything passed, but it rests on a dims entry with `source: "assumed"`, or on a proxy joint that names no dims or no `proxy_build` (the saved JSON of the `build.py run --proxy` that generated the proxy from its own params file; a proxy taken in with `build.py record` is not tied), or a proxy built from numbers its dims do not declare, or not given numbers they do |
+| `accepted` | Everything passed with a WARN the user accepted |
+| `verified` | None of the above |
+
+The table is the order for one promise: a user's exclusion stands over a missing or weaker
+proof, never over a failure. The tier is the worst state of all promises in another order,
+`error`, `failed`, `not verified`, `excluded`, `assumed`, `accepted`, `verified`: a promise
+nobody agreed to leave unproven weighs more than one the user did. It is `not declared` when
+there is no promise list or it is empty, and `error` when any dims or accepted entry is
+declared wrongly (`promise_errors`).
+Evidence by kind: a `use` takes joints and members, a `feature` joints, a `look` nothing that is
+read yet. Every promise that is not verified is the first thing in `open`; a dims entry taken
+from a spec is listed there too, with its URL and places, because finalize does not read the spec.

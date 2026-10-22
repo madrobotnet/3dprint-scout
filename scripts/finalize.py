@@ -17,39 +17,70 @@ is still the one that build judged. A build that reported errors, or whose gate 
 not verified (an INCOMPLETE gate is named by the UNVERIFIED checks behind it). Settings given here (--printer, --printer-id, --tools, ...) replace the build's.
 
 What else counts is declared in params.json under `_verify` (every key optional, but a key that
-is missing is reported as "not declared", which keeps the geometry from being verified):
+is missing is reported as "not declared", which keeps its tier from being verified):
 
   "_verify": {
+    "promises": [{"id": "cable-out", "kind": "use", "text": "a right-angle USB-C cable plugs in",
+                  "conditions": "phone on the seat", "success": "plug and cable clear the part",
+                  "evidence": [{"joint": "plug through notch", "covers": "the plug at rest"}]},
+                 {"id": "wave-back", "kind": "look", "text": "the back waves once"}],
+    "dims":     [{"id": "usb-c-plug", "what": "right-angle plug head", "unit": "mm",
+                  "params": {"plug_w": 13, "plug_h": 8}, "source": "assumed"}],
     "joints":   [{"name": "lid on box", "report": "out/fit_box_lid.json"},
-                 {"name": "clip on the tube", "report": "out/fit_clip.json", "proxy": true}],
+                 {"name": "plug through notch", "report": "out/fit_plug.json", "proxy": true,
+                  "dims": ["usb-c-plug"], "proxy_build": "out/plug/build.json"}],
     "strength": [{"name": "latch arm", "report": "out/strength_latch.json"}],
     "test_prints": [{"name": "hinge coupon", "status": "skipped", "note": "user had no time"}],
     "accepted": [{"check": "body P2", "reason": "the user wants supports there"},
-                 {"check": "object box P2", "reason": "..."}],
+                 {"check": "object box P2", "reason": "..."},
+                 {"check": "joint lid on box F3", "reason": "a snug lid"},
+                 {"promise": "wave-back", "reason": "the user judges it on the print", "by": "user"}],
     "unverified": ["wall behind the label: estimated from a photo"],
     "references": {"lid": {"front": "real", "top": "real", "back": "estimated", "bottom": "assumed"}}
   }
 
 joints: every joint F3 must cover, with its saved fit.py report: the report must be fresh (its
-STLs are the parts being delivered, or a declared proxy) and its own F3 / F3_sweep must PASS.
-An empty list says the design has no joint. strength: strength.py reports (saved JSON), their
-gate must PASS; their inputs are numbers from the dimension table, not read from the model, so
-the report says to keep them equal. test_prints: coupons and mechanism-first prints (status
-passed, failed, skipped, offered or pending). accepted: WARNs the user accepted, named
-"<part> <check>" or "object <name> <check>", with their reason; any other WARN is open ("<part>
-D1" also accepts a D1 whose expect was copied from the model, when no intended size exists).
-unverified: dimensions taken without a measurement. references: for each object, which
-directions a reference shows (`real`), or was generated or inferred (`estimated`), or given up
-on (`assumed`); a direction without a real reference is one whose shape is not verified.
+STLs are the parts being delivered, or a declared proxy) and its own F3 / F3_sweep must PASS
+(a WARN the user accepted as "joint <name> <check>" counts as accepted); a report without F3,
+or without F3_sweep for a joint marked "sweep": true (a moving part), is not a passed fit. A
+proxy names the dims it is built from and, as proxy_build, the saved JSON of the
+`build.py run --proxy` that made it from its own params file; the numbers in that file must be
+exactly the ones the dims declare. An empty list says the design has no joint. strength: strength.py reports
+(saved JSON), their gate must PASS (a WARN the user accepted as "member <name>" counts as
+accepted); their inputs are numbers from the dimension table, not read
+from the model, so the report says to keep them equal. test_prints: coupons and mechanism-first
+prints (status passed, failed, skipped, offered or pending). accepted: WARNs the user accepted,
+named "<part> <check>" or "object <name> <check>", with their reason; any other WARN is open
+("<part> D1" also accepts a D1 whose expect was copied from the model, when no intended size
+exists); and promises the user takes without verifying them ("by": "user"). unverified:
+dimensions taken without a measurement. references: for each object, which directions a
+reference shows (`real`), or was generated or inferred (`estimated`), or given up on
+(`assumed`); a direction without a real reference is one whose shape is not verified.
 
-The report has four tiers and never folds them into one PASS:
+promises: what the user was promised, each judged by its own evidence. kind `use` (a thing the
+user does with the object: needs conditions and success), `feature` (needs success) or `look`.
+Evidence names a declared joint or member; a use takes joints and members, a feature joints; a
+part's own check (box M1) is never evidence of a promise. dims: the real-world sizes the design
+rests on, each tied to the params.json values the model is built from (they must be equal),
+with its source: assumed, caliper ("by": "user") or spec (its url, and where each number is in
+it: finalize reads no spec, so these are listed in open for the person to check). A promise rests on the
+dims its evidence names (and on its own `assumes`); a proxy joint that names none, or no
+proxy_build, or built from numbers its dims do not declare, rests on undeclared sizes. Each promise gets one state: error (declared wrongly),
+failed (its evidence failed, whatever else), excluded (the user took it unverified), not
+verified (no evidence, stale evidence, evidence on a part whose checks FAIL, a proxy built from
+other values, a member's inputs typed in), assumed (it passed on an unmeasured size),
+accepted (it passed with a WARN the user accepted) or verified.
+
+The report has five tiers and never folds them into one PASS:
+  use       the worst state of its promises (error, failed, not verified, excluded, assumed,
+            accepted, verified, in that order), or not declared (no promises, or an empty list)
   geometry  verified | not verified   the STLs, objects, joints and members, from the checks above
   shape     per object, the directions a real reference covers
   slicing   unverified                  nothing here slices; say so at delivery
   print     unverified                  test prints and their results, if any
-plus `open`: every reason the geometry is not verified, every unaccepted WARN, the soft checks
-left to you (P3 skipped, P4, P5, P6), every unverified dimension and assumption, in plain lines
-for the delivery message.
+plus `open`: every promise that is not verified and why, every reason the geometry is not
+verified, every unaccepted WARN, the soft checks left to you (P3 skipped, P4, P5, P6), every
+unverified dimension and assumption, in plain lines for the delivery message.
 
 --deliver DIR checks the delivery folder: every STL in it must be one of the verified STLs,
 every 3MF must carry a manifest (`<file>.3mf.manifest.json`, written by build.py and bambu3mf.py
@@ -60,7 +91,7 @@ relative to the folder the build ran in (lib/helper.py stays lib/helper.py, so i
 and loaded files still resolve), params.json, the printers.json the build used, this report and
 REPRODUCE.md (the commands that rebuild and re-check the parts); it refuses an existing folder,
 a source outside the project folder, and a source or params file that holds a path of this
-machine. Exit 0 when it ran (read "geometry"), 1 on a usage or file error.
+machine. Exit 0 when it ran (read "use" and "geometry"), 1 on a usage or file error.
 """
 from __future__ import annotations
 
@@ -83,6 +114,17 @@ DIRECTIONS = ("front", "back", "left", "right", "top", "bottom")
 COVERAGE = ("real", "estimated", "assumed", "none")
 PRINT_STATUS = ("passed", "failed", "skipped", "offered", "pending")
 SETTINGS = ("tol", "printer", "printer_id", "tools", "overhang_angle", "min_wall")
+
+# The use tier: what the user was promised, and the evidence that it holds.
+KINDS = ("use", "feature", "look")
+EVIDENCE = ("joint", "strength")
+ALLOWED = {"use": ("joint", "strength"), "feature": ("joint",), "look": ()}
+NEEDS = {"use": ("conditions", "success"), "feature": ("success",), "look": ()}
+PROMISE_KEYS = ("id", "kind", "text", "conditions", "success", "evidence", "assumes", "note")
+DIM_SOURCES = ("assumed", "caliper", "spec")
+DIM_STATE = {"assumed": "assumed", "caliper": "measured", "spec": "spec"}
+DIM_KEYS = ("id", "what", "unit", "params", "source", "tol", "by", "url", "where", "note")
+STATES = ("error", "failed", "not verified", "excluded", "assumed", "accepted", "verified")
 
 
 class FinalizeError(Exception):
@@ -166,14 +208,31 @@ def part_specs(params):
     return {str(k): dict(v or {}) for k, v in parts.items()}
 
 
+def norm(text):
+    """A check or joint name as names are compared: single spaces, lower case."""
+    return " ".join(str(text).split()).lower()
+
+
+def plural(n, word):
+    return f"{n} {word}" + ("" if n == 1 else "s")
+
+
 def check_verify_shape(verify):
-    lists = {"joints": dict, "strength": dict, "test_prints": dict, "accepted": dict, "unverified": str}
+    lists = {"joints": dict, "strength": dict, "test_prints": dict, "accepted": dict, "unverified": str,
+             "promises": dict, "dims": dict}
     for key, item in lists.items():
         if key in verify:
             v = verify[key]
             if not isinstance(v, list) or not all(isinstance(x, item) for x in v):
                 kind = "objects" if item is dict else "strings"
                 raise FinalizeError(f"_verify.{key} must be a list of {kind}")
+    for key in ("joints", "strength"):
+        for e in verify.get(key) or []:
+            bad = [f for f in ("name", "report", "proxy_build") if f in e and not isinstance(e[f], str)]
+            if key == "joints" and "sweep" in e and not isinstance(e["sweep"], bool):
+                raise FinalizeError(f"_verify.joints: sweep must be true or false ({json.dumps(e, ensure_ascii=False)})")
+            if bad:
+                raise FinalizeError(f"_verify.{key}: {' and '.join(bad)} must be text ({json.dumps(e, ensure_ascii=False)})")
     if "references" in verify and not (isinstance(verify["references"], dict)
                                        and all(isinstance(v, dict) for v in verify["references"].values())):
         raise FinalizeError("_verify.references must map each object to {direction: coverage}")
@@ -370,24 +429,32 @@ def assembly_drift(build, specs):
     return []
 
 
-def check_joints(verify, part_shas):
+def check_joints(verify, parts, taken=frozenset()):
+    """Every declared joint's fit report. Each entry gets a `result` a promise can read: missing
+    (no readable report), stale (not a report of the current parts), failed, open (a check that
+    is neither PASS nor an accepted WARN), accepted (PASS apart from WARNs the user accepted as
+    "joint <name> <check>") or passed; `measured` names the parts of this build it fitted."""
     if "joints" not in verify:
         return [], ["joints not declared (_verify.joints): F3 is not counted; list every joint with its fit "
                     "report, or [] when the design has none"], []
     entries, reasons, notes = [], [], []
+    by_sha = {}
+    for p in parts:
+        if p.get("sha256"):
+            by_sha.setdefault(p["sha256"], []).append(p)
     import fit
     for j in verify["joints"]:
         name, report = j.get("name") or j.get("report"), j.get("report")
         entry = {"name": name, "report": rel(report)}
         if not report or not os.path.isfile(report):
-            entry["state"] = "FAIL"
+            entry.update(state="FAIL", result="missing")
             reasons.append(f"joint '{name}': fit report {rel(report)} not found; run fit.py and save it")
             entries.append(entry)
             continue
         try:
             fresh = fit.check_report(report)
         except (fit.FitError, OSError, ValueError) as exc:
-            entry["state"] = "FAIL"
+            entry.update(state="FAIL", result="missing")
             reasons.append(f"joint '{name}': {exc}")
             entries.append(entry)
             continue
@@ -397,29 +464,140 @@ def check_joints(verify, part_shas):
         entry.update(fresh=f3f["state"], checks=states)
         if f3f["state"] != "PASS":
             reasons.append(f"joint '{name}': F3_fresh {f3f['state']}: {f3f.get('note', '')}")
+        accepted, unaccepted = [], []
         for cid, st in states.items():
-            if st != "PASS":
-                reasons.append(f"joint '{name}': {cid} {st}: {(rep['checks'][cid].get('note') or '')}".rstrip(": "))
+            if st == "PASS":
+                continue
+            if st == "WARN" and norm(f"joint {name} {cid}") in taken:
+                accepted.append(cid)
+                continue
+            unaccepted.append(st)
+            reasons.append(f"joint '{name}': {cid} {st}: {(rep['checks'][cid].get('note') or '')}".rstrip(": "))
+        needed = ["F3"] + (["F3_sweep"] if j.get("sweep") else [])   # a moving joint declares its sweep
+        absent = [c for c in needed if c not in states]
         if not states:
             reasons.append(f"joint '{name}': the report has no checks")
-        parts = rep.get("parts") or {}
-        unknown = [k for k in ("a", "b") if (parts.get(k) or {}).get("sha256") not in part_shas]
+        elif absent:
+            reasons.append(f"joint '{name}': the report has no {' or '.join(absent)}"
+                           + (" (run fit.py with --sweep-angles)" if "F3_sweep" in absent else ""))
+        rparts = rep.get("parts") or {}
+        shas = [(rparts.get(k) or {}).get("sha256") for k in ("a", "b")]
+        unknown = [k for k, s in zip(("a", "b"), shas) if s not in by_sha]
+        entry["measured"] = measured_parts(rparts, by_sha)
+        foreign = False
         if j.get("proxy"):
             entry["proxy"] = True
             notes.append(f"joint '{name}' is checked against a proxy built from numbers: it shows the part agrees "
                          "with those numbers, not that the numbers are right")
             if len(unknown) == 2:
+                foreign = True
                 reasons.append(f"joint '{name}': neither STL the report measured is a part of this build")
+            entry["proxy_build"], note, built_from = proxy_provenance(j, [rparts.get(k) or {} for k in unknown])
+            if note:
+                entry["proxy_note"] = note
+            if built_from is not None:
+                entry["proxy_params"] = built_from
         elif unknown:
+            foreign = True
             reasons.append(f"joint '{name}': the report measured "
-                           f"{', '.join(rel((parts.get(k) or {}).get('path')) or k for k in unknown)}, which is not "
+                           f"{', '.join(rel((rparts.get(k) or {}).get('path')) or k for k in unknown)}, which is not "
                            "a part of this build; mark the joint \"proxy\": true if that is a proxy of the mating "
                            "part, or fit the delivered parts")
+        if f3f["state"] != "PASS" or foreign:
+            entry["result"] = "stale"
+        elif "FAIL" in unaccepted:
+            entry["result"] = "failed"
+        elif unaccepted or not states or absent:
+            entry["result"] = "open"
+        else:
+            entry["result"] = "accepted" if accepted else "passed"
+        if accepted:
+            entry["accepted"] = accepted
         entries.append(entry)
     return entries, reasons, notes
 
 
-def check_strength(verify):
+def proxy_provenance(j, sides):
+    """Whether the proxy a joint was fitted against is tied to the numbers it stands for: generated
+    by `build.py run` (the joint's `proxy_build` names that build's JSON; a `record` manifest is
+    not the generator's word) from its params file as it is now. Returns (tied | untied | stale,
+    note, the engine parameters the proxy was built from when tied)."""
+    if len(sides) != 1:                               # two: not this build's fit; none: no proxy in it
+        return "stale", ("the fit report measured no proxy, only parts of this build: drop \"proxy\" or fit the proxy"
+                         if not sides else "neither STL the fit report measured is a part of this build"), None
+    pb = j.get("proxy_build")
+    if not pb:
+        return "untied", "no proxy_build names the build.py run that made the proxy", None
+    try:
+        b = load_json(pb, "proxy build")
+    except FinalizeError as exc:
+        return "stale", str(exc), None
+    if not isinstance(b, dict) or b.get("schema") != "3dprint-scout.build/1":
+        return "stale", f"{rel(pb)} is not a build.py run / record report", None
+    if not (isinstance(b.get("sources"), list) and isinstance(b.get("parts"), list)):
+        return "stale", f"{rel(pb)} lists no sources or parts", None
+    sources = [s for s in b["sources"] if isinstance(s, str)]
+    missing = [s for s in sources if not os.path.isfile(s)]
+    if not sources or missing:
+        return "stale", f"the sources {rel(pb)} hashed are missing: {', '.join(missing) or 'none listed'}", None
+    pp = b.get("params")
+    if not (isinstance(pp, str) and os.path.isfile(pp)):
+        return "stale", f"{rel(pb)} names no params file the proxy was built from (build it again)", None
+    try:
+        proxy_params = load_json(pp, "proxy params")
+    except FinalizeError as exc:
+        return "stale", str(exc), None
+    if not isinstance(proxy_params, dict):
+        return "stale", f"{rel(pp)} is not a params object", None
+    for side in sides:
+        sha = side.get("sha256")
+        part = next((p for p in b["parts"] if isinstance(p, dict) and sha and p.get("sha256") == sha), None)
+        if part is None:
+            return "stale", f"the proxy {rel(side.get('path'))} the fit measured is not one {rel(pb)} built", None
+        stl = part.get("stl")
+        mf = validate.manifest_path(stl) if isinstance(stl, str) else None
+        try:
+            with open(mf, encoding="utf-8") as f:
+                man = json.load(f)
+        except (OSError, TypeError, ValueError):
+            return "stale", f"the proxy {rel(stl)} has no build manifest", None
+        built = man.get("sources") if isinstance(man, dict) else None
+        if (man.get("schema") if isinstance(man, dict) else None) != "3dprint-scout.manifest/1" or not (
+                isinstance(built, list) and all(isinstance(x, str) for x in built)):
+            return "stale", f"the proxy {rel(stl)} has a malformed build manifest", None
+        if man.get("by") != "run":                     # record stamps the parameters of the day on any STL
+            return "untied", (f"the proxy {rel(stl)} was recorded (build.py record), not generated from "
+                              "its params by build.py run"), None
+        own = ([s for s in sources if os.path.basename(s) in set(built)]
+               if set(built) <= set(validate.source_names(sources)) else sources)
+        if man.get("artifact_sha256") != sha:
+            return "stale", f"the proxy {rel(stl)} is not the STL its build recorded", None
+        if man.get("input_hash") != validate.hash_inputs(own, proxy_params):
+            return "stale", (f"the proxy {rel(stl)} was not built from {rel(pp)} as it is now (or its generator "
+                             "changed): build it again and fit again"), None
+    return "tied", "", validate.engine_params(proxy_params)
+
+
+def measured_parts(rparts, by_sha):
+    """The parts of this build a fit report measured. Byte-identical parts share a hash, so a
+    side is matched by its path first and otherwise stands for every part with that hash."""
+    names = []
+    for k in ("a", "b"):
+        side = rparts.get(k) or {}
+        same = by_sha.get(side.get("sha256")) or []
+        path = side.get("path")
+        at = [p for p in same if path and p.get("stl")
+              and os.path.normcase(os.path.abspath(p["stl"])) == os.path.normcase(os.path.abspath(path))]
+        for p in at or same:
+            if p.get("name") not in names:
+                names.append(p.get("name"))
+    return names
+
+
+def check_strength(verify, taken=frozenset()):
+    """Every declared member's strength.py report; `result` as for joints (missing, failed, open,
+    accepted: a WARN gate the user accepted as "member <name>", passed) and `manual`: its inputs
+    were typed in, not taken from the build."""
     if "strength" not in verify:
         return [], ["members not declared (_verify.strength): P7 is not counted; list each member's strength.py "
                     "report, or [] when nothing carries load"], []
@@ -428,14 +606,18 @@ def check_strength(verify):
         name, report = s.get("name") or s.get("report"), s.get("report")
         entry = {"name": name, "report": rel(report)}
         if not report or not os.path.isfile(report):
-            entry["state"] = "FAIL"
+            entry.update(state="FAIL", result="missing")
             reasons.append(f"member '{name}': strength report {rel(report)} not found; run strength.py and save it")
         else:
             rep = load_json(report, "strength report")
             if not isinstance(rep, dict) or rep.get("schema") != "3dprint-scout.strength/1":
                 raise FinalizeError(f"{report}: not a strength.py report")
-            entry.update(gate=rep.get("gate"), case=rep.get("case"), worst=rep.get("worst"), inputs=rep.get("inputs"))
-            if rep.get("gate") != "PASS":
+            entry.update(gate=rep.get("gate"), case=rep.get("case"), worst=rep.get("worst"), inputs=rep.get("inputs"),
+                         manual=True)
+            entry["result"] = {"PASS": "passed", "FAIL": "failed"}.get(rep.get("gate"), "open")
+            if rep.get("gate") == "WARN" and norm(f"member {name}") in taken:
+                entry["result"], entry["accepted"] = "accepted", ["WARN"]
+            elif rep.get("gate") != "PASS":
                 reasons.append(f"member '{name}': strength.py {rep.get('case')} {rep.get('gate')} (worst: "
                                f"{rep.get('worst')})")
             notes.append(f"member '{name}': strength.py took its sizes from the numbers it was given "
@@ -443,6 +625,348 @@ def check_strength(verify):
                          "be the dimension table's")
         entries.append(entry)
     return entries, reasons, notes
+
+
+def lookup(params, key):
+    """A params.json value by its key, or by a dotted path into nested objects ("phone.t")."""
+    if key in params:
+        return True, params[key]
+    cur = params
+    for k in str(key).split("."):
+        if not (isinstance(cur, dict) and k in cur):
+            return False, None
+        cur = cur[k]
+    return True, cur
+
+
+def flatten(d, prefix=""):
+    """Nested parameters as dotted leaf paths ({"plug": {"w": 13}} -> {"plug.w": 13}), so a dims
+    entry bound to "plug.w" and a proxy given {"plug": {"w": 13}} name the same number."""
+    out = {}
+    for k, v in d.items():
+        path = f"{prefix}{k}"
+        if isinstance(v, dict) and v:
+            out.update(flatten(v, path + "."))
+        else:
+            out[path] = v
+    return out
+
+
+def same_value(a, b):
+    if isinstance(a, bool) or isinstance(b, bool):
+        return a is b
+    return a == b
+
+
+def text_field(entry, key):
+    v = entry.get(key)
+    return isinstance(v, str) and bool(v.strip())
+
+
+def check_dims(verify, params):
+    """_verify.dims: the real-world sizes the design rests on (a phone, a plug), each tied to the
+    params.json values the model is built from, with where they came from. Returns ({id: entry},
+    declaration errors)."""
+    out, errors = {}, []
+    engine = validate.engine_params(params)
+    raw = verify.get("dims") or []
+    ids = [d.get("id") for d in raw]
+    for i, d in enumerate(raw):
+        did = d.get("id")
+        ok_id = isinstance(did, str) and bool(did.strip())
+        label = f"dims '{did}'" if ok_id else f"dims entry {i + 1}"
+        errs = []
+        if not ok_id:
+            errs.append(f"{label}: needs an id")
+        elif ids.count(did) > 1:
+            errs.append(f"{label}: the id is used more than once")
+        unknown = sorted(k for k in d if k not in DIM_KEYS)
+        if unknown:
+            errs.append(f"{label}: unknown field {', '.join(unknown)} (fields: {', '.join(DIM_KEYS)})")
+        if not text_field(d, "what"):
+            errs.append(f"{label}: needs what (the object and the sizes, in words)")
+        bad_text = [k for k in ("unit", "by", "url", "note") if k in d and not isinstance(d[k], str)]
+        if bad_text:
+            errs.append(f"{label}: {', '.join(bad_text)} must be text")
+        src = d.get("source")
+        if src not in DIM_SOURCES:
+            errs.append(f"{label}: source must be one of {', '.join(DIM_SOURCES)}")
+        elif src == "caliper" and d.get("by") != "user":
+            errs.append(f"{label}: a caliper value needs \"by\": \"user\" (only the user can measure the object)")
+        elif src == "spec" and not text_field(d, "url"):
+            errs.append(f"{label}: a spec value needs the url of the spec")
+        elif src == "spec":
+            where = d.get("where") if isinstance(d.get("where"), dict) else {}
+            given = d.get("params") if isinstance(d.get("params"), dict) else {}
+            unplaced = [k for k in given if not text_field(where, k)]
+            if not isinstance(d.get("where"), dict) or unplaced:
+                errs.append(f"{label}: a spec value needs where, for each parameter, the place in the spec its number "
+                            f"comes from (missing: {', '.join(unplaced) or 'where'})")
+        if "tol" in d and not (isinstance(d["tol"], (int, float)) and not isinstance(d["tol"], bool)
+                               and d["tol"] == d["tol"] and 0 <= d["tol"] < float("inf")):
+            errs.append(f"{label}: tol must be a number of 0 or more")
+        p = d.get("params")
+        if not isinstance(p, dict) or not p:
+            errs.append(f"{label}: params must map the params.json keys the model is built from to their values")
+        else:
+            for k, v in p.items():
+                found, cur = lookup(engine, k)          # what the generator gets: no _-prefixed metadata
+                if not found:
+                    errs.append(f"{label}: {k} is not an engine parameter in params.json (the model must be built "
+                                "from these numbers; keys starting with _ never reach the generator)")
+                elif not same_value(cur, v):
+                    errs.append(f"{label}: {k} is {json.dumps(v)} here but {json.dumps(cur)} in params.json")
+        entry = {"id": did, "what": d.get("what"), "source": src, "params": p,
+                 "state": "error" if errs else DIM_STATE[src]}
+        entry.update({k: d[k] for k in ("unit", "tol", "by", "url", "where") if k in d})
+        if errs:
+            entry["errors"] = errs
+            errors += errs
+        if ok_id and did not in out:
+            out[did] = entry
+        elif ok_id:
+            out[did]["state"] = "error"
+        else:
+            out[f"#{i + 1}"] = entry
+    return out, errors
+
+
+def valid_check_entry(a):
+    """An accepted WARN: a check name and the user's reason, both in words, and no promise."""
+    return "promise" not in a and isinstance(a.get("check"), str) and bool(a["check"].strip()) and text_field(a, "reason")
+
+
+def evidence_index(verify, key, entries):
+    """{name: [(declaration, checked entry)]} for joints or strength, in declaration order."""
+    index = {}
+    for raw, entry in zip(verify.get(key) or [], entries):
+        if isinstance(entry.get("name"), str):
+            index.setdefault(entry["name"], []).append((raw, entry))
+    return index
+
+
+def promise_state(errs, failed, notver, excluded, assumed, accepted):
+    if errs:
+        return "error"
+    if failed:
+        return "failed"
+    if excluded:
+        return "excluded"
+    if notver:
+        return "not verified"
+    if assumed:
+        return "assumed"
+    if accepted:
+        return "accepted"
+    return "verified"
+
+
+def check_promises(verify, params, joints, strength, parts):
+    """The use tier: each promise made to the user, judged by its own evidence. A promise is
+    verified only when it says under which conditions it holds and what counts as success, its
+    evidence is of a kind allowed for it, of the current parts and passed, and nothing it rests
+    on is an unmeasured size. Returns a dict with tier, promises, counts, dims, errors, open."""
+    dims, errors = check_dims(verify, params)
+    out = {"tier": "not declared", "promises": [], "counts": {}, "dims": list(dims.values()), "errors": errors,
+           "open": []}
+    for key in ("joints", "strength"):
+        for raw in verify.get(key) or []:
+            jd = raw.get("dims")
+            if jd is not None and not (isinstance(jd, list) and all(isinstance(x, str) for x in jd)):
+                errors.append(f"{key[:-1] if key == 'joints' else 'member'} '{raw.get('name') or raw.get('report')}': "
+                              "dims must be a list of _verify.dims ids")
+    promises = verify.get("promises")
+    ids = [p.get("id") for p in promises or []]
+    excluded = {}
+    for a in verify.get("accepted") or []:
+        if "promise" not in a:
+            if not valid_check_entry(a):
+                errors.append(f"accepted entry {json.dumps(a, ensure_ascii=False)}: names no check (or a promise), or "
+                              "gives no reason (the user's, in words): it accepts nothing")
+            continue
+        pid = a.get("promise")
+        if not (isinstance(pid, str) and pid.strip()):
+            errors.append(f"accepted entry {json.dumps(a, ensure_ascii=False)}: promise must be a promise id")
+        elif "check" in a:
+            errors.append(f"accepted entry for promise '{pid}': name a promise or a check, not both")
+        elif pid not in ids:
+            errors.append(f"accepted entry: there is no promise '{pid}' in _verify.promises")
+        elif not text_field(a, "reason"):
+            errors.append(f"accepted entry for promise '{pid}': needs the user's reason")
+        elif a.get("by") != "user":
+            errors.append(f"accepted entry for promise '{pid}': only the user can take a promise without "
+                          "verifying it (\"by\": \"user\")")
+        else:
+            excluded[pid] = a["reason"]
+    if promises is None:
+        out["open"].append("promises not declared (_verify.promises): what the user was promised is not checked; "
+                           "list each promise with its evidence")
+    elif not promises:
+        out["open"].append("the promise list (_verify.promises) is empty: an empty list verifies nothing; list what "
+                           "the user was promised")
+    gate = {p.get("name"): p.get("gate") for p in parts}
+    index = {"joint": evidence_index(verify, "joints", joints),
+             "strength": evidence_index(verify, "strength", strength)}
+    for i, pr in enumerate(promises or []):
+        pid, kind = pr.get("id"), pr.get("kind")
+        ok_id = isinstance(pid, str) and bool(pid.strip())
+        label = f"promise '{pid}'" if ok_id else f"promise {i + 1}"
+        errs, failed, notver, assumed, acc = [], [], [], [], []
+        if not ok_id:
+            errs.append("needs an id")
+        elif ids.count(pid) > 1:
+            errs.append("the id is used more than once")
+        unknown = sorted(k for k in pr if k not in PROMISE_KEYS)
+        if unknown:
+            errs.append(f"unknown field {', '.join(unknown)} (fields: {', '.join(PROMISE_KEYS)})")
+        if kind not in KINDS:
+            errs.append(f"kind must be one of {', '.join(KINDS)}")
+        if not text_field(pr, "text"):
+            errs.append("needs text (the promise in the user's words)")
+        for f in NEEDS[kind] if kind in KINDS else ():
+            if not text_field(pr, f):
+                errs.append(f"a {kind} promise needs {f} ("
+                            + ("under which conditions it must hold" if f == "conditions" else "what counts as success")
+                            + ")")
+        rests = []
+        assumes = pr.get("assumes", [])
+        if not (isinstance(assumes, list) and all(isinstance(x, str) for x in assumes)):
+            errs.append("assumes must be a list of _verify.dims ids")
+        else:
+            rests += [(d, "the promise") for d in assumes]
+        evidence, ev_out = pr.get("evidence"), []
+        if evidence is None or evidence == []:
+            notver.append("no evidence yet")
+        elif not isinstance(evidence, list):
+            errs.append("evidence must be a list")
+            evidence = []
+        for item in evidence or []:
+            if not isinstance(item, dict):
+                errs.append(f"evidence item {json.dumps(item, ensure_ascii=False)} must be an object")
+                continue
+            if "covers" in item and not isinstance(item["covers"], str):
+                errs.append("covers must be text (what the evidence covers)")
+            named = [k for k in item if k != "covers"]
+            if len(named) != 1:
+                errs.append(f"evidence item {json.dumps(item, ensure_ascii=False)} must name one of "
+                            f"{', '.join(EVIDENCE)}")
+                continue
+            k, name = named[0], item[named[0]]
+            if not (isinstance(name, str) and name.strip()):
+                errs.append(f"evidence item {json.dumps(item, ensure_ascii=False)}: name the {k} with its text name")
+                continue
+            if k == "check":
+                errs.append(f"'{name}' is a check of a part: it proves the part, not a promise; use "
+                            f"{', '.join((ALLOWED[kind] if kind in KINDS else ()) or EVIDENCE)}")
+                continue
+            if k not in EVIDENCE:
+                errs.append(f"unknown evidence kind '{k}' (finalize reads {', '.join(EVIDENCE)})")
+                continue
+            if kind in KINDS and k not in ALLOWED[kind]:
+                errs.append(f"{k} is not evidence for a {kind} promise ("
+                            + (f"it takes {', '.join(ALLOWED[kind])}" if ALLOWED[kind] else
+                               "no evidence of it is read here yet") + ")")
+                continue
+            matches = index[k].get(name, [])
+            where = "_verify.joints" if k == "joint" else "_verify.strength"
+            if not matches:
+                errs.append(f"there is no {k} '{name}' in {where}")
+                continue
+            if len(matches) > 1:
+                errs.append(f"{len(matches)} entries in {where} are named '{name}'")
+                continue
+            raw, entry = matches[0]
+            res = entry.get("result")
+            ev = {k: name, "result": res}
+            if "covers" in item:
+                ev["covers"] = item["covers"]
+            ev_out.append(ev)
+            what = f"joint '{name}'" if k == "joint" else f"member '{name}'"
+            if res == "missing":
+                notver.append(f"{what}: no report")
+            elif res == "stale":
+                notver.append(f"{what}: its fit report is not of the current parts")
+            elif res == "failed":
+                failed.append(f"{what} failed")
+            elif res == "open":
+                notver.append(f"{what}: not every check passed" if k == "joint" else
+                              f"{what}: strength.py gate {entry.get('gate')}")
+            elif res == "accepted":
+                acc.append(f"{what}: passed apart from WARNs the user accepted ({', '.join(entry['accepted'])})")
+                if k == "strength" and entry.get("manual"):
+                    notver.append(f"{what}: its inputs were typed in, not taken from the build's parameters")
+            if k == "joint":
+                bad = [n for n in entry.get("measured") or [] if gate.get(n) == "FAIL"]
+                if bad:
+                    notver.append(f"{what} fitted {', '.join(bad)}, whose own checks FAIL")
+                if raw.get("proxy") and not raw.get("dims"):
+                    assumed.append(f"{what} is fitted against a proxy whose sizes are not declared (dims)")
+                elif raw.get("proxy") and entry.get("proxy_build") == "untied":
+                    assumed.append(f"{what} names the sizes of its proxy, but nothing ties the proxy to them: "
+                                   f"{entry.get('proxy_note')}")
+                elif raw.get("proxy") and entry.get("proxy_build") == "stale":
+                    notver.append(f"{what}: {entry.get('proxy_note')}")
+                elif raw.get("proxy") and isinstance(raw.get("dims"), list):
+                    # tied: the proxy got exactly the numbers its dims declare, no fewer and no others
+                    declared = {}
+                    for did in raw["dims"]:
+                        if isinstance(did, str) and isinstance((dims.get(did) or {}).get("params"), dict):
+                            declared.update(dims[did]["params"])
+                    declared, got = flatten(declared), flatten(entry.get("proxy_params") or {})
+                    differ = [k for k in got if k in declared and not same_value(got[k], declared[k])]
+                    loose = [k for k in got if k not in declared]
+                    unused = [k for k in declared if k not in got]
+                    if differ:
+                        notver.append(f"{what}: the proxy was built from "
+                                      + ", ".join(f"{k} = {json.dumps(got[k])}" for k in differ)
+                                      + ", not the values its dims declare")
+                    if loose:
+                        assumed.append(f"{what}: the proxy was also built from {', '.join(loose)}, which no dims "
+                                       "entry it names declares")
+                    if unused:
+                        assumed.append(f"{what}: the proxy was not given {', '.join(unused)}, which its dims declare")
+            elif res == "passed" and entry.get("manual"):
+                notver.append(f"{what}: its inputs were typed in, not taken from the build's parameters")
+            jd = raw.get("dims")
+            if isinstance(jd, list):
+                rests += [(d, what) for d in jd if isinstance(d, str)]
+        rests_on = []
+        for did, via in rests:
+            if did not in rests_on:
+                rests_on.append(did)
+            d = dims.get(did)
+            if d is None:
+                errs.append(f"{via} rests on dims '{did}', which is not in _verify.dims")
+            elif d["state"] == "error":
+                errs.append(f"dims '{did}' has a declaration error")
+            elif d["state"] == "assumed":
+                line = f"rests on '{did}' ({d.get('what')}), which is assumed, not measured"
+                if line not in assumed:
+                    assumed.append(line)
+        state = promise_state(errs, failed, notver, ok_id and pid in excluded, assumed, acc)
+        reasons = errs + failed + notver + assumed + acc
+        if state == "excluded":
+            reasons.insert(0, f"taken by the user without verifying it: {excluded[pid]}")
+        entry = {"id": pid, "kind": kind, "text": pr.get("text")}
+        entry.update({f: pr[f] for f in ("conditions", "success") if f in pr})
+        entry.update(state=state, reasons=reasons, evidence=ev_out, rests_on=rests_on)
+        out["promises"].append(entry)
+        counts = out["counts"].setdefault(kind if kind in KINDS else "?", {})
+        counts[state] = counts.get(state, 0) + 1
+        if state != "verified":
+            out["open"].append(f"{label} ({kind}) {state}: {'; '.join(reasons)}")
+    for d in dims.values():
+        if d.get("state") == "spec":
+            out["open"].append(f"dims '{d['id']}' is taken from a spec, not checked here: compare "
+                               + "; ".join(f"{k} = {json.dumps(v)} ({d['where'][k]})" for k, v in d["params"].items())
+                               + f" with {d['url']}")
+    states = [p["state"] for p in out["promises"]]
+    if errors:
+        out["tier"] = "error"
+        out["open"][:0] = errors
+    elif states:
+        out["tier"] = min(states, key=STATES.index)
+    return out
 
 
 def check_prints(verify):
@@ -515,7 +1039,10 @@ def check_delivered(deliver, parts, build):
     entries, reasons = [], []
     if not os.path.isdir(deliver):
         return [], [f"delivery folder {rel(deliver)} not found"]
-    by_sha = {p["sha256"]: p["name"] for p in parts if p.get("sha256")}
+    by_sha = {}
+    for p in parts:
+        if p.get("sha256"):
+            by_sha.setdefault(p["sha256"], []).append(p["name"])
     covered = set()
     out_dirs = {os.path.dirname(p["stl"]) for p in parts if p.get("stl")} | {os.path.dirname(build.get("threemf") or "")}
     manifests = threemf_manifests([deliver, *out_dirs])
@@ -526,13 +1053,15 @@ def check_delivered(deliver, parts, build):
         low = fn.lower()
         if low.endswith(".stl"):
             sha = validate.file_sha256(path)
-            name = by_sha.get(sha)
-            entries.append({"file": rel(path), "kind": "stl", "part": name, "same_as_verified": name is not None})
-            if name is None:
+            names = by_sha.get(sha) or []
+            stem = os.path.splitext(fn)[0]
+            name = (stem if stem in names else next((n for n in names if n not in covered), names[0])) if names else None
+            entries.append({"file": rel(path), "kind": "stl", "part": name, "same_as_verified": bool(names)})
+            if not names:
                 reasons.append(f"{rel(path)} is not one of the verified STLs (an older build, or another part): "
                                "copy the verified file, or take it out of the delivery")
             else:
-                covered.add(name)
+                covered.add(name)                         # one file per part, even for identical parts
         elif low.endswith(".3mf"):
             sha = validate.file_sha256(path)
             m = manifests.get(sha)
@@ -552,7 +1081,7 @@ def check_delivered(deliver, parts, build):
                     reasons.append(f"{rel(path)} was written from STLs that are not the verified ones "
                                    f"({', '.join(stale)}): write it again from the verified STLs")
                 else:
-                    covered.update(by_sha[s] for s in m["parts"].values())
+                    covered.update(n if n in by_sha[s] else by_sha[s][0] for n, s in m["parts"].items())
             entries.append(entry)
     for p in parts:
         if p.get("sha256") and p["name"] not in covered:
@@ -671,7 +1200,7 @@ def finalize(args):
     check_verify_shape(verify)
     settings = settings_for(build, args)
     out = {"schema": SCHEMA, "ran": True, "build": rel(args.build), "engine": build.get("engine"),
-           "geometry": None, "shape": {}, "slicing": "unverified", "print": "unverified",
+           "use": None, "geometry": None, "shape": {}, "slicing": "unverified", "print": "unverified",
            "settings": {f: getattr(settings, f) for f in SETTINGS} | {"wall_check": settings.wall_check},
            "parts": [], "objects": [], "joints": [], "strength": [], "test_prints": [], "open": [],
            "accepted": [], "assumptions": list(params.get("_assumptions") or []),
@@ -690,22 +1219,25 @@ def finalize(args):
     out["objects"] = objs
     reasons += r
     warns += w
-    shas = {p.get("sha256") for p in parts if p.get("sha256")}
-    joints, r, notes = check_joints(verify, shas)
+    accepted = verify.get("accepted") or []
+    out["accepted"] = accepted
+    taken = {norm(a["check"]) for a in accepted if valid_check_entry(a)}   # a malformed entry accepts nothing
+    joints, r, notes = check_joints(verify, parts, taken)
     out["joints"] = joints
     reasons += r
     out["warnings"] += notes
-    strength, r, notes = check_strength(verify)
+    strength, r, notes = check_strength(verify, taken)
     out["strength"] = strength
     reasons += r
     out["warnings"] += notes
     prints, print_lines = check_prints(verify)
     out["test_prints"] = prints
-    accepted = verify.get("accepted") or []
-    out["accepted"] = accepted
-    taken = {" ".join(str(a.get("check", "")).split()).lower() for a in accepted}
-    open_warns = [f"{who} WARN: {note}".rstrip(": ") for who, note in warns if " ".join(who.split()).lower() not in taken]
-    reasons += [text for who, text in copied if " ".join(who.split()).lower() not in taken]
+    use = check_promises(verify, params, joints, strength, parts)
+    out["use"] = use["tier"]
+    out["promises"], out["promise_counts"], out["dims"] = use["promises"], use["counts"], use["dims"]
+    out["promise_errors"] = use["errors"]
+    open_warns = [f"{who} WARN: {note}".rstrip(": ") for who, note in warns if norm(who) not in taken]
+    reasons += [text for who, text in copied if norm(who) not in taken]
     if args.deliver:
         delivered, r = check_delivered(args.deliver, parts, build)
         out["delivered"] = delivered
@@ -717,11 +1249,25 @@ def finalize(args):
     passed = [t["name"] for t in prints if t["status"] == "passed"]
     out["print"] = ("unverified (test prints passed: " + ", ".join(passed) + "; the final part is not printed)"
                     if passed else "unverified")
-    out["open"] = (reasons + [f"open warning (not accepted in _verify.accepted): {w}" for w in open_warns]
+    out["open"] = (use["open"] + reasons
+                   + [f"open warning (not accepted in _verify.accepted): {w}" for w in open_warns]
                    + to_decide + print_lines + shape_lines
                    + [f"unverified: {u}" for u in out["unverified_dimensions"]]
                    + [f"assumption: {a}" for a in out["assumptions"]])
+    unlinked = len(out["assumptions"]) + len(out["unverified_dimensions"])
+    if out["use"] == "not declared":
+        use_line = "use: not declared (_verify.promises)"
+    else:
+        tally = {}
+        for p in out["promises"]:
+            tally[p["state"]] = tally.get(p["state"], 0) + 1
+        parts_of = ([plural(len(out["promises"]), "promise") + ": "
+                     + ", ".join(f"{tally[s]} {s}" for s in STATES if s in tally)] if out["promises"] else [])
+        parts_of += [plural(len(use["errors"]), "declaration error")] if use["errors"] else []
+        parts_of += [plural(unlinked, "assumption") + " not linked to a promise"] if unlinked else []
+        use_line = f"use: {out['use']} ({'; '.join(parts_of)})"
     out["summary"] = [
+        use_line,
         "geometry: " + ("verified (every part, object, declared joint and member checked; the delivered files are "
                         "the verified ones)" if geometry_ok and args.deliver else
                         "verified (every part, object, declared joint and member checked)" if geometry_ok else
@@ -754,7 +1300,8 @@ def main(argv=None):
         out = finalize(args)
         code = 0
     except (FinalizeError, OSError) as exc:
-        out = {"schema": SCHEMA, "ran": False, "geometry": None, "warnings": [], "errors": [scrub(str(exc))]}
+        out = {"schema": SCHEMA, "ran": False, "use": None, "geometry": None, "warnings": [],
+               "errors": [scrub(str(exc))]}
         code = 1
     print(json.dumps(out, indent=2, ensure_ascii=False))
     return code
