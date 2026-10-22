@@ -912,6 +912,28 @@ class FinalizePromises(Workspace):
                 self.assertEqual(self.promise(out, "seat")["state"], "not verified")
                 self.assertTrue(any("it accepts nothing" in o for o in out["open"]), out["open"])
 
+    def test_a_joint_passes_only_with_its_fit_check(self):
+        """Codex review of step 1 (P2): a report without F3 (or without the sweep a moving joint
+        declares) is not a passed fit, whatever else it holds."""
+        joints = [{"name": "lid on box", "report": "out/fit_seat.json"}]
+        fit_report("out/fit_seat.json", "out/box.stl", "out/lid.stl", F3_other="PASS")
+        out = self.run_use(self.verify([self.SEAT], dims=[], joints=joints))
+        self.assertEqual((out["joints"][0]["result"], self.promise(out, "seat")["state"]), ("open", "not verified"))
+        self.assertIn("joint 'lid on box': the report has no F3", out["open"])
+        self.assertEqual(out["geometry"], "not verified")
+        fit_report("out/fit_seat.json", "out/box.stl", "out/lid.stl")
+        moving = [dict(joints[0], sweep=True)]
+        out = self.run_use(self.verify([self.SEAT], dims=[], joints=moving))
+        self.assertEqual(self.promise(out, "seat")["state"], "not verified")
+        self.assertIn("joint 'lid on box': the report has no F3_sweep (run fit.py with --sweep-angles)", out["open"])
+        fit_report("out/fit_seat.json", "out/box.stl", "out/lid.stl", F3="PASS", F3_sweep="PASS")
+        out = self.run_use(self.verify([self.SEAT], dims=[], joints=moving))
+        self.assertEqual((self.promise(out, "seat")["state"], out["geometry"]), ("verified", "verified"))
+        self.params(self.verify([self.SEAT], dims=[], joints=[dict(joints[0], sweep="yes")]))
+        code, out = self.finalize()
+        self.assertEqual(code, 1)
+        self.assertIn("sweep must be true or false", out["errors"][0])
+
     def test_a_proxy_without_its_sizes_is_assumed(self):
         joints = [{"name": "plug through notch", "report": "out/fit_plug.json", "proxy": True}]
         out = self.run_use(self.verify([self.CABLE], dims=[], joints=joints))

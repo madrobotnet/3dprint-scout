@@ -120,7 +120,8 @@ user accepted as `<part> D1` in `_verify.accepted`), every STL is
 the one the build JSON judged and the settings are the build's (`settings_drift` empty: no
 other printer, printer id, tools or tolerance given here, and printers.json unchanged since the
 build), so its object checks stand, every declared joint's
-report is fresh and its F3 / F3_sweep PASS against the delivered parts (or a declared proxy),
+report is fresh and its F3 / F3_sweep PASS against the delivered parts (or a declared proxy;
+F3 must be in it, and F3_sweep too for a joint marked `"sweep": true`),
 every declared member's `strength.py` gate is PASS, no WARN is left unaccepted, the delivered
 copies (with `--deliver`) are the verified files, and `joints` and `strength` were declared at
 all. Paths are relative to the folder it ran in. Exit 0 when it ran, 1 on a usage or file error
@@ -137,7 +138,7 @@ gets one state:
 | `error` | Declared wrongly: no id or the same id twice, an unknown field or kind, no `text`, a `use` without `conditions` and `success` or a `feature` without `success`, an evidence item that names no declared joint or member, names a part's own check (`box M1`) or a kind the promise does not take, or a dims entry that is missing or declared wrongly (a `caliper` value without `"by": "user"`, a `spec` without its `url`, values that differ from params.json) |
 | `failed` | A joint or member it names failed, even if the user took the promise |
 | `excluded` | The user took it without verifying it (`{"promise": id, "reason": …, "by": "user"}` in `_verify.accepted`); its other reasons stay listed |
-| `not verified` | No evidence yet, a missing or stale report, a joint that fitted a part whose own checks FAIL, a proxy whose build is not of params.json as it is now, a check that is neither PASS nor an accepted WARN, or a member whose inputs were typed in (every strength.py report for now) |
+| `not verified` | No evidence yet, a missing or stale report, a fit report without F3 (or without F3_sweep for a joint marked `"sweep": true`), a joint that fitted a part whose own checks FAIL, a proxy whose build is not of params.json as it is now, a check that is neither PASS nor an accepted WARN, or a member whose inputs were typed in (every strength.py report for now) |
 | `assumed` | Everything passed, but it rests on a dims entry with `source: "assumed"`, or on a proxy joint that names no dims or no `proxy_build` (the saved JSON of the `build.py run` that generated the proxy, which ties it to params.json; a proxy taken in with `build.py record` is not tied) |
 | `accepted` | Everything passed with a WARN the user accepted |
 | `verified` | None of the above |

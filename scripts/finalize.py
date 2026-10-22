@@ -41,7 +41,8 @@ is missing is reported as "not declared", which keeps its tier from being verifi
 
 joints: every joint F3 must cover, with its saved fit.py report: the report must be fresh (its
 STLs are the parts being delivered, or a declared proxy) and its own F3 / F3_sweep must PASS
-(a WARN the user accepted as "joint <name> <check>" counts as accepted). A proxy names the dims
+(a WARN the user accepted as "joint <name> <check>" counts as accepted); a report without F3,
+or without F3_sweep for a joint marked "sweep": true (a moving part), is not a passed fit. A proxy names the dims
 it is built from and, as proxy_build, the saved JSON of the build.py run that made it, which
 ties it to params.json as it is now. An empty list says the design has no joint. strength: strength.py reports
 (saved JSON), their gate must PASS; their inputs are numbers from the dimension table, not read
@@ -225,6 +226,8 @@ def check_verify_shape(verify):
     for key in ("joints", "strength"):
         for e in verify.get(key) or []:
             bad = [f for f in ("name", "report", "proxy_build") if f in e and not isinstance(e[f], str)]
+            if key == "joints" and "sweep" in e and not isinstance(e["sweep"], bool):
+                raise FinalizeError(f"_verify.joints: sweep must be true or false ({json.dumps(e, ensure_ascii=False)})")
             if bad:
                 raise FinalizeError(f"_verify.{key}: {' and '.join(bad)} must be text ({json.dumps(e, ensure_ascii=False)})")
     if "references" in verify and not (isinstance(verify["references"], dict)
@@ -467,8 +470,13 @@ def check_joints(verify, parts, taken=frozenset(), params=None):
                 continue
             unaccepted.append(st)
             reasons.append(f"joint '{name}': {cid} {st}: {(rep['checks'][cid].get('note') or '')}".rstrip(": "))
+        needed = ["F3"] + (["F3_sweep"] if j.get("sweep") else [])   # a moving joint declares its sweep
+        absent = [c for c in needed if c not in states]
         if not states:
             reasons.append(f"joint '{name}': the report has no checks")
+        elif absent:
+            reasons.append(f"joint '{name}': the report has no {' or '.join(absent)}"
+                           + (" (run fit.py with --sweep-angles)" if "F3_sweep" in absent else ""))
         rparts = rep.get("parts") or {}
         shas = [(rparts.get(k) or {}).get("sha256") for k in ("a", "b")]
         unknown = [k for k, s in zip(("a", "b"), shas) if s not in by_sha]
@@ -494,7 +502,7 @@ def check_joints(verify, parts, taken=frozenset(), params=None):
             entry["result"] = "stale"
         elif "FAIL" in unaccepted:
             entry["result"] = "failed"
-        elif unaccepted or not states:
+        elif unaccepted or not states or absent:
             entry["result"] = "open"
         else:
             entry["result"] = "accepted" if accepted else "passed"
