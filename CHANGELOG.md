@@ -14,7 +14,9 @@ release; the separately proposed 0.6.2 work is included here.
   parts (`--only`) is reported by the parts it left out, not as changed metadata.
 - **Engine detection reports usable engines.** A failed or outdated `BLENDER_PYTHON` candidate
   no longer hides a supported bpy in the current interpreter. An explicit `--blender-python` is
-  now binding (it used to fall through to the other candidates). Invalid probe output and
+  now binding (it used to fall through to the other candidates), in `detect` too: there it
+  reports only that interpreter, so a usable binary no longer lists Blender as available for a
+  build that would run without it (Codex review). Invalid probe output and
   subprocess failures remain visible. OpenSCAD must pass its version probe and export a
   readable cube before it appears in `available`; the default backend is tried when the
   Manifold backend is unsupported.
@@ -40,7 +42,7 @@ release; the separately proposed 0.6.2 work is included here.
   and the full suite passed with that binary present (344 tests). The first CI run is the
   weekly job after merge; GitHub dispatches it only from the default branch.
 - **Regression coverage:** assembly metadata drift and legacy reports; bpy fallback, strict
-  explicit selection and invalid probe output; failed OpenSCAD readiness. Conversation
+  explicit selection in `run` and `detect`, and invalid probe output; failed OpenSCAD readiness. Conversation
   walkthroughs cover complete input, choice D, unknown compensation, project updates and
   explicit unattended execution. Walkthroughs are not an agent benchmark.
 

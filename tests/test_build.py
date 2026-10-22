@@ -635,6 +635,39 @@ class BlenderDetect(Base):
         self.assertEqual(out["blender"], status)                               # one place for the block
         self.assertNotIn("blender", out["engines"])
 
+    def test_detect_with_explicit_interpreter_ignores_the_binary(self):
+        # run --blender-python never uses the binary, so detect must not list Blender on its strength
+        binary = {"path": "/x/blender", "version": "4.5.14"}
+        failed = {"error": "import bpy exited with status 1 in /explicit/python", "python": "/explicit/python"}
+        good = {"version": "4.5.14", "version_tuple": (4, 5, 14), "python": "/explicit/python"}
+        with mock.patch.object(build, "find_blender", return_value="/x/blender") as find, \
+                mock.patch.object(build, "blender_info", return_value=binary), \
+                mock.patch.object(build, "blender_manifold3d", return_value=True), \
+                mock.patch.object(build, "bpy_info", return_value=failed):
+            code, out = run("detect", "--blender-python", "/explicit/python")
+            self.assertEqual(code, 0)
+            self.assertNotIn("blender", out["available"])
+            self.assertIsNone(out["blender"]["binary"])
+            self.assertFalse(out["blender"]["manifold_boolean"])
+            self.assertTrue(any("--blender-python" in n for n in out["blender"]["notes"]))
+            find.assert_not_called()
+            with self.assertRaises(RuntimeError):          # and the build agrees
+                build.choose_blender("/explicit/python")
+        with mock.patch.object(build, "find_blender", return_value="/x/blender"), \
+                mock.patch.object(build, "blender_info", return_value=binary), \
+                mock.patch.object(build, "bpy_info", return_value=good):
+            code, out = run("detect", "--blender-python", "/explicit/python")
+            self.assertIn("blender", out["available"])
+            self.assertEqual(out["blender"]["bpy"]["python"], "/explicit/python")
+            self.assertEqual(build.choose_blender("/explicit/python")["mode"], "bpy")
+        with mock.patch.object(build, "find_blender", return_value="/x/blender"), \
+                mock.patch.object(build, "blender_info", return_value=binary), \
+                mock.patch.object(build, "blender_manifold3d", return_value=True), \
+                mock.patch.object(build, "bpy_info", return_value=None):
+            status = build.blender_status()                   # without it the binary still counts
+        self.assertEqual(status["binary"]["path"], "/x/blender")
+        self.assertTrue(build.blender_usable(status))
+
     def test_status_version_gates(self):
         old = {"version": "4.4.0", "version_tuple": (4, 4, 0), "python": "/x/python"}
         with mock.patch.object(build, "find_blender", return_value=None), mock.patch.object(build, "bpy_info", return_value=old):

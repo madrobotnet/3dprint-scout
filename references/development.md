@@ -80,7 +80,8 @@ alone does not prove that rendering works: the suite's Blender coaster and rende
 `build.py` and `render.py` prefer a supported binary, otherwise a supported bpy interpreter.
 An old/unresponsive `BLENDER_PYTHON` candidate does not hide the current interpreter. To force
 one interpreter, use `--blender-python /path/to/venv/python`; an explicit choice fails rather
-than silently switching to a different interpreter.
+than silently switching to a different interpreter, and `detect --blender-python` reports that
+interpreter alone, so it lists Blender only when that build would work.
 
 If pip reports no matching bpy distribution, check the Python version, OS and architecture
 against the published wheel first. Keep TLS, artifact checksum and package verification enabled.

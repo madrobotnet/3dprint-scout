@@ -27,7 +27,8 @@ Find what works:
   `--enable=manifold`, which silently falls back to CGAL.
   A failed OpenSCAD version/cube export probe is excluded from `available` and reported in
   `warnings`. For bpy, a failed or old `BLENDER_PYTHON` candidate falls back to the current
-  interpreter. An explicit `--blender-python` is binding and never silently substituted.
+  interpreter. An explicit `--blender-python` is binding and never silently substituted: `detect`
+  with it reports only that interpreter (the binary is not probed), as `run` with it would use.
 - **Live Blender** — a tool that runs Python in the user's own Blender (an MCP connector; names
   differ between servers) and answers a harmless read, `import bpy; bpy.app.version_string`
   (4.5 or newer), counts as the live Blender path. `detect` runs where your shell is: in a VM

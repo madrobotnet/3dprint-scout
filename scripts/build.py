@@ -342,8 +342,10 @@ def too_old(version) -> str | None:
 
 def blender_status(python: str | None = None) -> dict:
     """The `blender` block of `detect`: binary, bpy module, whether the Manifold boolean solver
-    is there on the path that would run (Blender 4.5+, the floor), and notes."""
-    exe = find_blender()
+    is there on the path that would run (Blender 4.5+, the floor), and notes. An explicit
+    interpreter is what `run --blender-python` uses, never the binary (choose_blender), so the
+    binary is not probed and cannot make Blender look usable."""
+    exe = None if python else find_blender()
     binary = blender_info(exe) if exe else None
     module = bpy_info(python)
     if module and "error" in module:
@@ -351,6 +353,8 @@ def blender_status(python: str | None = None) -> dict:
         module = None
     else:
         notes = list((module or {}).get("notes", []))
+    if python:
+        notes.insert(0, f"--blender-python {python}: only that interpreter's bpy module counts; the binary is not used")
     binary_ok = bool(binary) and not binary.get("error") and not too_old(binary["version"])
     module_ok = bool(module) and not too_old(module["version_tuple"])
     if binary_ok:
@@ -1242,8 +1246,8 @@ def main(argv=None):
     sub = ap.add_subparsers(dest="cmd", metavar="{detect,run,record}")
     det = sub.add_parser("detect", help="Phase 0 probe: OpenSCAD (and its Manifold backend), manifold3d, Blender "
                                         "(binary or bpy module), optional libraries")
-    det.add_argument("--blender-python", help="Python interpreter to probe for the bpy module (default: BLENDER_PYTHON, "
-                                              "then this one)")
+    det.add_argument("--blender-python", help="report only this Python's bpy module, as `run --blender-python` uses it "
+                                              "(default: the binary, then BLENDER_PYTHON, then this Python)")
     r = sub.add_parser("run", help="build every part of _parts with OpenSCAD (.scad), Python (.py) or Blender "
                                    "(.py with the engine marker), then validate",
                        epilog=OUTPUT_HELP, formatter_class=argparse.RawDescriptionHelpFormatter)
