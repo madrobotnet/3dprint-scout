@@ -709,6 +709,8 @@ class FinalizePromises(Workspace):
              "dims 'usb-c-plug': a caliper value needs \"by\": \"user\""),
             ("a caliper value the agent took", [cable], [self.plug_dims("caliper", by="agent")], "needs \"by\": \"user\""),
             ("a spec without its url", [cable], [self.plug_dims("spec")], "a spec value needs the url"),
+            ("a file value with no reading of it", [cable], [self.plug_dims("user-file", note="out/m.json")],
+             "source must be one of assumed, caliper, spec"),
             ("dims that are not the model's numbers", [cable], [dict(self.plug_dims(), params=dict(self.PLUG, plug_w=12))],
              "plug_w is 12 here but 13 in params.json"),
             ("dims not in params.json", [cable], [dict(self.plug_dims(), params={"plug_depth": 9})],
@@ -812,6 +814,46 @@ class FinalizePromises(Workspace):
         self.assertEqual(out["parts"][0]["gate"], "FAIL")                      # box D1: 40 mm, not 50
         self.assertIn("joint 'lid on box' fitted box, whose own checks FAIL", self.promise(out, "seat")["reasons"])
         self.assertEqual(self.promise(out, "seat")["state"], "not verified")
+
+    def test_malformed_values_are_declaration_errors(self):
+        """Codex review of step 1 (P2): a list where a name belongs gave a traceback."""
+        seat = self.SEAT
+        for promises, accepted, dims in (
+                ([dict(seat, evidence=[{"joint": []}])], [], None),
+                ([dict(seat, evidence=[{"joint": {"a": 1}}])], [], None),
+                ([dict(seat, evidence=[{"strength": 3}])], [], None),
+                ([dict(seat, id=["seat"])], [], None),
+                ([dict(seat, kind=["use"])], [], None),
+                ([seat], [{"promise": ["seat"], "reason": "x", "by": "user"}], None),
+                ([seat], [], [dict(self.plug_dims(), id=["usb-c-plug"])]),
+                ([seat], [], [dict(self.plug_dims(), source=["assumed"], tol="0.5")])):
+            with self.subTest(promises=promises, accepted=accepted, dims=dims):
+                out = self.run_use(self.verify(promises, dims=dims, accepted=accepted))
+                self.assertEqual(out["use"], "error", out["open"])
+        self.params(self.verify([seat], joints=[{"name": ["lid on box"], "report": "out/fit_seat.json"}]))
+        code, out = self.finalize()
+        self.assertEqual(code, 1)
+        self.assertIn("_verify.joints: name must be text", out["errors"][0])
+
+    def test_identical_parts_keep_their_names(self):
+        """Codex review of step 1 (P2): two byte-identical parts share a hash; a fit between them
+        measured both, and a failing one is not hidden behind the other's name."""
+        write_stl("out/lid.stl", box(40, 30, 20))                              # the same bytes as the box
+        fit_report("out/fit_seat.json", "out/box.stl", "out/lid.stl")
+        out = self.run_use(self.verify([self.SEAT], dims=[], joints=[{"name": "lid on box", "report": "out/fit_seat.json"}]),
+                           _parts={"box": {"expect": [50, 30, 20]}, "lid": {"expect": [40, 30, 20]}})
+        self.assertEqual(out["joints"][0]["measured"], ["box", "lid"])
+        self.assertEqual([p["gate"] for p in out["parts"]], ["FAIL", "PASS"])
+        self.assertIn("joint 'lid on box' fitted box, whose own checks FAIL", self.promise(out, "seat")["reasons"])
+        os.makedirs("deliver")
+        shutil.copyfile("out/box.stl", "deliver/box.stl")
+        shutil.copyfile("out/lid.stl", "deliver/lid.stl")
+        code, fin = self.finalize("--deliver", "deliver")
+        self.assertEqual({d["file"]: d["part"] for d in fin["delivered"]}, {"deliver/box.stl": "box", "deliver/lid.stl": "lid"})
+        self.assertFalse(any("not in the delivery" in o for o in fin["open"]), fin["open"])
+        os.remove("deliver/lid.stl")                                           # one file for two parts is not enough
+        code, fin = self.finalize("--deliver", "deliver")
+        self.assertIn("lid: not in the delivery (deliver) as an STL or in a 3MF", fin["open"])
 
     def test_the_tier_is_the_worst_promise(self):
         nothing = {"id": "label", "kind": "look", "text": "the name on the front"}

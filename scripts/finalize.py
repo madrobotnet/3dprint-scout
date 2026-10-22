@@ -58,8 +58,7 @@ user does with the object: needs conditions and success), `feature` (needs succe
 Evidence names a declared joint or member; a use takes joints and members, a feature joints; a
 part's own check (box M1) is never evidence of a promise. dims: the real-world sizes the design
 rests on, each tied to the params.json values the model is built from (they must be equal),
-with its source: assumed, caliper ("by": "user"), spec (its url) or user-file (the measure.py
-report). A promise rests on the dims its evidence names (and on its own `assumes`); a proxy
+with its source: assumed, caliper ("by": "user") or spec (its url). A promise rests on the dims its evidence names (and on its own `assumes`); a proxy
 joint that names none rests on undeclared sizes. Each promise gets one state: error (declared
 wrongly), failed (its evidence failed, whatever else), excluded (the user took it unverified),
 not verified (no evidence, stale evidence, evidence on a part whose checks FAIL, a member's
@@ -116,9 +115,9 @@ EVIDENCE = ("joint", "strength")
 ALLOWED = {"use": ("joint", "strength"), "feature": ("joint",), "look": ()}
 NEEDS = {"use": ("conditions", "success"), "feature": ("success",), "look": ()}
 PROMISE_KEYS = ("id", "kind", "text", "conditions", "success", "evidence", "assumes", "note")
-DIM_SOURCES = ("assumed", "caliper", "spec", "user-file")
-DIM_STATE = {"assumed": "assumed", "caliper": "measured", "user-file": "measured", "spec": "spec"}
-DIM_KEYS = ("id", "what", "unit", "params", "source", "tol", "by", "url", "report", "note")
+DIM_SOURCES = ("assumed", "caliper", "spec")
+DIM_STATE = {"assumed": "assumed", "caliper": "measured", "spec": "spec"}
+DIM_KEYS = ("id", "what", "unit", "params", "source", "tol", "by", "url", "note")
 STATES = ("error", "failed", "not verified", "excluded", "assumed", "accepted", "verified")
 
 
@@ -221,6 +220,11 @@ def check_verify_shape(verify):
             if not isinstance(v, list) or not all(isinstance(x, item) for x in v):
                 kind = "objects" if item is dict else "strings"
                 raise FinalizeError(f"_verify.{key} must be a list of {kind}")
+    for key in ("joints", "strength"):
+        for e in verify.get(key) or []:
+            bad = [f for f in ("name", "report") if f in e and not isinstance(e[f], str)]
+            if bad:
+                raise FinalizeError(f"_verify.{key}: {' and '.join(bad)} must be text ({json.dumps(e, ensure_ascii=False)})")
     if "references" in verify and not (isinstance(verify["references"], dict)
                                        and all(isinstance(v, dict) for v in verify["references"].values())):
         raise FinalizeError("_verify.references must map each object to {direction: coverage}")
@@ -426,7 +430,10 @@ def check_joints(verify, parts, taken=frozenset()):
         return [], ["joints not declared (_verify.joints): F3 is not counted; list every joint with its fit "
                     "report, or [] when the design has none"], []
     entries, reasons, notes = [], [], []
-    by_sha = {p["sha256"]: p.get("name") for p in parts if p.get("sha256")}
+    by_sha = {}
+    for p in parts:
+        if p.get("sha256"):
+            by_sha.setdefault(p["sha256"], []).append(p)
     import fit
     for j in verify["joints"]:
         name, report = j.get("name") or j.get("report"), j.get("report")
@@ -463,7 +470,7 @@ def check_joints(verify, parts, taken=frozenset()):
         rparts = rep.get("parts") or {}
         shas = [(rparts.get(k) or {}).get("sha256") for k in ("a", "b")]
         unknown = [k for k, s in zip(("a", "b"), shas) if s not in by_sha]
-        entry["measured"] = [by_sha[s] for s in shas if s in by_sha]
+        entry["measured"] = measured_parts(rparts, by_sha)
         foreign = False
         if j.get("proxy"):
             entry["proxy"] = True
@@ -490,6 +497,22 @@ def check_joints(verify, parts, taken=frozenset()):
             entry["accepted"] = accepted
         entries.append(entry)
     return entries, reasons, notes
+
+
+def measured_parts(rparts, by_sha):
+    """The parts of this build a fit report measured. Byte-identical parts share a hash, so a
+    side is matched by its path first and otherwise stands for every part with that hash."""
+    names = []
+    for k in ("a", "b"):
+        side = rparts.get(k) or {}
+        same = by_sha.get(side.get("sha256")) or []
+        path = side.get("path")
+        at = [p for p in same if path and p.get("stl")
+              and os.path.normcase(os.path.abspath(p["stl"])) == os.path.normcase(os.path.abspath(path))]
+        for p in at or same:
+            if p.get("name") not in names:
+                names.append(p.get("name"))
+    return names
 
 
 def check_strength(verify):
@@ -573,8 +596,6 @@ def check_dims(verify, params):
             errs.append(f"{label}: a caliper value needs \"by\": \"user\" (only the user can measure the object)")
         elif src == "spec" and not text_field(d, "url"):
             errs.append(f"{label}: a spec value needs the url of the spec")
-        elif src == "user-file" and not (text_field(d, "report") and os.path.isfile(d["report"])):
-            errs.append(f"{label}: a value from the user's file needs the measure.py report it was read from")
         if "tol" in d and not (isinstance(d["tol"], (int, float)) and not isinstance(d["tol"], bool)
                                and d["tol"] == d["tol"] and 0 <= d["tol"] < float("inf")):
             errs.append(f"{label}: tol must be a number of 0 or more")
@@ -590,9 +611,7 @@ def check_dims(verify, params):
                     errs.append(f"{label}: {k} is {json.dumps(v)} here but {json.dumps(cur)} in params.json")
         entry = {"id": did, "what": d.get("what"), "source": src, "params": p,
                  "state": "error" if errs else DIM_STATE[src]}
-        for k in ("unit", "tol", "by", "url", "report"):
-            if k in d:
-                entry[k] = rel(d[k]) if k == "report" and isinstance(d[k], str) else d[k]
+        entry.update({k: d[k] for k in ("unit", "tol", "by", "url") if k in d})
         if errs:
             entry["errors"] = errs
             errors += errs
@@ -609,7 +628,8 @@ def evidence_index(verify, key, entries):
     """{name: [(declaration, checked entry)]} for joints or strength, in declaration order."""
     index = {}
     for raw, entry in zip(verify.get(key) or [], entries):
-        index.setdefault(entry.get("name"), []).append((raw, entry))
+        if isinstance(entry.get("name"), str):
+            index.setdefault(entry["name"], []).append((raw, entry))
     return index
 
 
@@ -650,7 +670,9 @@ def check_promises(verify, params, joints, strength, parts):
         if "promise" not in a:
             continue
         pid = a.get("promise")
-        if "check" in a:
+        if not (isinstance(pid, str) and pid.strip()):
+            errors.append(f"accepted entry {json.dumps(a, ensure_ascii=False)}: promise must be a promise id")
+        elif "check" in a:
             errors.append(f"accepted entry for promise '{pid}': name a promise or a check, not both")
         elif pid not in ids:
             errors.append(f"accepted entry: there is no promise '{pid}' in _verify.promises")
@@ -686,7 +708,7 @@ def check_promises(verify, params, joints, strength, parts):
             errs.append(f"kind must be one of {', '.join(KINDS)}")
         if not text_field(pr, "text"):
             errs.append("needs text (the promise in the user's words)")
-        for f in NEEDS.get(kind, ()):
+        for f in NEEDS[kind] if kind in KINDS else ():
             if not text_field(pr, f):
                 errs.append(f"a {kind} promise needs {f} ("
                             + ("under which conditions it must hold" if f == "conditions" else "what counts as success")
@@ -715,6 +737,9 @@ def check_promises(verify, params, joints, strength, parts):
                             f"{', '.join(EVIDENCE)}")
                 continue
             k, name = named[0], item[named[0]]
+            if not (isinstance(name, str) and name.strip()):
+                errs.append(f"evidence item {json.dumps(item, ensure_ascii=False)}: name the {k} with its text name")
+                continue
             if k == "check":
                 errs.append(f"'{name}' is a check of a part: it proves the part, not a promise; use "
                             f"{', '.join(ALLOWED.get(kind) or EVIDENCE)}")
@@ -777,7 +802,7 @@ def check_promises(verify, params, joints, strength, parts):
                 line = f"rests on '{did}' ({d.get('what')}), which is assumed, not measured"
                 if line not in assumed:
                     assumed.append(line)
-        state = promise_state(errs, failed, notver, pid in excluded, assumed, acc)
+        state = promise_state(errs, failed, notver, ok_id and pid in excluded, assumed, acc)
         reasons = errs + failed + notver + assumed + acc
         if state == "excluded":
             reasons.insert(0, f"taken by the user without verifying it: {excluded[pid]}")
@@ -868,7 +893,10 @@ def check_delivered(deliver, parts, build):
     entries, reasons = [], []
     if not os.path.isdir(deliver):
         return [], [f"delivery folder {rel(deliver)} not found"]
-    by_sha = {p["sha256"]: p["name"] for p in parts if p.get("sha256")}
+    by_sha = {}
+    for p in parts:
+        if p.get("sha256"):
+            by_sha.setdefault(p["sha256"], []).append(p["name"])
     covered = set()
     out_dirs = {os.path.dirname(p["stl"]) for p in parts if p.get("stl")} | {os.path.dirname(build.get("threemf") or "")}
     manifests = threemf_manifests([deliver, *out_dirs])
@@ -879,13 +907,15 @@ def check_delivered(deliver, parts, build):
         low = fn.lower()
         if low.endswith(".stl"):
             sha = validate.file_sha256(path)
-            name = by_sha.get(sha)
-            entries.append({"file": rel(path), "kind": "stl", "part": name, "same_as_verified": name is not None})
-            if name is None:
+            names = by_sha.get(sha) or []
+            stem = os.path.splitext(fn)[0]
+            name = (stem if stem in names else next((n for n in names if n not in covered), names[0])) if names else None
+            entries.append({"file": rel(path), "kind": "stl", "part": name, "same_as_verified": bool(names)})
+            if not names:
                 reasons.append(f"{rel(path)} is not one of the verified STLs (an older build, or another part): "
                                "copy the verified file, or take it out of the delivery")
             else:
-                covered.add(name)
+                covered.add(name)                         # one file per part, even for identical parts
         elif low.endswith(".3mf"):
             sha = validate.file_sha256(path)
             m = manifests.get(sha)
@@ -905,7 +935,7 @@ def check_delivered(deliver, parts, build):
                     reasons.append(f"{rel(path)} was written from STLs that are not the verified ones "
                                    f"({', '.join(stale)}): write it again from the verified STLs")
                 else:
-                    covered.update(by_sha[s] for s in m["parts"].values())
+                    covered.update(n if n in by_sha[s] else by_sha[s][0] for n, s in m["parts"].items())
             entries.append(entry)
     for p in parts:
         if p.get("sha256") and p["name"] not in covered:
