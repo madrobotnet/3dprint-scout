@@ -861,6 +861,10 @@ class FinalizePromises(Workspace):
         self.assertEqual(cable["state"], "assumed")                           # of the proxy's four numbers
         self.assertEqual(cable["reasons"], ["joint 'plug through notch': the proxy was also built from plug_h, plug_l, "
                                             "cable_d, which no dims entry it names declares"])
+        nested = {"plug": {"w": 13, "h": 8, "l": 9}, "cable_d": 4.5}          # eleventh review (P2): nested numbers
+        dims = [dict(caliper[0], params={"plug.w": 13, "plug.h": 8, "plug.l": 9, "cable_d": 4.5})]
+        out = self.run_use(self.verify([self.CABLE], dims=dims), values=nested)
+        self.assertEqual(self.promise(out, "cable-out")["state"], "verified", self.promise(out, "cable-out")["reasons"])
         self.record_proxy({"plug_w": 13, "plug_h": 8, "plug_l": 9})            # and the other way round
         out = self.run_use(self.verify([self.CABLE], dims=caliper), proxy=False)
         self.assertEqual(self.promise(out, "cable-out")["reasons"],

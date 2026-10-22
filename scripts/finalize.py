@@ -635,6 +635,19 @@ def lookup(params, key):
     return True, cur
 
 
+def flatten(d, prefix=""):
+    """Nested parameters as dotted leaf paths ({"plug": {"w": 13}} -> {"plug.w": 13}), so a dims
+    entry bound to "plug.w" and a proxy given {"plug": {"w": 13}} name the same number."""
+    out = {}
+    for k, v in d.items():
+        path = f"{prefix}{k}"
+        if isinstance(v, dict) and v:
+            out.update(flatten(v, path + "."))
+        else:
+            out[path] = v
+    return out
+
+
 def same_value(a, b):
     if isinstance(a, bool) or isinstance(b, bool):
         return a is b
@@ -893,7 +906,7 @@ def check_promises(verify, params, joints, strength, parts):
                     for did in raw["dims"]:
                         if isinstance(did, str) and isinstance((dims.get(did) or {}).get("params"), dict):
                             declared.update(dims[did]["params"])
-                    got = entry.get("proxy_params") or {}
+                    declared, got = flatten(declared), flatten(entry.get("proxy_params") or {})
                     differ = [k for k in got if k in declared and not same_value(got[k], declared[k])]
                     loose = [k for k in got if k not in declared]
                     unused = [k for k in declared if k not in got]
