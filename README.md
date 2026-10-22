@@ -2,6 +2,8 @@
 
 [한국어](README.ko.md)
 
+<img src="docs/demo.webp" width="100%" alt="Demo: one sentence becomes a printed phone stand. 3dprint-scout looks for existing models, draws the profile, builds two parts, checks the fit with three phones, slices in Bambu Studio, and the print matches the render.">
+
 An agent skill for designing things to 3D print, **reference-first**.
 
 Tell your agent what you want to make. It first finds existing models and lets you reference one,
