@@ -517,13 +517,15 @@ def proxy_provenance(j, sides, params):
         return "stale", str(exc)
     if not isinstance(b, dict) or b.get("schema") != "3dprint-scout.build/1":
         return "stale", f"{rel(pb)} is not a build.py run / record report"
-    sources = [s for s in b.get("sources") or [] if isinstance(s, str)]
+    if not (isinstance(b.get("sources"), list) and isinstance(b.get("parts"), list)):
+        return "stale", f"{rel(pb)} lists no sources or parts"
+    sources = [s for s in b["sources"] if isinstance(s, str)]
     missing = [s for s in sources if not os.path.isfile(s)]
     if not sources or missing:
         return "stale", f"the sources {rel(pb)} hashed are missing: {', '.join(missing) or 'none listed'}"
     for side in sides:
         sha = side.get("sha256")
-        part = next((p for p in b.get("parts") or [] if isinstance(p, dict) and sha and p.get("sha256") == sha), None)
+        part = next((p for p in b["parts"] if isinstance(p, dict) and sha and p.get("sha256") == sha), None)
         if part is None:
             return "stale", f"the proxy {rel(side.get('path'))} the fit measured is not one {rel(pb)} built"
         stl = part.get("stl")
@@ -533,7 +535,9 @@ def proxy_provenance(j, sides, params):
                 man = json.load(f)
         except (OSError, TypeError, ValueError):
             return "stale", f"the proxy {rel(stl)} has no build manifest"
-        built = man.get("sources") if isinstance(man, dict) else None
+        if not isinstance(man, dict):
+            return "stale", f"the proxy {rel(stl)} has a malformed build manifest"
+        built = man.get("sources")
         own = ([s for s in sources if os.path.basename(s) in set(built)]
                if isinstance(built, list) and set(built) <= set(validate.source_names(sources)) else sources)
         if man.get("artifact_sha256") != sha:

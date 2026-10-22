@@ -828,6 +828,12 @@ class FinalizePromises(Workspace):
         self.assertIn("joint 'plug through notch': the proxy out/plug.stl was not built from params.json as it is now "
                       "(or its generator changed): build it again and fit again", cable["reasons"])
         self.assertEqual(out["joints"][1]["proxy_build"], "stale")
+        self.record_proxy()
+        with open("out/plug.stl.manifest.json", "w") as f:                    # JSON, but not a manifest
+            json.dump([], f)
+        out = self.run_use(self.verify([self.CABLE], dims=[dict(caliper[0], params=wider)]), values=wider, proxy=False)
+        self.assertIn("joint 'plug through notch': the proxy out/plug.stl has a malformed build manifest",
+                      self.promise(out, "cable-out")["reasons"])
         os.remove("out/plug_build.json")
         out = self.run_use(self.verify([self.CABLE], dims=caliper), proxy=False)
         self.assertIn("proxy build out/plug_build.json", "\n".join(self.promise(out, "cable-out")["reasons"]))
