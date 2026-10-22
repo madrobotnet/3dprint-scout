@@ -92,9 +92,10 @@ class Finalize(Workspace):
         self.record()
         code, out = self.finalize()
         self.assertEqual(out["geometry"], "verified", out["open"])
-        self.assertTrue(out["summary"][0].startswith("geometry: verified"))
+        self.assertEqual(out["summary"][0], "use: not declared (_verify.promises)")    # said first at delivery
+        self.assertTrue(out["summary"][1].startswith("geometry: verified"))
         self.assertEqual(out["shape"]["box"]["verified_from"], list(finalize.DIRECTIONS))
-        self.assertEqual(out["summary"][2], "slicing: unverified (not sliced here)")
+        self.assertEqual(out["summary"][3], "slicing: unverified (not sliced here)")
 
     def test_a_changed_generator_or_stl_is_caught(self):
         self.params(self.full_verify())
@@ -584,6 +585,241 @@ class FinalizeJoints(Workspace):
         code, out = self.finalize()
         self.assertFalse(any("not a part of this build" in o for o in out["open"]))
         self.assertTrue(any("against a proxy" in w for w in out["warnings"]))
+
+
+def fit_report(path, a, b, **checks):
+    """A saved fit.py report of the STLs a and b as they are now, with the check states given
+    (F3 PASS by default): what finalize reads is the report, so the states are the test's."""
+    import fit
+    import validate
+    checks = checks or {"F3": "PASS"}
+    states = set(checks.values())
+    rep = {"schema": fit.SCHEMA, "ran": True,
+           "gate": "FAIL" if "FAIL" in states else "WARN" if "WARN" in states else "PASS",
+           "parts": {k: {"path": p, "sha256": validate.file_sha256(p)} for k, p in (("a", a), ("b", b))},
+           "checks": {cid: {"state": st, "kind": "hard", "note": f"{cid} {st} in the test"} for cid, st in checks.items()}}
+    with open(path, "w") as f:
+        json.dump(rep, f)
+
+
+def strength_report(path, gate):
+    with open(path, "w") as f:
+        json.dump({"schema": "3dprint-scout.strength/1", "ran": True, "gate": gate, "case": "beam",
+                   "worst": "bending", "inputs": {"h": 4.5, "b": 12}}, f)
+
+
+class FinalizePromises(Workspace):
+    """0.7.0: what the user was promised is judged by its own evidence (the use tier), apart
+    from the geometry."""
+
+    PLUG = {"plug_w": 13, "plug_h": 8, "plug_l": 9, "cable_d": 4.5}
+    SEAT = {"id": "seat", "kind": "use", "text": "the lid sits on the box", "conditions": "lid on top, box on a desk",
+            "success": "no overlap, and play", "evidence": [{"joint": "lid on box"}]}
+    CABLE = {"id": "cable-out", "kind": "use", "text": "a right-angle USB-C cable plugs in and leaves at the back",
+             "conditions": "phone on the seat, right-angle plug", "success": "plug and cable clear the part",
+             "evidence": [{"joint": "plug through notch", "covers": "the plug head at rest, not the way in"}]}
+
+    def setUp(self):
+        super().setUp()
+        write_stl("out/plug.stl", box(13, 8, 9, 50, 0, 0))                    # a proxy of the plug, not a part
+        fit_report("out/fit_seat.json", "out/box.stl", "out/lid.stl")
+        fit_report("out/fit_plug.json", "out/box.stl", "out/plug.stl")
+
+    def plug_dims(self, source="assumed", **extra):
+        return {"id": "usb-c-plug", "what": "right-angle USB-C plug head and cable", "unit": "mm",
+                "params": dict(self.PLUG), "source": source, **extra}
+
+    def verify(self, promises, dims=None, joints=None, **more):
+        v = self.full_verify()
+        v["joints"] = joints if joints is not None else [
+            {"name": "lid on box", "report": "out/fit_seat.json"},
+            {"name": "plug through notch", "report": "out/fit_plug.json", "proxy": True, "dims": ["usb-c-plug"]}]
+        v["promises"] = promises
+        v["dims"] = [self.plug_dims()] if dims is None else dims
+        v.update(more)
+        return v
+
+    def run_use(self, verify, values=None, **extra):
+        """params.json with the verify block and the plug values, recorded, then finalized."""
+        self.params(verify, **dict(values or self.PLUG), **extra)
+        self.record()
+        code, out = self.finalize()
+        self.assertEqual(code, 0, out.get("errors"))
+        return out
+
+    @staticmethod
+    def promise(out, pid):
+        return next(p for p in out["promises"] if p["id"] == pid)
+
+    def test_an_unmeasured_plug_makes_the_cable_promise_assumed(self):
+        """The wave-curl case: the cable promise passed its fit only against an assumed plug."""
+        out = self.run_use(self.verify([self.SEAT, self.CABLE]))
+        self.assertEqual(out["geometry"], "verified", out["open"])             # the tiers stay apart
+        self.assertEqual(out["use"], "assumed")
+        self.assertEqual(self.promise(out, "seat")["state"], "verified")
+        cable = self.promise(out, "cable-out")
+        self.assertEqual((cable["state"], cable["rests_on"]), ("assumed", ["usb-c-plug"]))
+        self.assertEqual(cable["evidence"], [{"joint": "plug through notch", "result": "passed",
+                                              "covers": "the plug head at rest, not the way in"}])
+        self.assertTrue(out["open"][0].startswith("promise 'cable-out' (use) assumed: rests on 'usb-c-plug'"),
+                        out["open"])
+        self.assertEqual(out["summary"][0], "use: assumed (2 promises: 1 assumed, 1 verified; 1 assumption not "
+                                            "linked to a promise)")
+        self.assertEqual(out["promise_counts"], {"use": {"verified": 1, "assumed": 1}})
+        self.assertEqual(out["dims"][0]["state"], "assumed")
+
+    def test_measuring_the_plug_verifies_it(self):
+        same = self.run_use(self.verify([self.SEAT, self.CABLE], dims=[self.plug_dims("caliper", by="user")]))
+        self.assertEqual((same["use"], self.promise(same, "cable-out")["state"]), ("verified", "verified"))
+        self.assertEqual(same["dims"][0]["state"], "measured")
+        measured = dict(self.PLUG, plug_w=14)                                  # the plug was wider than assumed
+        dims = [dict(self.plug_dims("caliper", by="user"), params=measured)]
+        write_stl("out/plug.stl", box(14, 8, 9, 50, 0, 0))                    # the proxy built again from it
+        out = self.run_use(self.verify([self.SEAT, self.CABLE], dims=dims), values=measured)
+        cable = self.promise(out, "cable-out")
+        self.assertEqual(cable["state"], "not verified")                       # its fit is of the old proxy
+        self.assertIn("joint 'plug through notch': its fit report is not of the current parts", cable["reasons"])
+        fit_report("out/fit_plug.json", "out/box.stl", "out/plug.stl")        # fitted again
+        out = self.run_use(self.verify([self.SEAT, self.CABLE], dims=dims), values=measured)
+        self.assertEqual((out["use"], self.promise(out, "cable-out")["state"]), ("verified", "verified"))
+
+    def test_declaration_errors(self):
+        """Reverse tests: a promise that is declared wrongly is an error, never verified."""
+        seat, cable = self.SEAT, self.CABLE
+        feature = {"id": "notch", "kind": "feature", "text": "a notch", "success": "6 mm wide"}
+        cases = [
+            ("a part's check as evidence", [dict(seat, evidence=[{"check": "box M1"}])], None,
+             "'box M1' is a check of a part: it proves the part, not a promise"),
+            ("the same id twice", [seat, dict(seat)], None, "the id is used more than once"),
+            ("no such joint", [dict(seat, evidence=[{"joint": "nope"}])], None, "there is no joint 'nope' in _verify.joints"),
+            ("evidence not read yet", [dict(seat, evidence=[{"seen": "out/x.png"}])], None, "unknown evidence kind 'seen'"),
+            ("two kinds in one item", [dict(seat, evidence=[{"joint": "lid on box", "strength": "x"}])], None,
+             "must name one of joint, strength"),
+            ("a use without conditions", [{k: v for k, v in seat.items() if k != "conditions"}], None,
+             "a use promise needs conditions"),
+            ("a feature without success", [dict(feature, success="", evidence=[{"joint": "lid on box"}])], None,
+             "a feature promise needs success"),
+            ("strength for a feature", [dict(feature, evidence=[{"strength": "x"}])], None,
+             "strength is not evidence for a feature promise (it takes joint)"),
+            ("a typo in a field", [dict(seat, evidance=[])], None, "unknown field evidance"),
+            ("a kind that does not exist", [dict(seat, kind="usage")], None, "kind must be one of use, feature, look"),
+            ("an unknown dims id", [dict(seat, assumes=["phone"])], None, "the promise rests on dims 'phone', which is "
+                                                                          "not in _verify.dims"),
+            ("a caliper value nobody took", [cable], [self.plug_dims("caliper")],
+             "dims 'usb-c-plug': a caliper value needs \"by\": \"user\""),
+            ("a caliper value the agent took", [cable], [self.plug_dims("caliper", by="agent")], "needs \"by\": \"user\""),
+            ("a spec without its url", [cable], [self.plug_dims("spec")], "a spec value needs the url"),
+            ("dims that are not the model's numbers", [cable], [dict(self.plug_dims(), params=dict(self.PLUG, plug_w=12))],
+             "plug_w is 12 here but 13 in params.json"),
+            ("dims not in params.json", [cable], [dict(self.plug_dims(), params={"plug_depth": 9})],
+             "plug_depth is not in params.json"),
+        ]
+        for name, promises, dims, message in cases:
+            with self.subTest(name):
+                out = self.run_use(self.verify(promises, dims=dims))
+                self.assertEqual(out["use"], "error")
+                self.assertEqual(promises[-1]["id"], out["promises"][-1]["id"])
+                self.assertEqual(out["promises"][-1]["state"], "error")
+                self.assertIn(message, "\n".join(out["open"]))
+                self.assertEqual(out["geometry"], "verified", out["open"])     # the geometry is judged on its own
+
+    def test_only_the_user_takes_a_promise_unverified(self):
+        cable = dict(self.CABLE, evidence=[])
+        for entry, message in (({"promise": "cable-out", "reason": "no plug here", "by": "agent"}, "only the user"),
+                               ({"promise": "cable-out", "by": "user"}, "needs the user's reason"),
+                               ({"promise": "cable", "reason": "x", "by": "user"}, "there is no promise 'cable'"),
+                               ({"promise": "cable-out", "check": "box P2", "reason": "x", "by": "user"}, "not both")):
+            with self.subTest(entry=entry):
+                out = self.run_use(self.verify([self.SEAT, cable], accepted=[entry]))
+                self.assertEqual(out["use"], "error")
+                self.assertTrue(any(message in e for e in out["promise_errors"]), out["promise_errors"])
+                self.assertEqual(self.promise(out, "cable-out")["state"], "not verified")
+        out = self.run_use(self.verify([self.SEAT, cable], accepted=[
+            {"promise": "cable-out", "reason": "the user tries the plug on the first print", "by": "user"}]))
+        state = self.promise(out, "cable-out")
+        self.assertEqual((out["use"], state["state"]), ("excluded", "excluded"))
+        self.assertEqual(state["reasons"], ["taken by the user without verifying it: the user tries the plug on the "
+                                            "first print", "no evidence yet"])
+
+    def test_no_promises_or_an_empty_list_is_not_declared(self):
+        for promises, line in ((None, "promises not declared (_verify.promises)"),
+                               ([], "the promise list (_verify.promises) is empty: an empty list verifies nothing")):
+            with self.subTest(promises=promises):
+                v = self.full_verify()
+                if promises is not None:
+                    v["promises"] = promises
+                out = self.run_use(v)
+                self.assertEqual(out["use"], "not declared")
+                self.assertTrue(out["open"][0].startswith(line), out["open"])
+                self.assertEqual(out["summary"][0], "use: not declared (_verify.promises)")
+                self.assertEqual(out["geometry"], "verified", out["open"])
+
+    def test_a_failing_joint_beats_an_assumed_size(self):
+        fit_report("out/fit_plug.json", "out/box.stl", "out/plug.stl", F3="FAIL")
+        out = self.run_use(self.verify([self.SEAT, self.CABLE]))
+        cable = self.promise(out, "cable-out")
+        self.assertEqual((out["use"], cable["state"]), ("failed", "failed"))
+        self.assertEqual(cable["reasons"][0], "joint 'plug through notch' failed")
+        self.assertIn("rests on 'usb-c-plug' (right-angle USB-C plug head and cable), which is assumed, not measured",
+                      cable["reasons"])
+        out = self.run_use(self.verify([self.SEAT, self.CABLE], accepted=[
+            {"promise": "cable-out", "reason": "ship it", "by": "user"}]))
+        self.assertEqual(self.promise(out, "cable-out")["state"], "failed")     # a failure is never taken away
+
+    def test_an_accepted_joint_warn_is_accepted_not_verified(self):
+        fit_report("out/fit_seat.json", "out/box.stl", "out/lid.stl", F3="WARN")
+        out = self.run_use(self.verify([self.SEAT], dims=[], joints=[{"name": "lid on box", "report": "out/fit_seat.json"}]))
+        self.assertEqual(self.promise(out, "seat")["state"], "not verified")
+        self.assertEqual(out["geometry"], "not verified")
+        self.assertTrue(any(o.startswith("joint 'lid on box': F3 WARN") for o in out["open"]), out["open"])
+        out = self.run_use(self.verify([self.SEAT], dims=[], joints=[{"name": "lid on box", "report": "out/fit_seat.json"}],
+                                       accepted=[{"check": "joint lid  on box F3", "reason": "a snug lid"}]))
+        self.assertEqual((out["use"], self.promise(out, "seat")["state"]), ("accepted", "accepted"))
+        self.assertEqual(out["geometry"], "verified", out["open"])
+        self.assertEqual(out["joints"][0]["accepted"], ["F3"])
+
+    def test_strength_typed_in_does_not_verify_a_use(self):
+        ribbon = {"id": "holds", "kind": "use", "text": "the ribbon holds the phone", "conditions": "a 240 g phone",
+                  "success": "safety factor 2", "evidence": [{"strength": "ribbon"}]}
+        for gate, state in (("PASS", "not verified"), ("WARN", "not verified"), ("FAIL", "failed")):
+            with self.subTest(gate=gate):
+                strength_report("out/strength_ribbon.json", gate)
+                out = self.run_use(self.verify([ribbon], dims=[], strength=[{"name": "ribbon",
+                                                                            "report": "out/strength_ribbon.json"}]))
+                self.assertEqual(self.promise(out, "holds")["state"], state)
+        strength_report("out/strength_ribbon.json", "PASS")
+        out = self.run_use(self.verify([ribbon], dims=[], strength=[{"name": "ribbon", "report": "out/strength_ribbon.json"}]))
+        self.assertIn("member 'ribbon': its inputs were typed in, not taken from the build's parameters",
+                      self.promise(out, "holds")["reasons"])
+
+    def test_a_proxy_without_its_sizes_is_assumed(self):
+        joints = [{"name": "plug through notch", "report": "out/fit_plug.json", "proxy": True}]
+        out = self.run_use(self.verify([self.CABLE], dims=[], joints=joints))
+        cable = self.promise(out, "cable-out")
+        self.assertEqual(cable["state"], "assumed")
+        self.assertEqual(cable["reasons"], ["joint 'plug through notch' is fitted against a proxy whose sizes are not "
+                                            "declared (dims)"])
+
+    def test_stale_evidence_or_a_failing_part_does_not_verify(self):
+        write_stl("out/lid.stl", box(40, 30, 3, 0, 0, 31))                    # the lid changed after its fit
+        out = self.run_use(self.verify([self.SEAT, self.CABLE]))
+        self.assertEqual(self.promise(out, "seat")["state"], "not verified")
+        self.assertIn("joint 'lid on box': its fit report is not of the current parts",
+                      self.promise(out, "seat")["reasons"])
+        fit_report("out/fit_seat.json", "out/box.stl", "out/lid.stl")
+        out = self.run_use(self.verify([self.SEAT]), _parts={"box": {"expect": [50, 30, 20]},
+                                                             "lid": {"expect": [40, 30, 3]}})
+        self.assertEqual(out["parts"][0]["gate"], "FAIL")                      # box D1: 40 mm, not 50
+        self.assertIn("joint 'lid on box' fitted box, whose own checks FAIL", self.promise(out, "seat")["reasons"])
+        self.assertEqual(self.promise(out, "seat")["state"], "not verified")
+
+    def test_the_tier_is_the_worst_promise(self):
+        nothing = {"id": "label", "kind": "look", "text": "the name on the front"}
+        out = self.run_use(self.verify([self.SEAT, self.CABLE, nothing]))
+        self.assertEqual([p["state"] for p in out["promises"]], ["verified", "assumed", "not verified"])
+        self.assertEqual(out["use"], "not verified")
+        self.assertEqual(out["promise_counts"], {"use": {"verified": 1, "assumed": 1}, "look": {"not verified": 1}})
+        self.assertEqual(out["open"][1], "promise 'label' (look) not verified: no evidence yet")
 
 
 if __name__ == "__main__":

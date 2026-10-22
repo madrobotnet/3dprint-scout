@@ -79,6 +79,7 @@ The final report of Phase 6 (`references/phase-6-deliver.md`), schema `3dprint-s
 ```json
 {
   "schema": "3dprint-scout.finalize/1", "ran": true, "build": "out/build.json", "engine": "python",
+  "use": "error | failed | not verified | excluded | assumed | accepted | verified | not declared",
   "geometry": "verified | not verified",
   "shape": {"lid": {"coverage": {"front": "real", "back": "estimated", "...": "..."},
                     "verified_from": ["front", "top"], "not_verified_from": ["back", "..."]}},
@@ -87,15 +88,26 @@ The final report of Phase 6 (`references/phase-6-deliver.md`), schema `3dprint-s
   "settings_drift": [],
   "parts": [{"name": "lid", "stl": "out/lid.stl", "sha256": "…", "same_as_build": true, "gate": "PASS", "checks": {"R3": "PASS", "...": "..."}}],
   "objects": [{"name": "box", "gate": "PASS", "parts": ["box", "lid"]}],
-  "joints": [{"name": "lid on box", "report": "out/fit_box_lid.json", "fresh": "PASS", "checks": {"F3": "PASS"}}],
-  "strength": [{"name": "latch arm", "report": "out/strength_latch.json", "gate": "PASS", "case": "pin"}],
+  "joints": [{"name": "lid on box", "report": "out/fit_box_lid.json", "fresh": "PASS", "checks": {"F3": "PASS"},
+              "measured": ["box", "lid"], "result": "passed"}],
+  "strength": [{"name": "latch arm", "report": "out/strength_latch.json", "gate": "PASS", "case": "pin",
+                "manual": true, "result": "passed"}],
+  "promises": [{"id": "cable-out", "kind": "use", "text": "…", "conditions": "…", "success": "…",
+                "state": "assumed", "reasons": ["rests on 'usb-c-plug' (…), which is assumed, not measured"],
+                "evidence": [{"joint": "plug through notch", "result": "passed", "covers": "…"}],
+                "rests_on": ["usb-c-plug"]}],
+  "promise_counts": {"use": {"assumed": 1, "verified": 2}, "look": {"not verified": 1}},
+  "dims": [{"id": "usb-c-plug", "what": "…", "source": "assumed", "params": {"plug_w": 13}, "state": "assumed"}],
+  "promise_errors": [],
   "test_prints": [{"name": "hinge coupon", "status": "skipped", "note": "…"}],
   "accepted": [{"check": "body P2", "reason": "…"}],
   "delivered": [{"file": "deliver/2026-10-21/lid.stl", "kind": "stl", "part": "lid", "same_as_verified": true},
                 {"file": "deliver/2026-10-21/box.3mf", "kind": "3mf", "manifest": true, "parts": ["box", "lid"], "same_as_verified": true}],
   "bundle": ["deliver/2026-10-21/source/REPRODUCE.md", "..."],
-  "open": ["joint 'lid on box': F3_fresh FAIL: STALE: …", "assumption: …"],
-  "summary": ["geometry: …", "shape: …", "slicing: unverified (not sliced here)", "print: …"],
+  "open": ["promise 'cable-out' (use) assumed: rests on 'usb-c-plug' …", "joint 'lid on box': F3_fresh FAIL: STALE: …",
+           "assumption: …"],
+  "summary": ["use: not verified (4 promises: 1 not verified, 1 assumed, 2 verified)", "geometry: …", "shape: …",
+              "slicing: unverified (not sliced here)", "print: …"],
   "assumptions": ["…"], "unverified_dimensions": ["…"], "warnings": [], "errors": []
 }
 ```
@@ -113,4 +125,24 @@ every declared member's `strength.py` gate is PASS, no WARN is left unaccepted, 
 copies (with `--deliver`) are the verified files, and `joints` and `strength` were declared at
 all. Paths are relative to the folder it ran in. Exit 0 when it ran, 1 on a usage or file error
 (a missing or wrong `--build`, a bad `_verify`, an existing `--bundle` folder, a source outside
-the project folder). A malformed 3MF manifest is an `open` reason, not an error.
+the project folder). A malformed 3MF manifest is an `open` reason, not an error. A joint WARN
+the user accepted (`joint <name> <check>` in `_verify.accepted`) does not keep the geometry from
+being verified.
+
+`use` is judged apart from `geometry`, from `_verify.promises` and `_verify.dims`. Each promise
+gets one state:
+
+| State | When |
+|---|---|
+| `error` | Declared wrongly: no id or the same id twice, an unknown field or kind, no `text`, a `use` without `conditions` and `success` or a `feature` without `success`, an evidence item that names no declared joint or member, names a part's own check (`box M1`) or a kind the promise does not take, or a dims entry that is missing or declared wrongly (a `caliper` value without `"by": "user"`, a `spec` without its `url`, values that differ from params.json) |
+| `failed` | A joint or member it names failed, even if the user took the promise |
+| `excluded` | The user took it without verifying it (`{"promise": id, "reason": …, "by": "user"}` in `_verify.accepted`); its other reasons stay listed |
+| `not verified` | No evidence yet, a missing or stale report, a joint that fitted a part whose own checks FAIL, a check that is neither PASS nor an accepted WARN, or a member whose inputs were typed in (every strength.py report for now) |
+| `assumed` | Everything passed, but it rests on a dims entry with `source: "assumed"`, or on a proxy joint that names no dims |
+| `accepted` | Everything passed with a WARN the user accepted |
+| `verified` | None of the above |
+
+The tier is the worst state in that order, `not declared` when there is no promise list or it is
+empty, and `error` when any dims or accepted entry is declared wrongly (`promise_errors`).
+Evidence by kind: a `use` takes joints and members, a `feature` joints, a `look` nothing that is
+read yet. Every promise that is not verified is the first thing in `open`.

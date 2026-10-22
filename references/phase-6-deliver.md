@@ -29,7 +29,8 @@ python3 "$SKILL_DIR/scripts/finalize.py" --build out/build.json --params .3dprin
 It validates every part again with the settings the build used (R3 against the generator and
 parameters as they are now), checks that the build JSON is the build of these very STLs and of
 every part in `_parts`, and that it ran without errors, reads the `_verify` declarations
-(Phase 5, step 5) and reports four tiers: **geometry** verified or not
+(Phase 5, step 5) and reports five tiers: **use**, the promises made to the user judged by their
+own evidence (`references/checks.md`), **geometry** verified or not
 verified, **shape** by direction (from `_verify.references`), **slicing** unverified (nothing here
 slices) and **print** unverified (with the test prints and their results), plus `open`, every
 reason the geometry is not verified, every unaccepted WARN, every unverified dimension and
