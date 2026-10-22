@@ -110,6 +110,126 @@ class Finalize(Workspace):
         self.assertEqual(out["geometry"], "not verified")
         self.assertTrue(any("lid R3" in o for o in out["open"]), out["open"])
 
+    def test_new_grouping_invalidates_old_object_checks_without_changing_stls(self):
+        self.params(self.full_verify())
+        built = self.record()
+        self.assertEqual(self.finalize()[1]["geometry"], "verified")
+        specs = {"box": {"expect": [40, 30, 20], "object": "assembly", "role": "fused"},
+                 "lid": {"expect": [40, 30, 3], "object": "assembly", "role": "fused"}}
+        self.params(self.full_verify(), _parts=specs)
+        code, out = self.finalize()
+        self.assertEqual(code, 0)
+        self.assertEqual(out["geometry"], "not verified")
+        self.assertIn("assembly metadata changed", out["assembly_drift"][0])
+        self.assertEqual([p["checks"]["R3"] for p in out["parts"]], ["PASS", "PASS"])
+        self.assertEqual([p["sha256"] for p in built["parts"]], [p["sha256"] for p in out["parts"]])
+        if HAS_M3D:
+            fresh = self.record()
+            self.assertEqual(fresh["gate"], "FAIL")
+            self.assertTrue(any("A1 FAIL" in e for e in fresh["errors"]))
+
+    @unittest.skipUnless(HAS_M3D, "manifold3d not installed")
+    def test_role_clearance_and_membership_changes_invalidate_assembly(self):
+        specs = {"box": {"expect": [40, 30, 20], "object": "o"},
+                 "lid": {"expect": [40, 30, 3], "object": "o", "role": "free", "clearance": 0.3}}
+        write_stl("out/lid.stl", box(40, 30, 3, 0, 0, 20.3))
+        self.params(self.full_verify(), _parts=specs)
+        self.record()
+        for change in ("role", "clearance", "membership", "invalid"):
+            with self.subTest(change=change):
+                current = json.loads(json.dumps(specs))
+                if change == "role":
+                    current["lid"]["role"] = "fused"
+                elif change == "clearance":
+                    current["lid"]["clearance"] = 0.8
+                elif change == "membership":
+                    current = {"box": {"expect": [40, 30, 20]}}
+                else:
+                    current["lid"]["role"] = "typo"
+                self.params(self.full_verify(), _parts=current)
+                code, out = self.finalize()
+                self.assertEqual(code, 0)
+                self.assertEqual(out["geometry"], "not verified")
+                self.assertTrue(out["assembly_drift"])
+                self.assertEqual(out["objects"][0]["state"], "UNVERIFIED")
+
+    def test_notes_and_rechecked_expect_do_not_invalidate_assembly(self):
+        self.params(self.full_verify())
+        self.record()
+        self.params(self.full_verify(), _assumptions=["a clarified assumption"],
+                    _parts={"lid": {"expect": [40, 30, 3], "filament": 2},
+                            "box": {"expect": [40.01, 30, 20]}})
+        code, out = self.finalize()
+        self.assertEqual(code, 0)
+        self.assertEqual(out["assembly_drift"], [])
+        self.assertEqual(out["geometry"], "verified", out["open"])
+
+    def test_old_build_needs_assembly_evidence_even_without_groups(self):
+        self.params(self.full_verify())
+        built = self.record()
+        del built["assembly_sha256"]
+        with open("out/build.json", "w") as f:
+            json.dump(built, f)
+        code, out = self.finalize()
+        self.assertEqual(code, 0)
+        self.assertEqual(out["geometry"], "not verified")
+        self.assertIn("build has no assembly fingerprint", out["assembly_drift"][0])
+
+    def test_implicit_parts_do_not_create_false_assembly_drift(self):
+        # record accepts both an entirely implicit set and a partially documented set.
+        # Missing dimensions stay unverified, but their unchanged grouping is not stale.
+        for specs in ({}, {"box": {"expect": [40, 30, 20]}}):
+            with self.subTest(specs=specs):
+                self.params(self.full_verify(), _parts=specs)
+                self.record()
+                code, out = self.finalize()
+                self.assertEqual(code, 0)
+                self.assertEqual(out["assembly_drift"], [])
+                self.assertEqual(out["geometry"], "not verified")
+                self.assertTrue(any("D1 UNVERIFIED" in line for line in out["open"]))
+
+    def test_invalid_parts_metadata_is_a_json_usage_error(self):
+        self.params(self.full_verify())
+        self.record()
+        for specs in (False, [], {"box": False}, {"box": "fused"}, {"box": [1, 2]}):
+            with self.subTest(specs=specs):
+                self.params(self.full_verify(), _parts=specs)
+                code, out = self.finalize()
+                self.assertEqual(code, 1)
+                self.assertFalse(out["ran"])
+                self.assertIn("_parts in params.json", out["errors"][0])
+
+    @unittest.skipUnless(HAS_M3D, "manifold3d not installed")
+    def test_only_build_cannot_verify_the_whole_assembly(self):
+        specs = {"box": {"expect": [40, 30, 20], "object": "o"},
+                 "lid": {"expect": [40, 30, 3], "object": "o", "role": "free"}}
+        self.params(self.full_verify(), _parts=specs)
+        with open("gen.py", "w") as f:
+            f.write("import manifold3d as m3d\n"
+                    "def build(p):\n"
+                    "    return {'box': m3d.Manifold.cube([40,30,20]), "
+                    "'lid': m3d.Manifold.cube([40,30,3]).translate([40.3,0,0])}\n")
+        for selected in ("box", "lid", "box,lid"):
+            with self.subTest(selected=selected):
+                code, built = run(build, "run", "gen.py", "--params", ".3dprint/params.json",
+                                  "--printer", ".3dprint/printers.json", "--out", "out",
+                                  "--only", selected, "--no-wall-check", "--no-3mf")
+                self.assertEqual(code, 0, built["errors"])
+                with open("out/build.json", "w") as f:
+                    json.dump(built, f)
+                code, out = self.finalize()
+                self.assertEqual(code, 0)
+                if selected == "box,lid":
+                    self.assertEqual(out["assembly_drift"], [])
+                    self.assertEqual(out["geometry"], "verified", out["open"])
+                else:
+                    self.assertEqual(out["geometry"], "not verified")
+                    self.assertTrue(out["assembly_drift"])
+                    # nothing in _parts changed: the report names the parts left out, not a change
+                    self.assertIn("not built:", out["assembly_drift"][0])
+                    self.assertNotIn("changed", out["assembly_drift"][0])
+                    self.assertTrue(any("in _parts but not in this build" in line for line in out["open"]))
+
     def test_shape_directions_and_test_prints(self):
         v = self.full_verify()
         v["references"]["lid"].update(back="estimated", bottom="assumed")

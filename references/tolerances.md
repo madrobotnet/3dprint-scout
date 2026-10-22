@@ -22,18 +22,27 @@ Material adjustments: PETG add +0.05 per side; TPU add +0.3 per side; ABS/ASA sh
 
 ## Compensation lives in one place (F1)
 
-- Slicer compensates (Bambu Studio / OrcaSlicer "auto circle contour-hole compensation" on, or an
-  XY hole compensation value set): model holes at nominal size. Bambu's system process presets
-  have both off (`phase-2-printer-dimensions.md`, step 4).
-- Slicer does not: add the hole compensation above in the model, to every round hole the part
-  must fit, bores included, not only screw holes. Pass `fit.py --min-clearance` the clearance
-  the model is built with, compensation included.
+This is the decision table for every engine and phase. Fit clearance is intentional space
+between mating parts; printer hole compensation is a separate correction, applied only once.
+Convert per-side clearance to a diameter allowance by multiplying by two: a 10 mm pin with
+0.20 mm clearance per side needs a 10.40 mm modeled hole before any model compensation.
+
+| Settings the part will be printed with | `compensation.holes` | Model hole size |
+|---|---|---|
+| Circle compensation or XY hole compensation on | `slicer` | Nominal size plus the chosen fit clearance; no model compensation |
+| Both corrections off, as read: the user's preset, or the Bambu project the skill delivers (a generated template has both off) | `model` | Nominal size plus fit clearance plus the radial hole compensation above (twice it on diameter) |
+| Not known: STLs for a slicer or preset nobody has seen | `unknown` | Nominal size plus fit clearance only; record the uncertainty and recommend a fit test before changing compensation |
+
+Apply this to every round hole that must fit, including bores. Pass `fit.py --min-clearance`
+the clearance actually modeled, including any model compensation. A delivered Bambu Studio
+project prints with the settings it carries (`phase-2-printer-dimensions.md`, step 4); a
+system default says nothing about a preset the user picks for loose STLs.
 - `fit_test.py` pieces carry no model compensation; say so. A step that fits is the clearance
   as printed without it: build the part's hole the same way (that step, nothing added), or add
   the compensation to the pieces' `--clearance` before printing them.
-- Unknown (the user does not know their slicer or its settings): model holes at nominal size plus
-  the fit clearance, and tell the user that tight holes mean the slicer's hole compensation should be
-  turned on. A hole that comes out tight can be drilled; one that comes out loose cannot be fixed.
+- For `unknown`, explain that a tight test print may need slicer hole compensation; inspect the
+  active preset before enabling it so a second correction is not added unknowingly. A hole
+  that comes out tight can be drilled; one that comes out loose cannot be fixed.
 - The same holds for elephant foot: either the slicer's elephant-foot compensation or a 0.3–0.5 mm
   chamfer on bottom edges that must stay sharp, not both shrinking the first layer. A chamfer
   that belongs to a standard's profile (the foot of a bin that sits in a baseplate) is geometry,

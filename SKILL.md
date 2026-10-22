@@ -53,8 +53,11 @@ Rules that hold in every phase, whatever file is open:
   Another maker's geometry library only with a permissive licence, attribution and a note to the user.
 - **Never ask about colours.** Split what may get its own colour into a part, give every part the
   main filament (colours the user already named are applied), say so at delivery.
-- **Never overwrite an existing file**, and never write into a file the slicer has open: if the
-  path exists, ask and stop (the scripts refuse as well). `out/` is the only folder a build rewrites.
+- **Protect user originals and delivered versions**, and never write into a file the slicer
+  has open. Deliver to a new version folder; replacing a protected file needs explicit permission.
+  Within the requested work, update the current project's generator and `.3dprint/` state by
+  changing only the relevant fields and preserving unrelated user content. `out/` is disposable
+  build output. This does not authorize recording calibration results without the user's yes.
 - **Never store access codes, serial numbers, IP addresses or account ids**: not in `printers.json`,
   the calibration log or a note.
 - **Never write `post_process`, `*_gcode` or anything that runs programs into a 3MF**;
@@ -73,18 +76,27 @@ commands, formats and examples, and its instructions are binding too; the lines 
 that matter most. STOP: end your turn and wait for the user. Review point: show the result and let
 the user look before building on.
 
+Reuse answers in this order: the current request, confirmed earlier conversation, then saved
+project settings. Ask only for missing or conflicting information that matters; a missing settings
+file is not a missing answer. Do not repeat a choice or dimension approval already given. New
+concepts and the new base-shape preview still have their review points. Silence is not approval;
+only the explicit unattended mode below may take defaults at unanswered stops.
+
 ## Phase 0 — Detect (silent)
 
 Read `references/phase-0-detect.md` now (required).
 
 Goal: find what works and report it in one line ("Using OpenSCAD (Fusion not connected);
 references via web search; previews via OpenSCAD."). No planned stop; ask only as below.
+If the user already chose D and identified the existing model, go directly to the Phase 1
+handoff; it needs no modeling engine or dependency installation.
 
 - Engine: Fusion when a `fusion` tool answers a read call, a live Blender when a tool runs Python in the
   user's Blender and answers a harmless read (timeout or error: retry once, then unavailable, say why);
   otherwise OpenSCAD, Python or Blender via `build.py detect` (never `--enable=manifold`). In a
   disposable sandbox pip installs are fine, said in one line; on the user's machine ask before installing
-  anything; never `apt` or `brew` for OpenSCAD in a sandbox. If nothing works, say what to install and stop.
+  anything; never `apt` or `brew` for OpenSCAD in a sandbox. If nothing works, report what is
+  missing; references and the D handoff remain possible, but stop before modeling.
 - Rule A, among the engines that work: **Blender first** when it is usable, for every shape (rounds with
   `fillet` and `round_profile`; parts.py's screw holes, snaps, hinges, threads through `from_manifold` when
   `detect` finds manifold3d in Blender's Python, else that part with the Python engine); without Blender,
@@ -96,14 +108,17 @@ references via web search; previews via OpenSCAD."). No planned stop; ask only a
 
 Read `references/phase-1-references.md` now (required).
 
-Goal: restate the request, show four existing models with their licences, offer the choice and
-**stop**. Choice B or C is followed by a concepts stop.
+Goal: restate the request, show four existing models with their licences, offer any still-open
+choice and **stop**. Reuse an existing choice; B or C is followed by a concepts stop. A user
+who already chose D with a specific model goes straight to its handoff.
 
 - Four models (Printables, Thingiverse, MakerWorld, Cults3D, MyMiniFactory) in a table with name,
   site, URL, licence and what is worth borrowing; about six page fetches for the table, more only
   when asked. Tier C: 3–5 search queries, ask the user to paste links.
 - The choice: **A** reference one, **B** mix several, **C** original, **D** use an existing model
-  as is (say so when one already does the job); offer "show 4 more". Then stop.
+  as is (say so when one already does the job); offer "show 4 more". Then stop unless the user
+  already chose. D ends with the original link, licence, download instructions and unverified
+  printer/fit/slicing items (the phase file's handoff); do not enter the modeling phases.
 - Licence "not shown" when the page does not show it, never guessed; NC or ND with a close
   result is said to the user. Record the directions the references show (`_verify.references`).
 - Concepts (after B or C): 2–3 low-detail variants, each with a `preview.py` or `render.py`
@@ -115,14 +130,15 @@ Goal: restate the request, show four existing models with their licences, offer 
 Read `references/phase-2-printer-dimensions.md` now (required).
 
 Goal: know the printer, the slicer, the purpose and every real-world dimension with its source;
-show the parameter table and **stop**.
+show the parameter table and **stop** for new or changed design decisions. Do not ask the user
+to approve unchanged dimensions they already confirmed.
 
 - Read `.3dprint/printers.json` (an envelope: schema, bed sources and the defaults are in the
-  phase file). If it is missing, **always ask, never skip**: "Which printer do you have, and which
+  phase file). Reuse confirmed answers; ask only for an unknown printer or slicer: "Which printer do you have, and which
   program do you open print files in? It's fine if you don't know the program." Never make the
   user feel they should know the word "slicer". Every default taken for a missing answer goes into
   `_assumptions`; no bed is assumed for an unknown printer (D2 UNVERIFIED); nozzle 0.4 mm and PLA
-  otherwise. With several saved printers, ask which one in one line. FDM only.
+  otherwise. With several saved printers, ask which one only if none was already selected. FDM only.
 - Purpose: decorative, general, or load-bearing; default general.
 - Dimensions, two priorities: the size of the object, caliper > official spec > two secondary
   sources that agree; how this printer prints, the calibration log (`calibration.py lookup --nozzle`,
@@ -130,8 +146,10 @@ show the parameter table and **stop**.
   > the starting points in `references/`. Every value carries its source (R2); a supplied file is measured (`measure.py`, numbers only).
 - Members that carry load: measure the corresponding member of a proven reference when its file
   is at hand and keep it in the table as a "reference member" note.
-- Compensation lives in one place: slicer with circle compensation on → holes at nominal size,
-  `compensation.holes = "slicer"`; otherwise the radial value from `references/tolerances.md`.
+- Compensation lives in one place: use the `slicer / model / unknown` decision table in
+  `references/tolerances.md` (F1). Unknown is not the same as confirmed off; never add model
+  compensation merely because the user does not know their settings. A Bambu project the skill
+  delivers carries its settings, so those are known (a generated template: `model`).
 - The parameter table (parameter, value, source) with the bed margin; negative → say so now.
 
 ## Phase 3 — Base shape (review point, not skippable)
@@ -152,7 +170,7 @@ before anything else is built.
   intent, never a measured box), `object` / `role` for grouped parts, `_assumptions`.
 - Build with `build.py run` (`record` for Fusion or a live Blender), always with `--printer .3dprint/printers.json`;
   preview with `preview.py`; report size, volume and verdicts with the image; **stop for the
-  user's look**. For a part with several bodies or a mechanism this stop is never skipped; a
+  user's look**. In attended runs, for a part with several bodies or a mechanism this stop is never skipped; a
   fit-test piece comes after it, not instead of it.
 
 ## Phase 4 — Features and joints (review point)
@@ -247,14 +265,18 @@ of `validate.py` and `fit.py` is in `references/checks.md`, that of `build.py` i
 
 ## Unattended runs
 
-When nobody is there to answer, take the default at each stop (reference choice C, the first
+Enter this mode only when the user explicitly requests unattended execution or the host explicitly
+marks the run as unattended. A slow reply, missing settings file or unanswered question does not
+enable it. Keep any choices and dimensions already supplied; defaults fill missing answers only.
+In this mode, take the default at each stop (reference choice C, the first
 concept variant, purpose general; at the Phase 3 stop, go on with the base shape as built and put
 its preview, sizes and verdicts at the top of the next message), record every assumption and every
 stop taken alone in `_assumptions` in `params.json`, and repeat them at the top of the deliverable. If the printer and slicer are unknown, deliver STL per part plus a core 3MF, mark D2
 UNVERIFIED, and say at the top that the printer was not confirmed. A skipped fit test or
 mechanism-first print goes into `_assumptions` like any other stop; `calibration.py add` is never
 run, nobody said yes. G9 still applies: the updates go into the progress notes. Two exceptions: if a dimension the part must fit cannot be sourced, stop
-rather than guess; and never overwrite an existing file.
+rather than guess; and never overwrite a user original or delivered version. Updating the current
+project's working state remains allowed under the file-protection rule above.
 
 ## Files
 

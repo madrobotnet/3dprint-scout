@@ -132,6 +132,9 @@ def openscad_info(exe: str) -> dict:
     info = {"path": exe, "version": None, "manifold": False}
     try:
         r = subprocess.run([exe, "--version"], capture_output=True, timeout=30, **TEXT)
+        if r.returncode != 0:
+            info["error"] = f"OpenSCAD --version exited with status {r.returncode}"
+            return info
         m = re.search(r"version\s+(\S+)", (r.stdout + r.stderr))
         info["version"] = m.group(1) if m else (r.stdout + r.stderr).strip()[:40]
     except (OSError, subprocess.TimeoutExpired) as exc:
@@ -151,6 +154,19 @@ def openscad_info(exe: str) -> dict:
                                 and "ignor" not in err and "unknown" not in err and "unrecogni" not in err)
         except (OSError, subprocess.TimeoutExpired):
             info["manifold"] = False
+        # An unsupported fast backend is normal on 2021.01. Prove the default backend
+        # can export geometry before advertising this executable as usable.
+        try:
+            if not info["manifold"]:
+                if os.path.exists(stl):
+                    os.remove(stl)
+                r = subprocess.run([exe, "-o", stl, scad], capture_output=True, timeout=60, **TEXT)
+                if r.returncode != 0:
+                    raise RuntimeError(f"OpenSCAD cube export exited with status {r.returncode}")
+            validate.read_stl(stl)
+        except (OSError, subprocess.TimeoutExpired, RuntimeError, validate.ArtifactError) as exc:
+            info["manifold"] = False
+            info["error"] = f"OpenSCAD cube export failed: {exc}"
     return info
 
 
@@ -219,6 +235,9 @@ def blender_info(exe: str) -> dict:
     info = {"path": exe, "version": None}
     try:
         r = subprocess.run([exe, "--version"], capture_output=True, timeout=BLENDER_VERSION_TIMEOUT, **TEXT)
+        if r.returncode != 0:
+            info["error"] = f"Blender --version exited with status {r.returncode}"
+            return info
         info["version"] = parse_blender_version(r.stdout + r.stderr)
         if info["version"] is None:
             info["error"] = f"could not read a version from `{exe} --version`"
@@ -228,9 +247,11 @@ def blender_info(exe: str) -> dict:
 
 
 def bpy_pythons(explicit: str | None = None) -> list[str]:
-    """Interpreters to probe for the bpy module: the explicit one, BLENDER_PYTHON, this one."""
+    """An explicit interpreter is binding; otherwise try BLENDER_PYTHON, then this one."""
+    if explicit:
+        return [explicit]
     out = []
-    for cand in (explicit, os.environ.get("BLENDER_PYTHON"), sys.executable):
+    for cand in (os.environ.get("BLENDER_PYTHON"), sys.executable):
         if cand and cand not in out:
             out.append(cand)
     return out
@@ -259,24 +280,54 @@ def blender_manifold3d(exe: str) -> bool | None:
 
 
 def bpy_info(python: str | None = None) -> dict | None:
-    """{"version", "python", ...} when `python` (or the usual candidates) can import bpy, else
-    None. Always a subprocess with a timeout (importing bpy is slow and must never happen in
+    """Supported bpy details, with earlier candidate failures in notes; otherwise an error.
+    Always a subprocess with a timeout (importing bpy is slow and must never happen in
     this process), run from an empty temporary folder so a `bpy.py` or `json.py` lying in the
     user's folder is not what gets imported."""
-    for exe in bpy_pythons(python):
+    failures = []
+    candidates = bpy_pythons(python)
+    for exe in candidates:
         try:
             with tempfile.TemporaryDirectory() as empty:
                 r = subprocess.run([exe, "-c", BPY_PROBE], capture_output=True, timeout=BPY_PROBE_TIMEOUT, cwd=empty, **TEXT)
         except subprocess.TimeoutExpired:
-            return {"error": f"import bpy timed out after {BPY_PROBE_TIMEOUT}s in {exe}", "python": exe}
-        except OSError:
+            failures.append(f"import bpy timed out after {BPY_PROBE_TIMEOUT}s in {exe}")
+            continue
+        except OSError as exc:
+            failures.append(f"could not run bpy probe in {exe}: {exc}")
+            continue
+        if r.returncode != 0:
+            detail = r.stderr.strip()[-1000:]
+            failures.append(f"import bpy exited with status {r.returncode} in {exe}"
+                            + (f": {detail}" if detail else ""))
             continue
         lines = [ln for ln in r.stdout.splitlines() if ln.startswith("@@BPY ")]
-        if r.returncode == 0 and lines:
-            info = json.loads(lines[-1][len("@@BPY "):])
+        if lines:
+            try:
+                info = json.loads(lines[-1][len("@@BPY "):])
+                version = info["version_tuple"]
+                if (not isinstance(version, list) or len(version) != 3
+                        or not all(type(v) is int and v >= 0 for v in version)
+                        or not isinstance(info["version"], str)):
+                    raise ValueError("invalid version")
+                label = re.match(r"^(\d+)\.(\d+)\.(\d+)(?:\s|$)", info["version"])
+                if not label or tuple(map(int, label.groups())) != tuple(version):
+                    raise ValueError("inconsistent version")
+            except (ValueError, KeyError, TypeError):
+                failures.append(f"invalid bpy probe response in {exe}")
+                continue
+            why = too_old(version)
+            if why:
+                failures.append(f"bpy module in {exe}: {why}")
+                continue
             info["python"] = exe
-            info["version_tuple"] = tuple(info.get("version_tuple", []))
+            info["version_tuple"] = tuple(version)
+            if failures:
+                info["notes"] = failures
             return info
+        failures.append(f"no bpy probe response in {exe}")
+    if failures:
+        return {"error": "; ".join(failures), "python": candidates[0]}
     return None
 
 
@@ -291,15 +342,19 @@ def too_old(version) -> str | None:
 
 def blender_status(python: str | None = None) -> dict:
     """The `blender` block of `detect`: binary, bpy module, whether the Manifold boolean solver
-    is there on the path that would run (Blender 4.5+, the floor), and notes."""
-    exe = find_blender()
+    is there on the path that would run (Blender 4.5+, the floor), and notes. An explicit
+    interpreter is what `run --blender-python` uses, never the binary (choose_blender), so the
+    binary is not probed and cannot make Blender look usable."""
+    exe = None if python else find_blender()
     binary = blender_info(exe) if exe else None
     module = bpy_info(python)
     if module and "error" in module:
         notes = [module["error"]]
         module = None
     else:
-        notes = []
+        notes = list((module or {}).get("notes", []))
+    if python:
+        notes.insert(0, f"--blender-python {python}: only that interpreter's bpy module counts; the binary is not used")
     binary_ok = bool(binary) and not binary.get("error") and not too_old(binary["version"])
     module_ok = bool(module) and not too_old(module["version_tuple"])
     if binary_ok:
@@ -336,15 +391,17 @@ def cmd_detect(args) -> dict:
     blender = blender_status(getattr(args, "blender_python", None))
     engines = {"openscad": openscad_info(exe) if exe else None,
                "python": {"manifold3d": py["manifold3d"]}}
-    order = [e for e, ok in (("openscad", bool(exe)), ("python", py["manifold3d"]),
+    scad_ok = bool(exe) and not engines["openscad"].get("error")
+    order = [e for e, ok in (("openscad", scad_ok), ("python", py["manifold3d"]),
                              ("blender", blender_usable(blender))) if ok]
-    notes = ([] if not exe or engines["openscad"].get("manifold")
+    notes = ([] if not scad_ok or engines["openscad"].get("manifold")
              else ["OpenSCAD has no Manifold backend (CGAL only): boolean-heavy models are slow; "
                    "a recent nightly build adds --backend=manifold"])
     notes += [f"blender: {n}" for n in blender["notes"]]
+    warnings = [engines["openscad"]["error"]] if exe and not scad_ok else []
     return {"schema": SCHEMA, "ran": True, "engines": engines, "available": order,
             "libraries": py, "fusion": "detect through the host's MCP tools, not here",
-            "blender": blender, "notes": notes, "warnings": [], "errors": []}
+            "blender": blender, "notes": notes, "warnings": warnings, "errors": []}
 
 
 # --------------------------------------------------------------------------- #
@@ -626,7 +683,8 @@ def choose_blender(blender_python=None):
     if probe and "error" not in probe:
         why = too_old(probe["version_tuple"])
         if not why:
-            return {"mode": "bpy", "exe": None, "python": probe["python"], "info": probe, "skipped": reasons}
+            return {"mode": "bpy", "exe": None, "python": probe["python"], "info": probe,
+                    "skipped": reasons + probe.get("notes", [])}
         reasons.append(f"bpy module in {probe['python']}: {why}")
     else:
         reasons.append("`import bpy` failed in " + ", ".join(bpy_pythons(blender_python))
@@ -824,8 +882,11 @@ def finish(out, parts, sources, params, params_path, specs, args, engine):
     # Parts grouped into objects (assembly.py). A bad grouping is a usage error: the parts are
     # still validated, but no object check ran, so the build gate is FAIL.
     grouping_failed = False
+    out["assembly_sha256"] = None
     try:
-        groups = assembly.group_parts({p["name"]: specs.get(p["name"], {}) for p in parts})
+        built_specs = {p["name"]: specs.get(p["name"], {}) for p in parts}
+        groups = assembly.group_parts(built_specs)
+        out["assembly_sha256"] = assembly.input_fingerprint(built_specs)
     except assembly.AssemblyError as exc:
         out["errors"].append(f"params.json _parts: {exc}")
         groups = [{"name": p["name"], "parts": [p["name"]], "main": p["name"]} for p in parts]
@@ -1185,8 +1246,8 @@ def main(argv=None):
     sub = ap.add_subparsers(dest="cmd", metavar="{detect,run,record}")
     det = sub.add_parser("detect", help="Phase 0 probe: OpenSCAD (and its Manifold backend), manifold3d, Blender "
                                         "(binary or bpy module), optional libraries")
-    det.add_argument("--blender-python", help="Python interpreter to probe for the bpy module (default: BLENDER_PYTHON, "
-                                              "then this one)")
+    det.add_argument("--blender-python", help="report only this Python's bpy module, as `run --blender-python` uses it "
+                                              "(default: the binary, then BLENDER_PYTHON, then this Python)")
     r = sub.add_parser("run", help="build every part of _parts with OpenSCAD (.scad), Python (.py) or Blender "
                                    "(.py with the engine marker), then validate",
                        epilog=OUTPUT_HELP, formatter_class=argparse.RawDescriptionHelpFormatter)

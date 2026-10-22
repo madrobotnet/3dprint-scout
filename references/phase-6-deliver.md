@@ -2,13 +2,24 @@
 
 Read this on entering Phase 6 (SKILL.md names the rules that hold at all times).
 
+Choice D in Phase 1 ends with the original-model handoff; this phase and finalize.py apply only
+to parts built or recorded by this workflow.
+
 Deliverables are new files outside `out/` (for example `deliver/<date>/`): copy the final STLs and
 3MF there, or point `bambu3mf.py` there. Never write into a file the slicer has open, and never
-overwrite an existing path: if it exists, ask and stop (the scripts refuse as well). The verdicts
+overwrite an existing delivery path: choose a new version folder, or ask and stop if replacing
+that particular path is necessary (the scripts refuse overwrites as well). Updating the current
+project's working state is allowed under SKILL.md's file-protection rule. The verdicts
 come from `out/` before the copy, where the build's manifests are; copy `<part>.stl.manifest.json`
 along only when the copy is to be re-checked (without it R3 reads UNVERIFIED).
 
-**First, the final report.** Run it before the delivery message, and again after every fix:
+**First, the final report.** Run it before the delivery message, and again after every fix.
+The build's `assembly_sha256` must match the current grouping, roles and free-part clearances.
+Changed metadata or an older build JSON without this field keeps geometry unverified: rebuild
+or re-record with the current parameters and save its JSON. Do not copy a fingerprint into an
+old report to make it pass.
+
+Run:
 
 ```bash
 python3 "$SKILL_DIR/scripts/finalize.py" --build out/build.json --params .3dprint/params.json \

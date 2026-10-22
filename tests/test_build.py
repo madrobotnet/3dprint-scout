@@ -71,6 +71,40 @@ class Base(unittest.TestCase):
 
 
 class Detect(Base):
+    def test_failed_openscad_is_not_available(self):
+        with mock.patch.object(build, "find_openscad", return_value="/broken/openscad"), \
+                mock.patch.object(build, "openscad_info", return_value={"error": "missing shared library"}), \
+                mock.patch.object(build, "blender_status", return_value={"binary": None, "bpy": None, "notes": []}):
+            code, out = run("detect")
+        self.assertEqual(code, 0)
+        self.assertNotIn("openscad", out["available"])
+        self.assertIn("missing shared library", out["warnings"])
+        self.assertFalse(any("CGAL" in n for n in out["notes"]))
+
+    def test_openscad_version_failure_is_not_backend_support(self):
+        result = subprocess.CompletedProcess([], 127, "", "missing library")
+        with mock.patch.object(build.subprocess, "run", return_value=result) as probe:
+            info = build.openscad_info("/broken/openscad")
+        self.assertIn("status 127", info["error"])
+        self.assertEqual(probe.call_count, 1)
+
+    def test_openscad_default_export_must_produce_a_valid_mesh(self):
+        def probe(argv, **kwargs):
+            if "--version" in argv:
+                return subprocess.CompletedProcess(argv, 0, "OpenSCAD version 2021.01", "")
+            if "--backend=manifold" in argv:
+                return subprocess.CompletedProcess(argv, 1, "", "unknown backend")
+            write_stl(argv[argv.index("-o") + 1], box(1, 1, 1))
+            return subprocess.CompletedProcess(argv, 0, "", "")
+        with mock.patch.object(build.subprocess, "run", side_effect=probe):
+            info = build.openscad_info("/scad")
+        self.assertFalse(info["manifold"])
+        self.assertNotIn("error", info)
+        # A successful exit with no artifact is not readiness.
+        with mock.patch.object(build.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, "version 2021.01", "")):
+            info = build.openscad_info("/scad")
+        self.assertIn("cube export failed", info["error"])
+
     def test_detect_reports_engines(self):
         code, out = run("detect")
         self.assertEqual(code, 0)
@@ -484,6 +518,61 @@ runpy.run_path(script, run_name="__main__")
 
 
 class BlenderDetect(Base):
+    def test_bad_environment_candidate_does_not_hide_supported_bpy(self):
+        good = subprocess.CompletedProcess([], 0, '@@BPY {"version":"4.5.14","version_tuple":[4,5,14]}\n', "")
+        old = subprocess.CompletedProcess([], 0, '@@BPY {"version":"4.3.2","version_tuple":[4,3,2]}\n', "")
+        bad_json = subprocess.CompletedProcess([], 0, '@@BPY broken\n', "")
+        failed = subprocess.CompletedProcess([], 1, "", "missing shared library")
+        missing = subprocess.CompletedProcess([], 0, "unexpected output", "")
+        for first in (subprocess.TimeoutExpired("old-python", 120), old, bad_json,
+                      OSError("interpreter missing"), failed, missing):
+            with self.subTest(first=str(first)), \
+                    mock.patch.dict(os.environ, {"BLENDER_PYTHON": "/old-python"}), \
+                    mock.patch.object(build, "find_blender", return_value=None), \
+                    mock.patch.object(build.subprocess, "run", side_effect=[first, good]) as probe:
+                chosen = build.choose_blender()
+                self.assertEqual(chosen["python"], sys.executable)
+                self.assertEqual(probe.call_count, 2)
+                self.assertTrue(chosen["skipped"])
+
+    def test_invalid_bpy_versions_fall_back_without_claiming_readiness(self):
+        good = subprocess.CompletedProcess([], 0, '@@BPY {"version":"4.5.14 LTS","version_tuple":[4,5,14]}\n', "")
+        invalid = [None, [], {"version": "4.5.14", "version_tuple": [4, 5]},
+                   {"version": "unknown", "version_tuple": [4, 5, 14]},
+                   {"version": "4.3.2", "version_tuple": [4, 5, 14]},
+                   {"version": "4.5.14", "version_tuple": [4, 5, True]},
+                   {"version": "4.5.14", "version_tuple": [4, 5, 14, 0]}]
+        for payload in invalid:
+            bad = subprocess.CompletedProcess([], 0, '@@BPY ' + json.dumps(payload), "")
+            with self.subTest(payload=payload), \
+                    mock.patch.dict(os.environ, {"BLENDER_PYTHON": "/bad-python"}), \
+                    mock.patch.object(build.subprocess, "run", side_effect=[bad, good]) as probe:
+                info = build.bpy_info()
+                self.assertEqual(info["python"], sys.executable)
+                self.assertEqual(info["version_tuple"], (4, 5, 14))
+                self.assertIn("invalid bpy probe response", info["notes"][0])
+                self.assertEqual(probe.call_count, 2)
+
+    def test_failed_bpy_candidates_keep_their_diagnostics(self):
+        failed = subprocess.CompletedProcess([], -11, "", "missing shared library")
+        with mock.patch.dict(os.environ, {"BLENDER_PYTHON": "/missing-python"}), \
+                mock.patch.object(build, "find_blender", return_value=None), \
+                mock.patch.object(build.subprocess, "run", side_effect=[OSError("interpreter missing"), failed]):
+            with self.assertRaises(RuntimeError) as caught:
+                build.choose_blender()
+        message = str(caught.exception)
+        self.assertIn("interpreter missing", message)
+        self.assertIn("status -11", message)
+        self.assertIn("missing shared library", message)
+
+    def test_explicit_blender_python_is_not_silently_replaced(self):
+        with mock.patch.dict(os.environ, {"BLENDER_PYTHON": "/other-python"}), \
+                mock.patch.object(build.subprocess, "run", side_effect=subprocess.TimeoutExpired("explicit", 120)) as probe:
+            with self.assertRaisesRegex(RuntimeError, "timed out"):
+                build.choose_blender("/explicit-python")
+        self.assertEqual(probe.call_count, 1)
+        self.assertEqual(probe.call_args[0][0][0], "/explicit-python")
+
     def test_version_parse(self):
         self.assertEqual(build.parse_blender_version("Blender 4.2.3 LTS\n\tbuild date: 2024-09-01"), "4.2.3")
         self.assertEqual(build.parse_blender_version("Blender 5.2.2 LTS"), "5.2.2")
@@ -517,6 +606,9 @@ class BlenderDetect(Base):
         self.assertEqual(run_.call_args[0][0], ["/x/blender", "--version"])
         with mock.patch.object(build.subprocess, "run", side_effect=subprocess.TimeoutExpired("blender", 60)):
             self.assertIn("error", build.blender_info("/x/blender"))
+        failed = subprocess.CompletedProcess([], 1, "Blender 4.5.14 LTS", "startup failed")
+        with mock.patch.object(build.subprocess, "run", return_value=failed):
+            self.assertIn("status 1", build.blender_info("/x/blender")["error"])
 
     def test_bpy_probe_runs_in_a_subprocess_with_a_timeout(self):
         with mock.patch.object(build.subprocess, "run", side_effect=subprocess.TimeoutExpired("python", 120)) as run_:
@@ -531,7 +623,7 @@ class BlenderDetect(Base):
             info = build.bpy_info("/x/python")
         self.assertEqual((info["version"], info["version_tuple"], info["python"]), ("4.5.0", (4, 5, 0), "/x/python"))
         with mock.patch.object(build.subprocess, "run", side_effect=OSError("no such file")):
-            self.assertIsNone(build.bpy_info("/x/python"))
+            self.assertIn("no such file", build.bpy_info("/x/python")["error"])
 
     def test_status_and_detect_without_blender(self):
         with mock.patch.object(build, "find_blender", return_value=None), mock.patch.object(build, "bpy_info", return_value=None):
@@ -542,6 +634,39 @@ class BlenderDetect(Base):
         self.assertNotIn("blender", out["available"])
         self.assertEqual(out["blender"], status)                               # one place for the block
         self.assertNotIn("blender", out["engines"])
+
+    def test_detect_with_explicit_interpreter_ignores_the_binary(self):
+        # run --blender-python never uses the binary, so detect must not list Blender on its strength
+        binary = {"path": "/x/blender", "version": "4.5.14"}
+        failed = {"error": "import bpy exited with status 1 in /explicit/python", "python": "/explicit/python"}
+        good = {"version": "4.5.14", "version_tuple": (4, 5, 14), "python": "/explicit/python"}
+        with mock.patch.object(build, "find_blender", return_value="/x/blender") as find, \
+                mock.patch.object(build, "blender_info", return_value=binary), \
+                mock.patch.object(build, "blender_manifold3d", return_value=True), \
+                mock.patch.object(build, "bpy_info", return_value=failed):
+            code, out = run("detect", "--blender-python", "/explicit/python")
+            self.assertEqual(code, 0)
+            self.assertNotIn("blender", out["available"])
+            self.assertIsNone(out["blender"]["binary"])
+            self.assertFalse(out["blender"]["manifold_boolean"])
+            self.assertTrue(any("--blender-python" in n for n in out["blender"]["notes"]))
+            find.assert_not_called()
+            with self.assertRaises(RuntimeError):          # and the build agrees
+                build.choose_blender("/explicit/python")
+        with mock.patch.object(build, "find_blender", return_value="/x/blender"), \
+                mock.patch.object(build, "blender_info", return_value=binary), \
+                mock.patch.object(build, "bpy_info", return_value=good):
+            code, out = run("detect", "--blender-python", "/explicit/python")
+            self.assertIn("blender", out["available"])
+            self.assertEqual(out["blender"]["bpy"]["python"], "/explicit/python")
+            self.assertEqual(build.choose_blender("/explicit/python")["mode"], "bpy")
+        with mock.patch.object(build, "find_blender", return_value="/x/blender"), \
+                mock.patch.object(build, "blender_info", return_value=binary), \
+                mock.patch.object(build, "blender_manifold3d", return_value=True), \
+                mock.patch.object(build, "bpy_info", return_value=None):
+            status = build.blender_status()                   # without it the binary still counts
+        self.assertEqual(status["binary"]["path"], "/x/blender")
+        self.assertTrue(build.blender_usable(status))
 
     def test_status_version_gates(self):
         old = {"version": "4.4.0", "version_tuple": (4, 4, 0), "python": "/x/python"}

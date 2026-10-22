@@ -19,6 +19,18 @@ HAS_M3D = find_spec("manifold3d") is not None and find_spec("numpy") is not None
 
 
 class Grouping(unittest.TestCase):
+    def test_fingerprint_normalizes_effective_assembly_defaults(self):
+        implicit = {"body": {"object": "o"}, "latch": {"object": "o", "role": "free"}, "spare": {}}
+        explicit = {"spare": {"object": "spare", "expect": [10, 10, 10]},
+                    "latch": {"object": " o ", "role": "free", "clearance": str(assembly.DEFAULT_FREE_CLEARANCE)},
+                    "body": {"object": "o", "role": "fused", "filament": 2}}
+        self.assertEqual(assembly.input_fingerprint(implicit), assembly.input_fingerprint(explicit))
+
+    def test_unused_clearance_does_not_change_fused_or_single_part_contract(self):
+        specs = {"body": {"object": "o"}, "label": {"object": "o"}, "spare": {}}
+        changed = {n: dict(s, clearance=0.8) for n, s in specs.items()}
+        self.assertEqual(assembly.input_fingerprint(specs), assembly.input_fingerprint(changed))
+
     def test_parts_without_object_stay_alone(self):
         groups = assembly.group_parts({"box": {"expect": [1, 1, 1]}, "lid": {}})
         self.assertEqual(groups, [{"name": "box", "parts": ["box"], "main": "box"},

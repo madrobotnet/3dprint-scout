@@ -105,6 +105,11 @@ PCB"*, *"X2D 프린터 문 손잡이를 만들고 싶어"*.
 
 ## Requirements
 
+For virtual environments, tested Python/Blender combinations and readiness checks, see
+[Development setup](references/development.md). Choose standard-library checks, Python
+modeling, or Blender modeling; the Python floor below does not mean bpy has a wheel for
+every supported Python version.
+
 - Python 3.9 or newer (tested on 3.9 and 3.13). The validator and the 3MF writers use the standard
   library only.
 - One modeling engine: **Fusion** with an MCP connection, **OpenSCAD** (2021.01 or a newer build
@@ -151,6 +156,15 @@ the X2D and H2D, objects that need both nozzles are placed where both can reach.
 | a new delivery folder | Final files. Existing files are never overwritten |
 
 ## Status
+
+**Next: v0.6.1 (unreleased)** combines verification fixes with setup and workflow improvements.
+Assembly evidence now tracks object membership, roles and free-part clearances separately
+from STL geometry: changing those conditions requires a new build report. Older reports
+without an assembly fingerprint stay unverified until rebuilt or re-recorded. Engine detection
+tries a healthy bpy fallback and checks that OpenSCAD can export a cube. Confirmed answers
+are reused, choosing an existing model has its own handoff, and working project updates are
+distinguished from overwriting delivered files. Installation recipes and a real Blender
+binary smoke check are described in [Development setup](references/development.md).
 
 **v0.6.0** makes Blender the first engine for every shape, after a comparison build (a C-clip and
 a card-slot block) measured the same as the Python engine with the new helpers: fillets with a
@@ -204,11 +218,16 @@ and minimum-feature checks. FDM only; no resin.
 
 ## Development
 
+Prepare an environment using [Development setup](references/development.md), then run:
+
 ```bash
 python3 -m unittest discover -s tests
 ```
 
 `tests/test_examples.py` rebuilds every example with the commands in its README.
+Finish installing dependencies before running tests; do not reinstall bpy while a Blender
+subprocess is using it. Skill changes also need the conversation scenarios documented in the
+setup guide; Python unit tests alone do not exercise agent decisions.
 
 `SKILL.md` is the entry point: the rules that hold at all times, a short skeleton of each phase
 and the checklist. Each phase's how-to (`references/phase-0-detect.md` to `phase-6-deliver.md`),

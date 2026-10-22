@@ -4,6 +4,9 @@ Read this on entering Phase 0 (SKILL.md names the rules that hold at all times).
 report in one line, e.g. "Using OpenSCAD (Fusion not connected); references via web search;
 previews via OpenSCAD."
 
+If the user already chose D and named the existing model, use the Phase 1 handoff directly.
+Do not install or probe modeling engines just to give them that model's original link.
+
 ## 1. Engine
 
 Find what works:
@@ -22,6 +25,10 @@ Find what works:
   subprocess with a timeout: importing it is slow), and `manifold_boolean`. Blender 4.5 LTS or
   newer only; an older one is listed with a note and not used. Never pass the obsolete
   `--enable=manifold`, which silently falls back to CGAL.
+  A failed OpenSCAD version/cube export probe is excluded from `available` and reported in
+  `warnings`. For bpy, a failed or old `BLENDER_PYTHON` candidate falls back to the current
+  interpreter. An explicit `--blender-python` is binding and never silently substituted: `detect`
+  with it reports only that interpreter (the binary is not probed), as `run` with it would use.
 - **Live Blender** — a tool that runs Python in the user's own Blender (an MCP connector; names
   differ between servers) and answers a harmless read, `import bpy; bpy.app.version_string`
   (4.5 or newer), counts as the live Blender path. `detect` runs where your shell is: in a VM
@@ -36,7 +43,12 @@ Find what works:
   it; `pip install bpy` too when the shape wants Blender (a few hundred MB; the Python version
   must match a published wheel). On the user's machine, ask before installing anything. Never
   try `apt` or `brew` for OpenSCAD in a sandbox (minutes lost, and there is no display). If
-  nothing works after that, say what to install and stop.
+  nothing works after that, report what is missing. Reference discovery and choice D still work
+  without a modeling engine; stop before modeling if the user chooses A, B or C.
+
+For reproducible virtual environments and supported Python/bpy combinations, use
+`references/development.md`. Do not assume the general Python 3.9+ floor means a bpy wheel
+exists for that Python. Finish dependency installation before starting builds or tests.
 
 Then choose among the engines that work (rule A in SKILL.md):
 

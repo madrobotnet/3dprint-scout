@@ -62,6 +62,12 @@ STL per body; `build.py record` groups them from `--params`.
 
 ## Checks on an object
 
+Since 0.6.1, the build JSON contains `assembly_sha256`, a fingerprint of object membership,
+roles and free-part clearances. `finalize.py` compares it with the current `_parts` before
+reusing object checks. A missing or changed fingerprint requires a new build/record report;
+STL freshness alone does not establish assembly freshness. Notes, `expect` (rechecked per
+part), and filament choices do not invalidate this fingerprint.
+
 Parts are validated one by one as always (D1, M1–M5, …). An object with several parts
 gets, in `objects[]`:
 
@@ -127,6 +133,7 @@ with `--only`, so it shows `seconds` per part and a `partial` object):
 ```json
 {"schema": "3dprint-scout.build/1", "ran": true, "engine": "python", "source": "adapter.py",
  "gate": "PASS | FAIL | INCOMPLETE", "R4": "PASS",
+ "assembly_sha256": "<sha256 of the assembly inputs>",
  "parts": [{"name": "lid", "stl": "out/lid.stl", "seconds": 0.4, "artifact_sane": true, "object": "lid", "role": "fused",
             "rotation_deg": 0, "engine_warnings": [],
             "validate": {"schema": "3dprint-scout.validate/1", "gate": "PASS",
@@ -154,7 +161,8 @@ with `--only`, so it shows `seconds` per part and a `partial` object):
   whole command. `sha256` on a part is the STL its verdicts are about, and `validate_settings`
   the printer, printer id, tools and tolerances they were made with (and `printer_sha256`, the
   printers.json as it was): `finalize.py` re-checks with the same, and only trusts the object
-  checks while every STL still has that hash and the settings and printers.json are unchanged.
+  checks while every STL still has that hash, the settings and printers.json are unchanged,
+  and `assembly_sha256` matches the current grouping, roles and free-part clearances.
 - A `_parts` grouping that cannot be read (an unknown `role`, say) is in `errors` and makes the
   gate FAIL: the parts were validated, but no object check ran.
 - `record` only: a part whose STL already has a manifest from `run` that describes this very

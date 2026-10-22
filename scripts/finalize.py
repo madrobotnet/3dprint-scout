@@ -155,9 +155,14 @@ def scrub(text):
 
 
 def part_specs(params):
-    parts = params.get("_parts") or {}
+    parts = params.get("_parts")
+    if parts is None:
+        parts = {}
     if not isinstance(parts, dict):
         raise FinalizeError("_parts in params.json must be an object")
+    for name, spec in parts.items():
+        if spec is not None and not isinstance(spec, dict):
+            raise FinalizeError(f"_parts in params.json: entry {name!r} must be an object or null")
     return {str(k): dict(v or {}) for k, v in parts.items()}
 
 
@@ -332,7 +337,7 @@ def check_objects(build, same_as_build, drift=()):
                 elif ck.get("state") == "WARN":
                     warns.append((f"object {o.get('name')} {cid}", ck.get("note", "")))
         entries.append(entry)
-    if same_as_build:
+    if same_as_build and not drift:
         for p in build.get("parts") or []:
             for cid, ck in ((p.get("assembly") or {}).get("checks") or {}).items():
                 if ck.get("state") in ("FAIL", "UNVERIFIED") and ck.get("kind") == "hard":
@@ -340,6 +345,29 @@ def check_objects(build, same_as_build, drift=()):
                 elif ck.get("state") == "WARN":
                     warns.append((f"{p.get('name')} {cid}", ck.get("note", "")))
     return entries, reasons, warns
+
+
+def assembly_drift(build, specs):
+    """Old object checks cannot prove a new grouping, role or free-part clearance."""
+    import assembly
+    # record can include STLs without an explicit _parts entry. They remain independent
+    # objects by default, just as in build.finish. Keep newly declared, unbuilt parts too:
+    # their membership is part of the current contract, and check_parts reports them.
+    effective = {p["name"]: {} for p in build.get("parts") or []}
+    effective.update(specs)
+    try:
+        current = assembly.input_fingerprint(effective)
+    except assembly.AssemblyError as exc:
+        return [f"invalid assembly metadata: {exc}"]
+    if not build.get("assembly_sha256"):
+        return ["build has no assembly fingerprint (before 0.6.1): build again and save the new JSON"]
+    if current != build["assembly_sha256"]:
+        unbuilt = sorted(set(specs) - {p["name"] for p in build.get("parts") or []})
+        if unbuilt:                                   # --only, or a part dropped from the generator
+            return [f"the build has only some of the parts in _parts (not built: {', '.join(unbuilt)}): "
+                    "object checks need a build of every part; build them all and save the new JSON"]
+        return ["assembly metadata changed since the build: build again and save the new JSON"]
+    return []
 
 
 def check_joints(verify, part_shas):
@@ -655,7 +683,10 @@ def finalize(args):
     reasons += r
     drift = settings_drift(build, settings)
     out["settings_drift"] = drift
-    objs, r, w = check_objects(build, same_as_build, drift)
+    metadata_drift = assembly_drift(build, specs)
+    out["assembly_drift"] = metadata_drift
+    reasons += metadata_drift
+    objs, r, w = check_objects(build, same_as_build, drift + metadata_drift)
     out["objects"] = objs
     reasons += r
     warns += w

@@ -1,0 +1,6 @@
+# Known working Python 3.11 modeling environment; optional, not a project-wide lock.
+# CI also tests the newest compatible libraries separately.
+manifold3d==3.5.4
+numpy==1.26.4
+rtree==1.4.1
+matplotlib==3.11.2

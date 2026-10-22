@@ -1,0 +1,3 @@
+# bpy 4.5 LTS wheels use Python 3.11; do not install this into an arbitrary Python.
+-r python-modeling.txt
+bpy==4.5.14
