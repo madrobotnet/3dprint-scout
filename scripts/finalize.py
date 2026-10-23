@@ -2015,8 +2015,9 @@ def write_bundle(folder, build, params_path, settings, report, verify=None, deli
         os.makedirs(os.path.dirname(dst), exist_ok=True)
         shutil.copyfile(inputs[place][0], dst)
         written.append(rel(dst))
-    delivered = bundle_path(deliver) if deliver and os.path.isdir(deliver) else None
-    for place in [delivered] + [posixpath.dirname(p) for p in proxies]:      # where REPRODUCE.md writes and reads
+    delivered = bundle_path(deliver) if deliver else None    # named even when missing: the rerun says so too
+    made = [delivered] if delivered and os.path.isdir(deliver) else []
+    for place in made + [posixpath.dirname(p) for p in proxies]:             # where REPRODUCE.md writes and reads
         if place:
             os.makedirs(os.path.join(folder, *place.split("/")), exist_ok=True)
     main_src = build.get("source") or (srcs[0] if srcs else None)

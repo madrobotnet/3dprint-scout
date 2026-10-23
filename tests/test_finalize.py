@@ -1852,6 +1852,27 @@ class FinalizeBundle(FinalizePromises):
         self.export()
         self.assertEqual(verdict(reproduce("deliver/source")), verdict(out))
 
+    def test_a_delivery_folder_not_found_is_named_in_reproduce(self):
+        """Reverse (Codex, PR #22): --deliver naming a missing folder, or a file, is "not found" in
+        the verdict; REPRODUCE.md keeps the --deliver, so the re-check says the same."""
+        values, verify = self.evidence_project()
+        self.params(verify, **values)
+        self.record()
+        self.record_proxy()
+        with open("notes.txt", "w") as f:
+            f.write("not a folder")
+        for n, deliver in enumerate(("deliver/never", "notes.txt")):
+            with self.subTest(deliver=deliver):
+                folder = f"bundle{n}"
+                code, out = self.finalize("--deliver", deliver, "--bundle", folder)
+                self.assertEqual(code, 0, out["errors"])
+                self.assertIn(f"delivery folder {deliver} not found", out["open"])
+                with open(os.path.join(folder, "REPRODUCE.md"), encoding="utf-8") as f:
+                    self.assertIn(f"--deliver {deliver}", f.read())
+                self.assertFalse(os.path.exists(os.path.join(folder, deliver)))   # not made: still not found there
+                self.export(folder)
+                self.assertEqual(verdict(reproduce(folder)), verdict(out))
+
     def test_what_refuses_a_bundle(self):
         """Reverse: a file outside the project folder, or a report that holds a path of this
         machine, refuses the bundle and leaves no folder behind."""
