@@ -17,9 +17,21 @@ photo are never traced into a mesh.
 
 Write one generator script:
 
-- Every dimension in a `PARAMETERS` block at the top, in mm, with descriptive names (`screw_hole_d`,
+- Every dimension in a parameter block at the top (`DEFAULTS` in Python, `PARAMETERS` in
+  Blender, the top-level variables in OpenSCAD), in mm, with descriptive names (`screw_hole_d`,
   not `d1`) and a comment on its source. A cutter's overshoot past a face (0.01–0.1 mm) is
   construction, not a dimension: it may stay a literal under R1, though a named `eps` is clearer.
+- **Every number a later check links to is a parameter**, not a literal and not a value worked
+  out inside the generator: each size of a member `strength.py` will check (`ribbon_t`,
+  `ribbon_w`, `ribbon_len`), each choice it takes as a string (`"ribbon_support": "cantilever"`;
+  orientation, duty, pin, shear, hole), a safety factor other than strength.py's 2
+  (`"ribbon_sf": 3.0` for a member loaded at every use), a load a lever amplifies
+  (`"latch_load": 141.2`, N), and every real-world size of a `dims` entry (Phase 2).
+  `strength.py --from-build` reads them from the build JSON's `parameters`: a Python
+  generator's defaults are recorded only from a dict named `DEFAULTS` (scope `merged`); OpenSCAD,
+  Fusion and a live Blender record only params.json (scope `overrides`), so put the values there
+  (`references/parts.md`, `references/engines/python.md`). A derived value (the lip top = seat +
+  lip height) is not recorded: check it with a measurement in Phase 4.
 - **Z-up: Z = 0 is the print bed.** Model in the orientation it will print in.
 - Each build regenerates everything from scratch in a safe order (fillets before cuts). Phases are
   review points, not build steps.
@@ -54,7 +66,8 @@ in the slicer, or calibration records that the user has not agreed to save.
 Keys starting with `_` are metadata and never reach the engine:
 
 ```json
-{"_parts": {"box": {"expect": [71.2, 37.8, 33.6]}, "lid": {"expect": [71.2, 37.8, 26.6]},
+{"_material": "pla_basic",
+ "_parts": {"box": {"expect": [71.2, 37.8, 33.6]}, "lid": {"expect": [71.2, 37.8, 26.6]},
             "label": {"expect": [40, 12, 1.6], "object": "lid", "role": "fused"}},
  "_assumptions": ["defaults taken in an unattended run, one line each"],
  "wall": 3.0, "slide": 0.2}
@@ -65,6 +78,14 @@ a copied value makes D1 circular, and `validate.py` flags one. Parts of one obje
 `object` name and a `role`: `fused` (must share faces with another part) or `free`
 (print-in-place, keeps `clearance`); all parts of an object are modelled in the same frame, so
 the STLs hold the assembled positions (`references/parts.md`, schema and checks).
+
+Set the material before the first build: `_material` is the filament of Phase 2 as a
+`strength.py` key (`pla_basic`, `pla_pure`, `petg_hf`, ...; `references/materials.md`; PLA
+Basic, in `_assumptions`, when the user named none), and `_parts.<name>.material` a part
+printed in another one. The build records each part's material; `strength.py` and the test
+prints are judged in it (Phase 4). The values of every `dims` entry (Phase 2) are written in
+params.json itself, even when the generator's defaults hold the same numbers: finalize compares
+the two.
 
 Changing `object`, `role`, group membership or a free part's `clearance` requires a new build
 report, even if no triangle changed. Since 0.6.1 the report's `assembly_sha256` records these
@@ -78,10 +99,12 @@ features off for this look. Build and validate:
 
 ```bash
 python3 "$SKILL_DIR/scripts/build.py" run model.scad --params .3dprint/params.json --out out \
-  --printer .3dprint/printers.json
+  --printer .3dprint/printers.json > out/build.json
 ```
 
 (`--tools`, the nozzles the print uses: `references/phase-2-printer-dimensions.md`, step 1.)
+Keep the JSON of the latest full build in `out/build.json`: `strength.py --from-build` and
+`finalize.py` read it from Phase 4 on.
 
 `build.py run` builds every part in `_parts`, writes `<part>.stl.manifest.json`, writes a core 3MF
 (parts of an object under one parent), validates each part against its own `expect`, and checks
@@ -95,6 +118,9 @@ the STLs; in a live Blender the script runs through the host's tool and `build.p
 --engine blender` takes its STLs. A mixed object builds each engine's parts with `--only` and
 `--no-3mf` into folders of their own, then one `build.py record` takes every STL with the union
 of both runs' `sources` (`references/engines/blender.md`, "Mixed parts").
+The build JSON records `parameters` (what the parts were built with, and its `scope`) and each
+part's `material` (`references/parts.md`). A warning that a params.json key is not in the
+generator's `DEFAULTS` (or `PARAMETERS`) is a misspelt name that built with the default: fix it.
 Render the built STLs with `preview.py`
 (`references/phase-0-detect.md`, step 3; `render.py` when Blender is there) and look at it
 yourself first, **one view at a time**, never the grid as one picture: would someone name the
@@ -106,6 +132,21 @@ a part with several bodies or a mechanism (lever, latch, hinge) this stop is nev
 fit-test piece comes after it, not instead of it.
 In explicit unattended mode, use SKILL.md's preview-and-assumption rule; still produce and
 inspect the preview, and never describe an unreviewed shape as user-approved.
+
+**Record the user's look.** When the user looks at the image and says a `look` promise (Phase
+1) is right or wrong, add it to `_verify.seen`: the image, the `image_sha256` from its sidecar
+(`out/preview.png.json`, written by `preview.py` and `render.py`), `"by": "user"`, the promises
+judged and the result:
+
+```json
+{"name": "back wave", "image": "out/preview.png", "by": "user", "promises": ["wave-back"],
+ "result": "passed", "image_sha256": "83fd97b2d288a3114da16be54a781ce0a05f1ade7549bcb5894caa2a83b6073f"}
+```
+
+Only the user's look verifies; yours is `"by": "agent"` and never does, so an unattended run has
+none. An approval of the shell judges only the promises the image shows. Drawing the image
+again, or rebuilding a part it shows, makes the entry stale: show the new image at the next stop
+and record the user's new look; never copy an old judgement onto a new image.
 
 - `out/` is the build's working folder: every build rewrites `out/<part>.stl`, its manifest,
   `out/<model>.3mf` with its `out/<model>.3mf.manifest.json` (the 3MF's sha256 and the sha256 of
