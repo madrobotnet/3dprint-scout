@@ -367,6 +367,8 @@ def settings_drift(build, settings):
         else:
             same = _setting(f, old) == _setting(f, new)       # --tools 0 and no --tools are the same
         if not same:
+            if f == "printer":                                # as the report shows paths: relative, with /
+                old, new = (rel(v) if isinstance(v, str) else v for v in (old, new))
             out.append(f"{f} {old} -> {new}")
     if bool(b.get("wall_check", True)) != bool(settings.wall_check):
         out.append("wall_check")
