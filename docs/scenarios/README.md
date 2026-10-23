@@ -103,8 +103,9 @@ links again is part of the run.
    keep its output outside the folder, where the agent will not see it:
 
    ```bash
-   python3 "$SKILL_DIR/docs/scenarios/setup.py" a2-unmeasured ~/scenario-runs/codex/a2-unmeasured \
-     > ~/scenario-runs/codex/a2-unmeasured.setup.json
+   # CHECKOUT: the full checkout (with docs/); SKILL_DIR: the installed copy the agent reads
+   python3 "$CHECKOUT/docs/scenarios/setup.py" --skill-dir "$SKILL_DIR" a2-unmeasured \
+     ~/scenario-runs/codex/a2-unmeasured > ~/scenario-runs/codex/a2-unmeasured.setup.json
    ```
 
    `setup.py` refuses a folder that exists and is not empty. For a scenario with a starting
