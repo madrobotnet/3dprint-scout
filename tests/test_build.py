@@ -643,6 +643,9 @@ blend = blend or os.path.join(out, os.path.splitext(os.path.basename(src))[0] + 
 os.makedirs(out, exist_ok=True)
 p = [(0,0,0),(10,0,0),(10,10,0),(0,10,0),(0,0,10),(10,0,10),(10,10,10),(0,10,10)]
 f = [(0,2,1),(0,3,2),(4,5,6),(4,6,7),(0,1,5),(0,5,4),(1,2,6),(1,6,5),(2,3,7),(2,7,6),(3,0,4),(3,4,7)]
+if os.environ.get("FAKE_BLENDER_SHUFFLE"):  # the same triangles in another order on every run, as Blender does
+    import random
+    random.SystemRandom().shuffle(f)
 parts = []
 for name in only:
     stl = os.path.join(out, name + ".stl")
@@ -1059,6 +1062,268 @@ class BlenderEngine(Base):
             code, again = run("run", src, "--params", prm, "--out", self.out, "--no-wall-check", "--printer", printers)
         self.assertEqual((code, again["gate"], again["blend"]), (0, "PASS", out["blend"]), again.get("errors"))
         self.assertTrue(all(p["validate"]["files"][0]["checks"]["D1"]["state"] == "PASS" for p in out["parts"]))
+
+
+# Two parts whose STLs came out different on every build of the same generator before 0.7.0
+# (review): a rounded block, bevelled, cut by a manifold3d solid and notched by a prism (the same
+# triangles in another order: Blender's extrude gives the prism's faces in another order on each
+# run), and a part made by manifold3d whose flat faces from_mesh merged in a set's order (other
+# triangles: the n-gons came out another way).
+BLENDER_REBUILD_GEN = """# 3dprint-scout: engine=blender
+import manifold3d as m3d
+import blender_builder as bb
+
+PARAMETERS = {"w": 40.0, "d": 30.0, "h": 12.0, "corner": 5.0, "round": 1.5, "wall": 8.0, "support": "cantilever"}
+
+def build(p):
+    plan = bb.round_profile([(0.0, 0.0), (p["w"], 0.0), (p["w"], p["d"]), (0.0, p["d"])], p["corner"])
+    block = bb.prism(plan, p["h"], name="block")
+    bb.bevel(block, p["round"])
+    pocket = m3d.Manifold.cube([p["w"] - 2 * p["wall"], p["d"] - 2 * p["wall"], p["h"]]).translate([p["wall"], p["wall"], 3.0])
+    bb.boolean(block, bb.from_manifold(pocket, "pocket"), "difference")
+    u = bb.round_profile([(14.0, 6.0), (26.0, 6.0), (26.0, 20.0), (14.0, 20.0)], 3.0, corners=[0, 1])
+    bb.boolean(block, bb.prism(u, 12.0, name="notch", z0=-1.0, plane="XZ"), "difference")
+    cap = m3d.Manifold.cube([20.0, 12.0, 6.0]) - m3d.Manifold.cylinder(10.0, 4.0, 4.0, 96).translate([10.0, 6.0, -2.0])
+    cap = bb.from_manifold(cap.translate([p["w"] + 5.0, 0.0, 0.0]), "cap")
+    bb.part(block, "block")
+    bb.part(cap, "cap")
+    return {"block": block, "cap": cap}
+
+if __name__ == "__main__":
+    bb.main(build, PARAMETERS)
+"""
+
+# Holes through a block: OpenSCAD 2021.01 (CGAL) writes its triangles in another order on some runs.
+SCAD_HOLES = """
+$fn = 48;
+difference() {
+  cube([40, 30, 20]);
+  translate([20, 15, 2]) cylinder(r = 10, h = 20);
+  for (x = [4, 36], y = [4, 26]) translate([x, y, -1]) cylinder(r = 2, h = 30);
+}
+"""
+
+
+def stl_bytes(tris, header=b"canonical test", attrs=None):
+    """A binary STL of `tris` in this order, each with its normal and its attribute from `attrs`
+    (Blender writes 0; any value must stay with its triangle)."""
+    import math
+    import struct
+    out = [header.ljust(80, b"\0"), struct.pack("<I", len(tris))]
+    for (p, q, r), a in zip(tris, attrs or [0] * len(tris)):
+        u = [q[k] - p[k] for k in range(3)]
+        v = [r[k] - p[k] for k in range(3)]
+        n = (u[1] * v[2] - u[2] * v[1], u[2] * v[0] - u[0] * v[2], u[0] * v[1] - u[1] * v[0])
+        ln = math.sqrt(sum(c * c for c in n)) or 1.0
+        out.append(struct.pack("<12fH", *(c / ln for c in n), *p, *q, *r, a))
+    return b"".join(out)
+
+
+def records(data):
+    return [data[i:i + 50] for i in range(84, len(data), 50)]
+
+
+def signed_volume(data):
+    import struct
+    vol = 0.0
+    for rec in records(data):
+        v = struct.unpack("<12f", rec[:48])
+        (ax, ay, az), (bx, by, bz), (cx, cy, cz) = v[3:6], v[6:9], v[9:12]
+        vol += (ax * (by * cz - bz * cy) - ay * (bx * cz - bz * cx) + az * (bx * cy - by * cx)) / 6
+    return vol
+
+
+def read_bytes(path):
+    with open(path, "rb") as f:
+        return f.read()
+
+
+class CanonicalSTL(Base):
+    """canonical_stl: one triangle order for an STL, the triangles themselves unchanged."""
+
+    def write_bytes(self, name, data):
+        path = os.path.join(self.d, name)
+        with open(path, "wb") as f:
+            f.write(data)
+        return path
+
+    def test_any_order_gives_the_same_bytes_with_every_triangle_kept_whole(self):
+        import random
+        tris = box(20, 10, 5) + box(12, 12, 12, 30, 0, 0) + box(8, 8, 8, 32, 2, 2, inward=True)
+        orders = []
+        for seed in (1, 2, 3):
+            shuffled = list(enumerate(tris))
+            random.Random(seed).shuffle(shuffled)
+            orders.append(stl_bytes([t for _, t in shuffled], attrs=[i % 7 for i, _ in shuffled]))
+        self.assertEqual(len(set(orders)), 3)
+        written = []
+        for i, data in enumerate(orders):
+            path = self.write_bytes(f"p{i}.stl", data)
+            self.assertTrue(build.canonical_stl(path))
+            written.append(read_bytes(path))
+        self.assertEqual(len(set(written)), 1)                       # one order, whatever came in
+        out = written[0]
+        self.assertEqual(out[:84], orders[0][:84])                   # header and count kept
+        self.assertEqual(sorted(records(out)), records(out))
+        # Every 50-byte record is kept whole: the same triangles, each with its own normal, its own
+        # vertex order (winding) and attribute; the solid's signed volume (cavity included) is unchanged.
+        self.assertEqual(sorted(records(out)), sorted(records(orders[0])))
+        self.assertAlmostEqual(signed_volume(out), 20 * 10 * 5 + 12 ** 3 - 8 ** 3, places=3)
+        self.assertAlmostEqual(signed_volume(out), signed_volume(orders[0]), places=6)
+        import validate
+        self.assertEqual(sorted(validate.read_stl(path)), sorted(tris))
+
+    def test_a_file_that_is_not_a_plain_binary_stl_is_left_alone(self):
+        good = stl_bytes(list(reversed(box(10, 10, 10))))
+        cases = {"empty.stl": b"", "short.stl": b"\0" * 50, "truncated.stl": good[:-10],
+                 "trailing.stl": good + b"\0\0\0\0", "zero.stl": b"\0" * 80 + b"\0\0\0\0",
+                 "count.stl": good[:80] + (13).to_bytes(4, "little") + good[84:]}
+        for name, data in cases.items():
+            with self.subTest(name):
+                path = self.write_bytes(name, data)
+                self.assertFalse(build.canonical_stl(path))
+                self.assertEqual(read_bytes(path), data)
+        ascii_ = os.path.join(self.d, "ascii.stl")
+        write_stl(ascii_, list(reversed(box(10, 10, 10))), ascii_=True)
+        before = read_bytes(ascii_)
+        self.assertFalse(build.canonical_stl(ascii_))
+        self.assertEqual(read_bytes(ascii_), before)
+        self.assertFalse(build.canonical_stl(os.path.join(self.d, "missing.stl")))
+        self.assertEqual(sorted(os.listdir(self.d)), sorted(list(cases) + ["ascii.stl"]))   # no twin left behind
+
+    @unittest.skipUnless(os.name != "nt", "POSIX file modes")
+    def test_the_file_keeps_its_mode_and_a_sorted_file_is_not_written(self):
+        given = stl_bytes(list(reversed(box(10, 10, 10))))
+        path = self.write_bytes("p.stl", given)
+        os.chmod(path, 0o640)
+        self.assertTrue(build.canonical_stl(path))
+        self.assertNotEqual(read_bytes(path), given)                  # rewritten in order
+        self.assertEqual(os.stat(path).st_mode & 0o777, 0o640)
+        before = os.stat(path)
+        self.assertTrue(build.canonical_stl(path))                   # already in order: left as it is
+        after = os.stat(path)
+        self.assertEqual((after.st_ino, after.st_mtime_ns), (before.st_ino, before.st_mtime_ns))
+        self.assertEqual(os.listdir(self.d), ["p.stl"])
+
+
+class RebuildSameBytes(Base):
+    """Building the same generator again with nothing changed writes the same STL bytes (the
+    sha256 evidence is tied to), for every engine `run` drives; `record` leaves an STL as it is."""
+
+    def fake(self, code, name="fake_blender"):
+        py = self.write(name + ".py", code)
+        exe = self.write(name, f"#!/bin/sh\nexec {sys.executable} {py} \"$@\"\n")
+        os.chmod(exe, 0o755)
+        return exe
+
+    def same(self, outs):
+        """The parts' bytes in every build, after checking each report's sha256 and manifest
+        describe the file as it is."""
+        import validate
+        found = []
+        for out in outs:
+            files = {}
+            for p in out["parts"]:
+                data = read_bytes(p["stl"])
+                self.assertEqual(p["sha256"], validate.file_sha256(p["stl"]))
+                with open(p["stl"] + ".manifest.json", encoding="utf-8") as f:
+                    self.assertEqual(json.load(f)["artifact_sha256"], p["sha256"])
+                files[p["name"]] = data
+            found.append(files)
+        return found
+
+    @unittest.skipUnless(os.name != "nt", "uses a shell wrapper as a fake blender")
+    def test_a_blender_build_in_another_order_is_written_in_one(self):
+        """The stand-in writes the cube's triangles shuffled on every run: run, --only and --proxy
+        all write the one canonical order, before anything hashes the file."""
+        exe = self.fake(FAKE_BLENDER)
+        src = self.write("gen_blender.py", BLENDER_GEN)
+        prm = self.params({"_parts": {"body": {"expect": [10, 10, 10]}, "peg": {"expect": [10, 10, 10]}}})
+        proxy = self.write("proxy.json", "{}")
+        outs = []
+        with mock.patch.dict(os.environ, {"BLENDER": exe, "FAKE_BLENDER_SHUFFLE": "1"}):
+            for i in range(3):
+                code, out = run("run", src, "--params", prm, "--out", os.path.join(self.d, f"o{i}"), "--no-wall-check")
+                self.assertEqual((code, out["errors"]), (0, []))
+                outs.append(out)
+            code, only = run("run", src, "--params", prm, "--out", os.path.join(self.d, "only"), "--only", "peg",
+                             "--no-wall-check")
+            code, prox = run("run", src, "--params", proxy, "--proxy", "body", "--out", os.path.join(self.d, "px"),
+                             "--no-wall-check")
+        builds = self.same(outs + [only, prox])
+        self.assertEqual(builds[0], builds[1])
+        self.assertEqual(builds[0], builds[2])
+        self.assertEqual(builds[3]["peg"], builds[0]["peg"])
+        self.assertEqual(builds[4]["body"], builds[0]["body"])
+        self.assertTrue(prox["proxy"])
+        data = builds[0]["body"]
+        self.assertEqual(sorted(records(data)), records(data))
+        # record takes an STL exported elsewhere as it is: never rewritten.
+        mine = os.path.join(self.d, "mine.stl")
+        with open(mine, "wb") as f:
+            f.write(stl_bytes(list(reversed(box(10, 10, 10)))))
+        before = read_bytes(mine)
+        code, rec = run("record", mine, "--source", src, "--engine", "blender", "--out", os.path.join(self.d, "rec"),
+                        "--no-wall-check", "--no-3mf")
+        self.assertEqual(code, 0, rec.get("errors"))
+        self.assertEqual(read_bytes(mine), before)
+
+    @unittest.skipUnless(HAS_SCAD, "OpenSCAD not installed")
+    def test_openscad_builds_the_same_bytes(self):
+        src = self.write("holes.scad", SCAD_HOLES)
+        outs = []
+        for i in range(4):                                  # CGAL's order changes on some runs, not all
+            code, out = run("run", src, "--out", os.path.join(self.d, f"o{i}"), "--no-wall-check", "--no-3mf")
+            self.assertEqual(code, 0, out.get("errors"))
+            outs.append(out)
+        builds = self.same(outs)
+        self.assertTrue(all(b == builds[0] for b in builds[1:]))
+
+    @unittest.skipUnless(HAS_M3D, "manifold3d not installed")
+    def test_python_builds_the_same_bytes(self):
+        src = self.write("gen.py", PYGEN)
+        prm = self.params({"_parts": {"body": {}, "peg": {}}, "w": 40, "d": 30, "h": 20, "wall": 2})
+        outs = []
+        for i in range(2):
+            code, out = run("run", src, "--params", prm, "--out", os.path.join(self.d, f"o{i}"), "--no-wall-check",
+                            "--no-3mf")
+            self.assertEqual(code, 0, out.get("errors"))
+            outs.append(out)
+        builds = self.same(outs)
+        self.assertEqual(builds[0], builds[1])
+        self.assertEqual(sorted(records(builds[0]["body"])), records(builds[0]["body"]))
+
+    @unittest.skipUnless(HAS_BPY and HAS_M3D, "bpy module or manifold3d not installed")
+    def test_blender_builds_the_same_bytes(self):
+        """Two builds in the bpy module, a --proxy build and (POSIX) one through the binary's
+        command line: the same bytes for both parts. Before 0.7.0 every build of this generator
+        wrote other bytes, and the part made by manifold3d other triangles."""
+        src = self.write("rebuild.py", BLENDER_REBUILD_GEN)
+        prm = self.params({"_parts": {"block": {}, "cap": {}}})
+        proxy = self.write("proxy.json", "{}")
+        outs = []
+        with mock.patch.object(build, "find_blender", return_value=None):
+            for i in range(2):
+                code, out = run("run", src, "--params", prm, "--out", os.path.join(self.d, f"o{i}"),
+                                "--blender-python", sys.executable, "--no-wall-check", "--no-3mf")
+                self.assertEqual((code, out["engine_info"]["mode"]), (0, "bpy"), out.get("errors"))
+                outs.append(out)
+            code, prox = run("run", src, "--params", proxy, "--proxy", "block,cap", "--out", os.path.join(self.d, "px"),
+                             "--blender-python", sys.executable, "--no-wall-check")
+            self.assertEqual(code, 0, prox.get("errors"))
+            outs.append(prox)
+        if os.name != "nt":
+            exe = self.fake(EMULATED_BLENDER, "emulated_blender")
+            with mock.patch.dict(os.environ, {"BLENDER": exe}):
+                code, out = run("run", src, "--params", prm, "--out", os.path.join(self.d, "bin"), "--no-wall-check",
+                                "--no-3mf")
+            self.assertEqual((code, out["engine_info"]["mode"]), (0, "binary"), out.get("errors"))
+            outs.append(out)
+        builds = self.same(outs)
+        for b in builds[1:]:
+            for name in ("block", "cap"):
+                self.assertEqual(sorted(records(b[name])), sorted(records(builds[0][name])), f"{name}: other triangles")
+                self.assertEqual(b[name], builds[0][name], f"{name}: the same triangles in another order")
 
 
 class ThreeMF(Base):
