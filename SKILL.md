@@ -70,7 +70,11 @@ Rules that hold in every phase, whatever file is open:
   `_assumptions` ("not confirmed by a test print"); never say a test confirmed something it did not.
 - **Only `finalize.py` says a promise is verified.** Your look at an image never verifies one, nor
   does a part's own check. `"by": "user"` records only what the user did or said (measured, judged,
-  printed); never mark a promise excluded, or a WARN accepted, without the user's own words.
+  printed). Excluding a promise, accepting a WARN and, in an attended run, delivering a promise as
+  a prototype need the user's agreement: a reply that takes that option, to a question that named
+  it, said what taking it means and can cost, and offered the choices. A look, a "you decide", an
+  earlier answer or silence is never agreement (`references/phase-4-features-joints.md`, "What
+  counts as agreement").
 
 ## How the phases run
 
@@ -212,11 +216,15 @@ printed.
 - A size a hand calculation assumed (a lip height, a wall) is checked on the built STL with
   `measure.py --expect` and the report saved (`references/measure.md`).
 - Leave Phase 4 only when `finalize.py` names no error (`promise_errors` empty, `use` not
-  `error`). Decide each promise not verified with the user ("Leaving Phase 4"): an `assumed` one
-  may go on assumed; a `not verified` one gets its evidence, goes out as a prototype, or the user
-  excludes it in their words (`"by": "user"`), never in unattended runs. A `failed` promise is
-  never excluded or accepted away: go back to the phase of the evidence that failed (G7); if the
-  user wants the files anyway, the failure is the delivery's first line.
+  `error`). Decide each promise not verified with the user ("Leaving Phase 4"), here and whenever
+  finalize first reports one later (a promise added late, or one a late change made stale): an
+  `assumed` one may go on assumed; a `not verified` one gets its evidence, or the user, asked in a
+  message that names it, takes it as a prototype or excludes it (their reply, word for word, as
+  the reason). Left to you, it gets evidence you can make or goes out as a prototype, with an
+  `_assumptions` line saying so; never excluded. A look belongs to its image: a stale one needs a
+  new image and a new look. A `failed` promise is never excluded or accepted away: go back to the
+  phase of the evidence that failed (G7); if the user wants the files anyway, the failure is the
+  delivery's first line.
 
 ## Phase 5 — Gate and process tuning (review point)
 
@@ -247,8 +255,9 @@ assumption repeated.
 - First `finalize.py --build out/build.json`, always with `--deliver` (the files, each part's
   filament, the process preset: without it a promise can read verified on another material);
   `--bundle` (sources and evidence) only on the last run, into a new folder. Call verified only
-  what it does. The message, in plain words throughout, opens with the `use` tier: each promise's
-  state and, if not verified, why; a failure or a prototype first; then the rest, summarised.
+  what it does. The message, in plain words throughout, opens with the `use` tier (unattended:
+  after what was decided alone): each promise's state and, if not verified, why; a failure or a
+  prototype first; then the rest, summarised.
 - Files by the slicer saved in Phase 2 (the phase file's table): Bambu project 3MF plus STL per
   part, or STL per part plus the core 3MF; every part (coupons too) an STL named after it.
 - Then: the parameter table and "anything to change?"; the print settings with their reasons;
@@ -297,15 +306,16 @@ of `validate.py` and `fit.py` is in `references/checks.md`, that of `build.py` i
 Enter this mode only when the user explicitly requests unattended execution or the host explicitly
 marks the run as unattended. A slow reply, missing settings file or unanswered question does not
 enable it. Keep any choices and dimensions already supplied; defaults fill missing answers only.
-In this mode, take the default at each stop (reference choice C, the first
-concept variant, purpose general; at the Phase 3 stop, go on with the base shape as built and put
-its preview, sizes and verdicts at the top of the next message), record every assumption and every
-stop taken alone in `_assumptions` in `params.json`, and repeat them at the top of the deliverable
-with every promise not verified; never exclude a promise (nobody can agree). If the printer and
-slicer are unknown, deliver STL per part plus a core 3MF, mark D2
-UNVERIFIED, and say at the top that the printer was not confirmed. A skipped fit test or
-mechanism-first print goes into `_assumptions` like any other stop; `calibration.py add` is never
-run, nobody said yes. G9 still applies: the updates go into the progress notes. Two exceptions: if a size the part must fit has no source for the user's own object (a typical
+In this mode, take the default at each stop (reference choice C, the first concept variant, purpose
+general; at the Phase 3 stop, go on with the base shape as built and show its preview, sizes and
+verdicts in the next message), and record every assumption and every stop taken alone in
+`_assumptions` in `params.json`, the Phase 3 look included ("base shape: not looked at by the
+user, unattended run"). The delivery message opens with them and with every promise not verified,
+before any result. Never exclude a promise or accept a WARN (nobody can agree): a `not verified`
+promise goes out as a prototype. If the printer and slicer are unknown, deliver STL per part plus
+a core 3MF, mark D2 UNVERIFIED, and say at the top that the printer was not confirmed. A skipped
+fit test or mechanism-first print goes into `_assumptions` like any other stop; `calibration.py add`
+is never run, nobody said yes. G9 still applies: the updates go into the progress notes. Two exceptions: if a size the part must fit has no source for the user's own object (a typical
 size of another product is no source), stop rather than guess; and never overwrite a user original or delivered version. Updating the current
 project's working state remains allowed under the file-protection rule above.
 

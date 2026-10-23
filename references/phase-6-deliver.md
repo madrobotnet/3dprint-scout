@@ -53,11 +53,18 @@ of the print file, and a promise can read verified while the file prints another
   check again (G7). A failure is never accepted or excluded away. If the user wants these files
   anyway, the failure is the first line of the message.
 - `not verified`: read each reason. Renew the evidence a change made stale since Phase 4
-  (`references/phase-5-gate.md`, step 1), then run finalize again. A promise still not verified
-  goes out only as a prototype, or excluded by the user, as `references/phase-4-features-joints.md`,
-  "Leaving Phase 4", says; when this is the first time finalize reports it, decide it with the
-  user now by that rule.
+  (`references/phase-5-gate.md`, step 1), then run finalize again; a stale look gets an image of
+  the current build and a new look from the user, never the old look carried over. A promise
+  still not verified goes out only as a prototype, or excluded by the user, as
+  `references/phase-4-features-joints.md`, "Leaving Phase 4", says; when this is the first time
+  finalize reports it, decide it with the user now by that rule.
 - `assumed`, `excluded`, `accepted`: deliver, and say each as below.
+
+Before the message, no promise goes out as a prototype or excluded, and no WARN accepted, that
+the user was not asked about in a message that named it (`references/phase-4-features-joints.md`,
+"What counts as agreement"), except the defaults when the user left the decision to you and
+those of an unattended run, each with its `_assumptions` line. A record made from other words (a
+look, a "you decide", an earlier answer) comes out: ask now.
 
 ## The print file (`--deliver`)
 
@@ -136,23 +143,27 @@ start from it.
 
 Write it in the user's language and in plain words, at every delivery, also after a fix: no
 script names, check ids, JSON keys or lines pasted from the report anywhere in it, the `open`
-list and `_assumptions` included. In this order:
+list and `_assumptions` included. An unattended run opens, before any result, with what was
+decided alone (each stop taken alone and each default in `_assumptions`, the base-shape look
+among them) and every promise not verified, then goes on as below (item 1 then gives the other
+promises). In this order:
 
 1. **The `use` tier, first.** One line per promise in `promises`: its `text` in the user's
    words, its state, and, when the state is not `verified`, why, from its `reasons`. When a
    promise failed (the user wants the files anyway) or goes out as a prototype
    (`references/phase-4-features-joints.md`, "Leaving Phase 4"), the first line says so and
-   names each ("This is a prototype: the cable exit is not checked yet, because ..."). Then,
-   when `_assumptions` or `_verify.unverified` hold other lines, how many (item 2 gives them).
+   names each ("This is a prototype: the cable exit is not checked yet, because ...") and who
+   chose it: the user, or you when they left it to you or the run was unattended. Then, when
+   `_assumptions` or `_verify.unverified` hold other lines, how many (item 2 gives them).
    finalize marks a prototype promise `"prototype": true` and names it in the use summary
    ("delivered as a prototype: cable-out"), so its line is not counted among those.
 
    | State | Say |
    |---|---|
    | `verified` | It holds, and what showed it ("checked against a plug of the size you measured", "your test print fit the cable"). When an evidence's `covers` is narrower than the promise's `conditions` (the fit checks the plug at rest; plugging it in at an angle is not simulated), say what was not covered. |
-   | `accepted` | It holds apart from the warning the user accepted, named. Not "verified". |
+   | `accepted` | It holds apart from the warning the user accepted, named, with their reply. Not "verified". |
    | `assumed` | It holds only if a size nobody measured is right: name it with its value ("the plug head was taken as 13 × 8 mm, not measured") and what would settle it (a caliper reading, a test print). For a filament the print file does not name: which filament to choose. Never "verified". |
-   | `excluded` | Not checked: the user chose to take it as it is, with their reason. |
+   | `excluded` | Not checked: the user chose to take it as it is, with their reason in their own words. |
    | `not verified` | Not checked, and why ("the strength was calculated for the 6 mm base; it is 6.5 mm now"). |
    | `failed` | Not kept, and what failed ("the lip is 10 mm high; holding the phone needs 12 mm"). |
 
@@ -162,13 +173,13 @@ list and `_assumptions` included. In this order:
    when it is verified, one line saying they all passed), which sides of the shape a reference
    showed, that nothing was sliced here, the test prints and their results; then what `open`
    holds beyond the promises already named, in plain words: what the user must know or do (a
-   warning they accepted or must decide, a size still estimated, each `_assumptions` line that
-   changes how they print or use the part). Never paste a line as finalize wrote it ("sled P6
-   UNVERIFIED (yours to decide)"): the soft checks left to you were decided before delivery
-   (Phase 5, step 2), and only what the user must act on reaches the message. When a fit test
-   or a mechanism-first print was offered and skipped, update `_assumptions` first ("latch
-   window clearance 0.3 mm: not confirmed by a fit test") so that the delivery says what is
-   unconfirmed, never that a test confirmed it.
+   warning they accepted or must decide, one they left to you that stays, a size still
+   estimated, each `_assumptions` line that changes how they print or use the part). Never
+   paste a line as finalize wrote it ("sled P6 UNVERIFIED (yours to decide)"): the soft checks
+   left to you were decided before delivery (Phase 5, step 2), and only what the user must act
+   on reaches the message. When a fit test or a mechanism-first print was offered and skipped,
+   update `_assumptions` first ("latch window clearance 0.3 mm: not confirmed by a fit test") so
+   that the delivery says what is unconfirmed, never that a test confirmed it.
 3. **Files**, chosen by the slicer saved in Phase 2:
 
    | Slicer | Main file | Also deliver |
