@@ -6,17 +6,6 @@ organic and freeform shapes with `sdf.py`), or for a part that needs a parts.py 
 cannot reach (no manifold3d in Blender's Python). Tell the user once: this path produces meshes only (no editable CAD
 file) and has no native fillets (smooth blends come from `sdf.py`, chamfers from `parts.py`).
 
-Contents:
-
-- [Script shape](#script-shape)
-- [Run](#run)
-- [Part library: `parts.py`](#part-library-partspy)
-- [Organic and freeform shapes: `sdf.py`](#organic-and-freeform-shapes-sdfpy)
-  - [Alternative: constrained triangulation lifted to surfaces](#alternative-constrained-triangulation-lifted-to-surfaces)
-- [API you will need](#api-you-will-need)
-- [Preview](#preview)
-- [Pitfalls](#pitfalls)
-
 ## Script shape
 
 ```python
@@ -89,10 +78,8 @@ few by keyword.
 
 Every function's docstring names its defaults and sources. Letters of `text()` are separate
 bodies until they sit on a face; `thread()` is a twisted extrusion with flat crest and root, no
-tolerance class, and the agent says so when delivering. Members that carry load get the
-`strength.py` check and, when the margin is short, a test print of the mechanism alone
-(`build.py run --only ...`, `references/parts.md`); a `lid`-duty hinge always gets its coupon,
-on top of the margin.
+tolerance class, and the agent says so when delivering. Members that carry load are checked in
+Phase 4.
 
 ## Organic and freeform shapes: `sdf.py`
 
