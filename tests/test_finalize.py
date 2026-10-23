@@ -1822,7 +1822,8 @@ class FinalizeBundle(FinalizePromises):
                 self.assertEqual(a.read(), b.read(), path)
         with open(prefix + "REPRODUCE.md", encoding="utf-8") as f:
             text = f.read()
-        self.assertIn('finalize.py" --build build.json --params params.json --deliver deliver\n', text)
+        self.assertIn('finalize.py" --build build.json --params params.json --printer printers.json --no-wall-check '
+                      '--deliver deliver\n', text)                            # the settings finalize was given
         self.assertIn("`ref/plug.stl`: file read by measurement 'plug width'", text)
         self.assertIn("record out/box.stl out/lid.stl --source gen.py", text)
         self.assertNotIn(self.tmp, text)
@@ -2049,6 +2050,360 @@ class FinalizeBundle(FinalizePromises):
         self.export()
         self.assertEqual(verdict(reproduce("deliver/source")), verdict(out))
 
+    GROUPED = {"box": {"expect": [40, 30, 20], "object": "set"},
+               "lid": {"expect": [40, 30, 3], "object": "set", "role": "free", "clearance": 0.3}}
+
+    def write_params(self, parts=None, verify=None, **extra):
+        """params.json with these _parts (the box and the lid by default) and _verify."""
+        data = {"_parts": parts or {"box": {"expect": [40, 30, 20]}, "lid": {"expect": [40, 30, 3]}},
+                "_verify": self.full_verify() if verify is None else verify, **extra}
+        with open(".3dprint/params.json", "w") as f:
+            json.dump(data, f)
+
+    def record_3mf(self, *stls, flags=()):
+        """build.py record of the box and the lid, with the core 3MF unless flags say otherwise; its
+        JSON, saved."""
+        code, built = run(build, "record", *(stls or ("out/box.stl", "out/lid.stl")), "--source", "gen.py", "--params",
+                          ".3dprint/params.json", "--printer", ".3dprint/printers.json", "--out", "out",
+                          "--no-wall-check", *flags)
+        self.assertEqual(code, 0, built["errors"])
+        with open("out/build.json", "w") as f:
+            json.dump(built, f)
+        return built
+
+    def refused(self, *flags, folder="deliver/source", why=()):
+        """finalize --bundle refuses (exit 1, finalize's JSON error, each `why` in it) and leaves no
+        folder behind. Returns the error."""
+        code, out = self.finalize(*flags, "--bundle", folder)
+        self.assertEqual(code, 1, out.get("bundle"))
+        for w in why:
+            self.assertIn(w, out["errors"][0])
+        self.assertFalse(os.path.lexists(folder))
+        return out["errors"][0]
+
+    def reproduce_text(self, folder="deliver/source"):
+        with open(os.path.join(folder, "REPRODUCE.md"), encoding="utf-8") as f:
+            return f.read()
+
+    def test_a_build_that_is_no_longer_the_projects_is_refused(self):
+        """Reverse (audit 1): REPRODUCE.md builds the parts again from the project as it is now and
+        with the build's own settings, so a reason that compares the saved build with the project
+        now (a parameter, the material, printers.json or the grouping changed since, an STL that is
+        not the build's, a part it did not make) would be gone in the bundle: not verified here,
+        verified there. So would a setting given to finalize that differs from the build's. Each
+        refuses the bundle before the folder is made."""
+        def bed():
+            printers = json.loads(json.dumps(X2D))
+            printers["printers"]["x2d"]["bed"]["height"] = 250
+            with open(".3dprint/printers.json", "w") as f:
+                json.dump(printers, f)
+        pin = {"box": {"expect": [40, 30, 20]}, "lid": {"expect": [40, 30, 3]}, "pin": {"expect": [3, 3, 9]}}
+        for what, change, why in (
+                ("a parameter changed", lambda: self.write_params(_material="pla_basic", w=41), "box R3 FAIL"),
+                ("the material changed", lambda: self.write_params(_material="petg_hf"),
+                 "box: material changed since the build (pla_basic -> petg_hf)"),
+                ("printers.json edited", bed, ".3dprint/printers.json changed since the build"),
+                ("the grouping changed", lambda: self.write_params(self.GROUPED, _material="pla_basic"),
+                 "assembly metadata changed since the build"),
+                ("an STL changed", lambda: write_stl("out/lid.stl", box(40, 30, 3.2, 0, 0, 30)),
+                 "lid: out/lid.stl is not the STL the build judged"),
+                ("a part not built", lambda: self.write_params(pin, _material="pla_basic"),
+                 "pin: in _parts but not built")):
+            with self.subTest(what):
+                write_stl("out/lid.stl", box(40, 30, 3, 0, 0, 30))
+                with open(".3dprint/printers.json", "w") as f:
+                    json.dump(X2D, f)
+                self.write_params(_material="pla_basic")
+                self.record()
+                code, out = self.finalize("--bundle", "deliver/fresh")
+                self.assertEqual(code, 0, out["errors"])                         # as built, it bundles
+                shutil.rmtree("deliver")
+                change()
+                self.refused(why=(why, "build again, save that build's JSON and bundle again"))
+        write_stl("out/lid.stl", box(40, 30, 3, 0, 0, 30))
+        with open(".3dprint/printers.json", "w") as f:
+            json.dump(X2D, f)
+        self.write_params(_material="pla_basic")
+        self.record()
+        shutil.copyfile(".3dprint/printers.json", "other.json")                 # the same bed, another file
+        for flags, why in ((("--tol", "0.05"), "tol None -> 0.05"), (("--min-wall", "2"), "min_wall None -> 2.0"),
+                           (("--printer", "other.json"), "printer .3dprint/printers.json -> other.json")):
+            with self.subTest(flags=flags):
+                self.refused(*flags, why=(why, "bundle without those options"))
+
+    def test_the_rebuild_is_made_as_the_build_was(self):
+        """Reverse (audit 3, 4): REPRODUCE.md builds again with the build's engine (a Blender
+        generator without the marker line is built with --engine blender), its core 3MF choice (the
+        same name, or --no-3mf) and its settings, every value quoted (a printer id with a space was
+        split by the shell); a build JSON that cannot tell whether a core 3MF was asked for refuses."""
+        self.write_params()
+        self.record()                                                          # --no-3mf
+        code, out = self.finalize("--bundle", "deliver/a")
+        self.assertEqual(code, 0, out["errors"])
+        self.assertIn('build.py" record out/box.stl out/lid.stl --source gen.py --params params.json --engine fusion '
+                      "--out out --no-3mf --printer printers.json --no-wall-check > build.json",
+                      self.reproduce_text("deliver/a"))
+        with open("out/build.json") as f:
+            recorded = json.load(f)
+        with open("out/build.json", "w") as f:                       # as `run gen.py --engine blender` saves it
+            json.dump(dict(recorded, engine="blender", source="gen.py"), f)
+        code, out = self.finalize("--bundle", "deliver/b")
+        self.assertEqual(code, 0, out["errors"])
+        self.assertIn('build.py" run gen.py --engine blender --params params.json --out out --no-3mf',
+                      self.reproduce_text("deliver/b"))
+        with open("out/build.json", "w") as f:
+            json.dump(dict(recorded, errors=["core 3MF not written: disk full"]), f)
+        self.refused(folder="deliver/c", why=("does not tell whether one was asked for",))
+        printers = {"schema": X2D["schema"], "printers": {"Prusa MK4": X2D["printers"]["x2d"]}}
+        with open(".3dprint/printers.json", "w") as f:
+            json.dump(printers, f)
+        self.record_3mf(flags=("--printer-id", "Prusa MK4"))
+        code, out = self.finalize("--bundle", "deliver/source")
+        self.assertEqual(code, 0, out["errors"])
+        self.assertIn("--engine fusion --out out --3mf box_lid.3mf --printer printers.json --printer-id 'Prusa MK4' "
+                      "--no-wall-check > build.json", self.reproduce_text())
+        self.export()
+        self.assertEqual(verdict(reproduce("deliver/source")), verdict(out))
+
+    def test_a_missing_printers_json_is_named_not_dropped(self):
+        """Reverse (audit 8): the printers.json the build used is gone. The commands keep naming it,
+        so the re-check finds it missing too, and bundle_missing lists it; when the build judged an
+        object with it, the bundle is refused (the rebuild would judge that object without it)."""
+        self.write_params()
+        self.record()
+        os.remove(".3dprint/printers.json")
+        code, out = self.finalize("--bundle", "deliver/source")
+        self.assertEqual(code, 0, out["errors"])
+        self.assertIn(".3dprint/printers.json: the printers.json the build used", out["bundle_missing"])
+        text = self.reproduce_text()
+        self.assertIn("--no-3mf --printer .3dprint/printers.json --no-wall-check > build.json", text)
+        self.assertIn("finalize.py\" --build build.json --params params.json --printer .3dprint/printers.json", text)
+        self.export()
+        self.assertEqual(verdict(reproduce("deliver/source")), verdict(out))   # "printer file not found" there too
+        with open(".3dprint/printers.json", "w") as f:
+            json.dump(X2D, f)
+        self.write_params(self.GROUPED)
+        built = self.record()
+        os.remove(".3dprint/printers.json")
+        if any(o.get("checks") for o in built["objects"]):
+            self.refused(folder="deliver/set", why=(".3dprint/printers.json is gone since the build",))
+
+    def run_proxy(self, place):
+        """The plug proxy as `build.py run --proxy` leaves it, its build JSON saved at `place`
+        (written directly: no engine)."""
+        import validate
+        with open(".3dprint/plug.json", "w") as f:
+            json.dump(self.PLUG, f)
+        validate.write_manifest("out/plug.stl", ["plug.py"], self.PLUG, "python", by="run")
+        with open(place, "w") as f:
+            json.dump({"schema": "3dprint-scout.build/1", "ran": True, "engine": "python", "source": "plug.py",
+                       "sources": ["plug.py"], "params": ".3dprint/plug.json", "proxy": True,
+                       "parts": [{"name": "plug", "stl": "out/plug.stl",
+                                  "sha256": validate.file_sha256("out/plug.stl")}]}, f)
+
+    def test_a_proxy_built_again_takes_no_place_the_bundle_writes(self):
+        """Reverse (audit 2): REPRODUCE.md saves a proxy built again at its build JSON's place, after
+        the main rebuild wrote build.json: there it must not take a file the bundle writes itself,
+        nor the place of another build's output."""
+        plug = {"name": "plug through notch", "report": "out/fit_plug.json", "proxy": True, "dims": ["usb-c-plug"]}
+        for place in ("out/plug_build.json", "build.json", "Params.json"):
+            with self.subTest(place=place):
+                self.params(self.verify([self.SEAT, self.CABLE], joints=[
+                    {"name": "lid on box", "report": "out/fit_seat.json"}, dict(plug, proxy_build=place)]), **self.PLUG)
+                self.record()
+                self.run_proxy(place)
+                if place == "out/plug_build.json":
+                    code, out = self.finalize("--bundle", "deliver/source")
+                    self.assertEqual(code, 0, out["errors"])
+                    self.assertEqual(out["joints"][1]["proxy_build"], "tied")
+                    self.assertIn("--proxy plug --engine python --out out > out/plug_build.json", self.reproduce_text())
+                    shutil.rmtree("deliver")
+                else:
+                    self.refused(why=(f"is saved as or built into {place}, a file the bundle writes itself",))
+                    os.remove(place)
+        self.run_proxy("out/plug_again.json")                                  # the same proxy, saved twice
+        self.params(self.verify([self.SEAT, self.CABLE], joints=[
+            {"name": "lid on box", "report": "out/fit_seat.json"}, dict(plug, proxy_build="out/plug_build.json"),
+            dict(plug, name="plug again", proxy_build="out/plug_again.json")]), **self.PLUG)
+        self.refused(why=("is built again into out/plug.stl (the proxy of joint 'plug again')",
+                          "which another build in REPRODUCE.md writes too"))
+
+    def test_a_file_the_rebuild_writes_again_is_not_carried(self):
+        """Reverse (audit 6): the commands of REPRODUCE.md write the parts, their manifests and the
+        core 3MF again; a carried file at one of those places (a delivery into out/, a measurement of
+        the core 3MF) would be replaced by the rebuild and judged anew, so the bundle refuses it."""
+        self.write_params()
+        built = self.record_3mf()
+        self.refused("--deliver", "out", why=("out/box.stl (delivered file; REPRODUCE.md writes the part box there)",
+                                              "deliver into a folder of its own"))
+        if HAS_NP:
+            measure_report("out/m_plate.json", "info", built["threemf"], "--expect", "objects[0].size_mm[0]=40",
+                           "--tol", "0.1")
+            v = self.full_verify()
+            v["measurements"] = [{"name": "plate", "report": "out/m_plate.json"}]
+            self.write_params(verify=v)
+            self.refused(why=("out/box_lid.3mf (file read by measurement 'plate'; REPRODUCE.md writes the core 3MF "
+                              "there)",))
+
+    def test_the_delivery_folder_is_looked_for_before_the_bundle_is_made(self):
+        """Reverse (audit 7): the documented call, `--deliver deliver/<date> --bundle
+        deliver/<date>/source`, before the delivery folder is made: the bundle folder makes it, so it
+        must be looked for first; the bundle holds no empty delivery folder and the re-check from it
+        says "not found" too."""
+        self.write_params()
+        self.record()
+        code, out = self.finalize("--deliver", "deliver/2026-10-21", "--bundle", "deliver/2026-10-21/source")
+        self.assertEqual(code, 0, out["errors"])
+        self.assertIn("delivery folder deliver/2026-10-21 not found", out["open"])
+        self.assertFalse(os.path.exists("deliver/2026-10-21/source/deliver"))
+        self.export("deliver/2026-10-21/source")
+        self.assertEqual(verdict(reproduce("deliver/2026-10-21/source")), verdict(out))
+
+    def test_parts_outside_the_project_are_refused(self):
+        """Reverse (audit 9): parts built or recorded outside the project folder (../exports/box.stl)
+        are not carried (the rebuild makes them in the bundle's out/), but the reports still name
+        them where they were: the bundle is refused."""
+        far = tempfile.mkdtemp(prefix="3dps-parts-")
+        self.addCleanup(shutil.rmtree, far, ignore_errors=True)
+        for n in ("box", "lid"):
+            shutil.copyfile(os.path.join("out", n + ".stl"), os.path.join(far, n + ".stl"))
+        self.write_params()
+        self.record_3mf(*(os.path.relpath(os.path.join(far, n + ".stl")) for n in ("box", "lid")), flags=("--no-3mf",))
+        error = self.refused(why=("box.stl, lid.stl is outside the project folder",))
+        self.assertNotIn(far, error)
+
+    def test_a_machine_path_is_found_in_any_usual_encoding(self):
+        """Reverse (audit 11): a carried text file saved in Latin-1, cp1252 or UTF-16 that holds a
+        folder of this machine with a non-ASCII letter was read as UTF-8 and missed; the bytes are
+        searched in each encoding. A whole folder only: not /home/joséphine, not src/home/josé."""
+        homes = ["/home/josé", "/home/Šárka"]
+        with mock.patch.object(finalize, "machine_prefixes", return_value=homes):
+            for text, enc, found in (("x = '/home/josé/a.svg'", "utf-8", True),
+                                     ("x = '/home/josé/a.svg'", "latin-1", True),
+                                     ("x = '/home/Šárka/a.svg'", "cp1252", True),
+                                     ("x = '/home/josé/a.svg'", "utf-16-le", True),
+                                     ("x = '/HOME/josé/a.svg'", "utf-16", True),
+                                     ("x = '/home/josé/a.svg'", "utf-16-be", True),
+                                     ("-I/home/josé/inc", "latin-1", True),
+                                     ("x = '/home/joséphine/a.svg'", "latin-1", False),
+                                     ("x = 'src/home/josé/a.svg'", "latin-1", False)):
+                with self.subTest(text=text, enc=enc):
+                    with open("t.txt", "wb") as f:
+                        f.write(text.encode(enc))
+                    self.assertEqual(finalize.holds_machine_path("t.txt"), found)
+        with open("gen.py", "ab") as f:
+            f.write("# outline traced from /home/josé/outline.dxf\n".encode("latin-1"))
+        self.write_params()
+        self.record()
+        with mock.patch.object(finalize, "machine_prefixes", return_value=[os.getcwd(), "/home/josé"]):
+            self.refused(why=("gen.py holds a path of this machine",))
+
+    def test_commands_are_never_scrubbed_and_a_folder_is_taken_out_whole(self):
+        """Reverse (audit 5): with a short home folder (/root: a container, CI), REPRODUCE.md's
+        command `run src/root/gen.py` came out as `run src~/gen.py`. The commands hold relative paths
+        and are not scrubbed; elsewhere a folder is taken out only as a whole folder."""
+        with mock.patch.object(finalize, "machine_forms", return_value=[("/root", "~")]):
+            for text, want in (("src/root/gen.py", None), ("src/roots/gen.py", None), ("/rootbeer/x", None),
+                               ("/root/x", "~/x"), ("-I/root/inc", "-I~/inc"), ("file:///root/x", "file://~/x"),
+                               ('"/root"', '"~"'), ("saved in /root.", "saved in ~.")):
+                self.assertEqual(finalize.scrub(text), want or text, text)
+        os.makedirs("src/root")
+        shutil.move("gen.py", "src/root/gen.py")
+        self.write_params()
+        code, built = run(build, "record", "out/box.stl", "out/lid.stl", "--source", "src/root/gen.py", "--params",
+                          ".3dprint/params.json", "--printer", ".3dprint/printers.json", "--out", "out",
+                          "--no-wall-check", "--no-3mf")
+        with open("out/build.json", "w") as f:
+            json.dump(built, f)
+        with mock.patch.object(finalize, "machine_prefixes", return_value=[os.getcwd(), "/root"]):
+            code, out = self.finalize("--bundle", "deliver/source")
+        self.assertEqual(code, 0, out["errors"])
+        text = self.reproduce_text()
+        self.assertIn("Generator: `src/root/gen.py`", text)
+        self.assertIn("--source src/root/gen.py --params params.json", text)
+
+    def test_nothing_is_left_half_written(self):
+        """Reverse (audit 12): what can make writing fail is checked before the folder is made (a
+        source gone or a folder now, a build JSON field of another type), and a failure after it
+        takes away every folder this run made; finalize alone reports a malformed build JSON as
+        JSON, not a traceback."""
+        self.write_params()
+        with open("helper.py", "w") as f:
+            f.write("W = 2\n")
+        code, built = run(build, "record", "out/box.stl", "out/lid.stl", "--source", "gen.py", "helper.py", "--params",
+                          ".3dprint/params.json", "--printer", ".3dprint/printers.json", "--out", "out",
+                          "--no-wall-check", "--no-3mf")
+        with open("out/build.json", "w") as f:
+            json.dump(built, f)
+        os.remove("helper.py")
+        self.refused(why=("helper.py: a source the build hashed is gone or not a file",))
+        os.makedirs("helper.py")
+        self.refused(why=("helper.py: a source the build hashed is gone or not a file",))
+        os.rmdir("helper.py")
+        good = self.record()
+        for change, why in (({"source": 5}, "the build JSON's source is not as build.py writes it"),
+                            ({"engine": None}, "the build JSON's engine is"),
+                            ({"validate_settings": dict(good["validate_settings"], tol="x")}, "validate_settings.tol")):
+            with self.subTest(change=change):
+                with open("out/build.json", "w") as f:
+                    json.dump(dict(good, **change), f)
+                self.refused(why=(why,))
+        for change in ({"sources": ["gen.py", 7]}, {"parts": ["box"]}, {"validate_settings": "x"},
+                       {"validate_settings": dict(good["validate_settings"], printer=5)}):
+            with self.subTest(change=change):
+                with open("out/build.json", "w") as f:
+                    json.dump(dict(good, **change), f)
+                code, out = self.finalize()
+                self.assertEqual(code, 1)
+                self.assertIn("as build.py writes it", out["errors"][0])
+        with open("out/build.json", "w") as f:
+            json.dump(good, f)
+        real = shutil.copyfile
+
+        def full_disk(src, dst, *a, **k):                    # the second copy fails, the folder is made by then
+            calls.append(dst)
+            if len(calls) == 2:
+                raise OSError(28, "No space left on device")
+            return real(src, dst, *a, **k)
+        for parent in (False, True):
+            with self.subTest(parent_exists=parent):
+                if parent:
+                    os.makedirs("deliver")
+                calls = []
+                with mock.patch("shutil.copyfile", full_disk):
+                    code, out = self.finalize("--bundle", "deliver/new/source")
+                self.assertEqual(code, 1, out.get("bundle"))
+                self.assertIn("writing the bundle failed", out["errors"][0])
+                self.assertEqual(len(calls), 2)
+                self.assertEqual(os.path.isdir("deliver"), parent)              # only what this run made is gone
+                self.assertFalse(os.path.exists("deliver/new"))
+
+    @unittest.skipUnless(os.name == "posix", "a file name of raw bytes")
+    def test_a_name_that_is_not_utf8(self):
+        """Reverse (audit 12): a photo, or a delivered file, whose name is not UTF-8 (Latin-1 bytes from
+        a camera card): the bundle names it and refuses before the folder is made (it wrote half a
+        bundle, then a traceback), and finalize --deliver prints it as a JSON escape (a traceback)."""
+        import subprocess
+        os.makedirs("photos")
+        try:
+            with open(b"photos/caf\xe9.jpg", "wb") as f:
+                f.write(b"\xff\xd8\xff\xe0 the user's photo")
+        except OSError:
+            self.skipTest("this file system takes UTF-8 names only")
+        v = self.full_verify()
+        v["test_prints"] = [{"name": "lid fit", "status": "skipped", "photos": [os.fsdecode(b"photos/caf\xe9.jpg")]}]
+        self.write_params(verify=v)
+        self.record()
+        self.refused(why=("photos/caf\\udce9.jpg: a name the bundle would write is not UTF-8",))
+        os.makedirs("deliver")
+        shutil.copyfile("out/box.stl", b"deliver/bo\xeete.stl")
+        r = subprocess.run([sys.executable, os.path.join(SKILL, "scripts", "finalize.py"), "--build", "out/build.json",
+                            "--params", ".3dprint/params.json", "--deliver", "deliver"], capture_output=True,
+                           env=dict(os.environ, PYTHONIOENCODING="utf-8"))
+        self.assertEqual(r.returncode, 0, r.stderr[-500:])
+        out = json.loads(r.stdout.decode("utf-8"))
+        self.assertIn(os.fsdecode(b"deliver/bo\xeete.stl"), [d["file"] for d in out["delivered"]])
+
 
 for _name in [n for n in dir(FinalizePromises) if n.startswith("test_")]:
     setattr(FinalizeBundle, _name, None)            # its helpers only: the promise tests run once, above
@@ -2176,6 +2531,8 @@ class BundleFromTheScripts(unittest.TestCase):
         self.assertIn('build.py" run plug.py --params .3dprint/plug.json --proxy plug --engine python --out out/plug '
                       '> out/plug_build.json', text)                       # the engine it was built with (Codex, PR #22)
         self.assertLess(text.index("--proxy plug"), text.index("finalize.py"))
+        self.assertIn('build.py" run gen.py --engine python --params params.json --out out --3mf gen.3mf '
+                      "--printer printers.json > build.json", text)    # its engine and its core 3MF, as built
         self.assertNotIn(self.tmp, text)
         again = reproduce("deliver/source")
         self.assertEqual(verdict(again), verdict(out))
@@ -2194,6 +2551,10 @@ class BundleFromTheScripts(unittest.TestCase):
         with open("deliver/later/REPRODUCE.md", encoding="utf-8") as f:
             self.assertNotIn("--proxy", f.read())
         again = reproduce("deliver/later")
+        # A known difference, accepted: the same tiers and states, but not the same reason. Here the
+        # proxy "was not built from .3dprint/plug.json as it is now"; in the bundle, whose build JSON
+        # for it is left out, "proxy build out/plug_build.json: No such file or directory". So this
+        # case compares tiers and states only, not reasons or the open lines.
         same = ("use", "geometry", "print")
         self.assertEqual({k: again[k] for k in same}, {k: out[k] for k in same})
         self.assertEqual([(p["id"], p["state"]) for p in again["promises"]], [(p["id"], p["state"]) for p in out["promises"]])
