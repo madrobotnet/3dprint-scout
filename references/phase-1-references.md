@@ -25,6 +25,11 @@ for four alternatives or ask them to choose again.
    - **D. Use an existing model as is** — when one already does the job, say so; do not model for the sake of it.
    Offer "show 4 more" as well.
 
+A has no concepts: when the user chooses it, write the parts of the reference they keep ("its
+latch", "its rounded lid") as `feature` or `look` promises in `.3dprint/params.json` (below,
+"Promises"); the uses come from Phase 2's use list. Choice D builds nothing and writes no
+promises.
+
 ## D — Use the existing model and finish
 
 When the user chooses D, hand off the original rather than building a replacement. Provide the
@@ -81,10 +86,50 @@ lid that lifts off or hinges, round or boxy. Build them quickly (any engine; `pa
 `sdf.py` are enough for most), render each with `preview.py` (or `render.py` when Blender is
 there: the same views, nicer, with the filament colour), and say in one line per variant
 what differs and what it costs (print time, supports, strength). Rough sizes from the request or
-the references are enough here; exact ones come in Phase 2. Then **stop** for the user's pick;
-the chosen variant's parameters become the first `params.json`. Keep it to a few minutes of
+the references are enough here; exact ones come in Phase 2. Write each variant's promises as you
+describe it (below). Then **stop** for the user's pick; the chosen variant's parameters and
+promises become the first `params.json`. Keep it to a few minutes of
 work: concepts prove the idea, not the fit. Concept builds go to `out/concepts/` and are not
 gated: with no `expect` or printer yet their verdicts decide nothing; the checks start in
 Phase 3. Choice A and D skip this step. Unattended runs take
 the first variant only when the user has not already chosen one, and record it in `_assumptions`.
 Unattended means the explicit mode defined in SKILL.md, not a question left unanswered.
+
+## Promises (`_verify.promises`)
+
+What you tell the user a concept has or does is a promise: the user will hold the print to it.
+A notch, a latch or a cable hole said in a concept line and then never modelled passes every
+check, because nothing checks words. So write each one down when you say it, in that variant's
+params file in `out/concepts/` (under `_verify.promises`), one entry per feature, with an `id`
+(short and stable: evidence and the user's decisions name it), a `kind` and the `text`:
+
+- `use`: a thing the user does with the object, said with a verb (put the phone in, plug the
+  cable in, lift the lid, press the latch). It also needs `conditions` (under which it must
+  hold) and `success` (what counts as working).
+- `feature`: something the model must have (a notch, a hole, a latch). It also needs `success`,
+  a size or a property a measurement can show.
+- `look`: the shape (the back waves once).
+
+```json
+"_verify": {"promises": [
+  {"id": "cable-out", "kind": "use",
+   "text": "a right-angle USB-C cable plugs in and leaves at the back",
+   "conditions": "phone on the seat, right-angle plug", "success": "plug and cable clear the stand"},
+  {"id": "front-notch", "kind": "feature", "text": "a notch in the front lip lets the cable through",
+   "success": "the notch is at least 6 mm wide"},
+  {"id": "wave-back", "kind": "look", "text": "the back waves once"}
+]}
+```
+
+Write `text`, `conditions` and `success` in the user's language: `finalize.py` reads them back
+at delivery. The user sees them as the plain concept lines, never as JSON. Fill in the
+`conditions` and `success` the concept already implies; Phase 2 settles them with the user (the
+use list). Until then `finalize.py` reports a `use` or `feature` without them as `error`: that
+is expected now and must be gone before Phase 4 ends. No promise has evidence yet, which leaves
+it `not verified`; that is right at this point (the evidence comes in Phases 4 and 5).
+
+At the pick, the chosen variant's promises go into `.3dprint/params.json` with its parameters;
+the others are dropped. A change made at the pick ("the second one, without the notch") changes
+its promises too: remove or reword them, and say so in the reply. Never leave a feature you
+described out of the list because it may be hard to prove; one that cannot be checked by a
+script is decided with the user in Phase 4 (a test print, or their decision), not hidden.
