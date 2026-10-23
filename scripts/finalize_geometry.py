@@ -68,6 +68,7 @@ def check_parts(build, specs, params_path, settings):
         reasons.append("the build lists no parts")
     return entries, reasons, warns, to_decide, copied, same_as_build
 
+
 def check_build(build):
     reasons = []
     if not build.get("ran"):
@@ -77,6 +78,7 @@ def check_build(build):
     if build.get("gate") not in ("PASS", "INCOMPLETE"):           # INCOMPLETE: its UNVERIFIED checks say why
         reasons.append(f"the build's gate was {build.get('gate')}, not PASS")
     return reasons
+
 
 def check_objects(build, same_as_build, drift=()):
     """Object checks from the build (A1 / A2, an object's D2 / P1 / P2), only while every STL is
@@ -115,6 +117,7 @@ def check_objects(build, same_as_build, drift=()):
                     warns.append((f"{p.get('name')} {cid}", ck.get("note", "")))
     return entries, reasons, warns
 
+
 def assembly_drift(build, specs):
     """Old object checks cannot prove a new grouping, role or free-part clearance."""
     import assembly
@@ -137,6 +140,7 @@ def assembly_drift(build, specs):
         return ["assembly metadata changed since the build: build again and save the new JSON"]
     return []
 
+
 def check_prints(verify):
     entries, lines = [], []
     for t in verify.get("test_prints") or []:
@@ -147,6 +151,7 @@ def check_prints(verify):
         if st != "passed":
             lines.append(f"test print '{t.get('name')}': {st}" + (f" ({t['note']})" if t.get("note") else ""))
     return entries, lines
+
 
 def check_references(verify, objects):
     if "references" not in verify:

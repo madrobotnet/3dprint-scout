@@ -38,6 +38,7 @@ def threemf_manifest_files(folders):
                         found[sha] = (path, {"_malformed": fn})
     return found
 
+
 def manifest_folders(deliver, build):
     """Where a delivered 3MF's manifest is looked for, in this order: the delivery folder, then
     the folders the build wrote its STLs and core 3MF to (sorted, so the choice is the same in
@@ -47,9 +48,11 @@ def manifest_folders(deliver, build):
     dirs |= {os.path.dirname(build["threemf"]) if isinstance(build.get("threemf"), str) else ""}
     return [deliver, *sorted(dirs)]
 
+
 def threemf_manifests(folders):
     """{artifact sha256: manifest}, as threemf_manifest_files chooses them."""
     return {sha: m for sha, (_path, m) in threemf_manifest_files(folders).items()}
+
 
 def check_delivered(deliver, parts, build):
     """Every STL and 3MF in the delivery folder against the verified STLs. Returns (entries,
@@ -108,6 +111,7 @@ def check_delivered(deliver, parts, build):
     return entries, reasons, projects
 
 NO_PROJECT = "the print file's material is not checked (no Bambu project)"
+
 
 def check_delivered_print(projects, part_names, params, specs):
     """The slicer settings a delivered Bambu project carries (its manifest's `filaments` and

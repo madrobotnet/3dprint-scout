@@ -8,7 +8,8 @@ import os
 import re
 import validate
 
-from finalize_common import (DIM_KEYS, DIM_SOURCES, DIM_STATE, FinalizeError, IMAGE_SCHEMA, LINKED_ORIGINS, SEEN_KEYS, effective_material, finite, load_json, lookup, norm, rel, same_value, text_field)
+from finalize_common import (DIM_KEYS, DIM_SOURCES, DIM_STATE, FinalizeError, IMAGE_SCHEMA, LINKED_ORIGINS,
+    SEEN_KEYS, effective_material, finite, load_json, lookup, norm, rel, same_value, text_field)
 
 
 def check_joints(verify, parts, taken=frozenset()):
@@ -99,6 +100,7 @@ def check_joints(verify, parts, taken=frozenset()):
         entries.append(entry)
     return entries, reasons, notes
 
+
 def proxy_provenance(j, sides):
     """Whether the proxy a joint was fitted against is tied to the numbers it stands for: generated
     by `build.py run` (the joint's `proxy_build` names that build's JSON; a `record` manifest is
@@ -159,6 +161,7 @@ def proxy_provenance(j, sides):
                              "changed): build it again and fit again"), None
     return "tied", "", validate.engine_params(proxy_params)
 
+
 def measured_parts(rparts, by_sha):
     """The parts of this build a fit report measured. Byte-identical parts share a hash, so a
     side is matched by its path first and otherwise stands for every part with that hash."""
@@ -173,6 +176,7 @@ def measured_parts(rparts, by_sha):
             if p.get("name") not in names:
                 names.append(p.get("name"))
     return names
+
 
 def strength_link(rep, inputs, parts, build, params, specs):
     """How a strength.py report is tied to this build. A report written with --from-build names
@@ -222,6 +226,7 @@ def strength_link(rep, inputs, parts, build, params, specs):
         out["stale"] = stale
     return out
 
+
 def check_strength(verify, taken=frozenset(), parts=(), build=None, params=None, specs=None):
     """Every declared member's strength.py report; `result` as for joints (missing, stale: a
     --from-build report that no longer matches this build (strength_link), failed, open,
@@ -265,6 +270,7 @@ def check_strength(verify, taken=frozenset(), parts=(), build=None, params=None,
                              "parameters (strength.py --param): they must be the dimension table's")
         entries.append(entry)
     return entries, reasons, notes
+
 
 def check_dims(verify, params, measurements=()):
     """_verify.dims: the real-world sizes the design rests on (a phone, a plug), each tied to the
@@ -351,6 +357,7 @@ def check_dims(verify, params, measurements=()):
             out[f"#{i + 1}"] = entry
     return out, errors
 
+
 def user_file_problems(d, measurements):
     """Why a user-file dims entry is not backed by its measurements, each parameter by its own:
     the measurement must be a fresh, passed reading of a file that is not a part of this build,
@@ -378,6 +385,7 @@ def user_file_problems(d, measurements):
 MEASURE_ARGS = {"info": ("file",), "slice": ("file", "z", "axis", "object", "center", "max_loops"),
                 "raymap": ("file", "axis", "sign", "u", "v", "max_depth", "object", "center")}
 
+
 def remeasure(rep):
     """The report's command run again on its file (its `query`), so that no number in the report
     is taken on trust. Returns (output, None) or (None, why not)."""
@@ -390,6 +398,7 @@ def remeasure(rep):
         return {"info": measure.cmd_info, "slice": measure.cmd_slice, "raymap": measure.cmd_raymap}[q["cmd"]](args), None
     except Exception as exc:                          # numpy missing, a bad query: the report cannot stand
         return None, f"measuring {rel(q.get('file'))} again failed: {exc}"
+
 
 def expectation_problem(rep, exp):
     """Why a report's expectations cannot be trusted as written, or None. Every expectation needs
@@ -425,6 +434,7 @@ def expectation_problem(rep, exp):
     if rep.get("gate") != ("PASS" if all(st == "PASS" for st in states) else "FAIL"):
         return "its gate does not follow from its expectations"
     return None
+
 
 def check_seen(verify, parts):
     """_verify.seen: a person's judgement of a preview image. Each entry names the image, the
@@ -494,6 +504,7 @@ def check_seen(verify, parts):
         entry.update(state="fresh", shows=sorted({n for x in stls for n in shas[x["sha256"]]}))
     return entries, errors
 
+
 def current_printer(settings):
     """The id of the printer the build was judged for, or None."""
     if not settings.printer or not os.path.isfile(settings.printer):
@@ -502,6 +513,7 @@ def current_printer(settings):
         return validate.load_printer(settings.printer, settings.printer_id)[0]
     except (OSError, ValueError):
         return None
+
 
 def photos_problem(photos):
     """Why a test print's photos are not a list of the photos' paths in the project folder
@@ -514,6 +526,7 @@ def photos_problem(photos):
     if far:
         return f"photos must be paths in the project folder, relative to it (not {', '.join(far)})"
     return None
+
 
 def check_print_evidence(verify, parts, params, specs, printer_id, material_evidence=None, delivered_presets=None):
     """The test prints that list promises, as their evidence: {name: info}, declaration errors.
@@ -596,6 +609,7 @@ def check_print_evidence(verify, parts, params, specs, printer_id, material_evid
         info.update(state="stale" if stale else "fresh", notver=notver, assumed=assumed)
     return out, errors
 
+
 def check_material_contract(params, specs):
     """_material, _parts.<name>.material and _print, as declared: strength.py material keys and
     a preset name. Returns declaration errors."""
@@ -611,6 +625,7 @@ def check_material_contract(params, specs):
                                    and ("preset" not in params["_print"] or text_field(params["_print"], "preset"))):
         errors.append("_print must be an object whose preset is the slicer's process preset name")
     return errors
+
 
 def check_material_drift(build, params, specs):
     """Each part's material as the build recorded it (parts[].material) against params.json now.
@@ -629,6 +644,7 @@ def check_material_drift(build, params, specs):
             lines.append(line)
             evidence[name] = {"notver": [line], "assumed": []}
     return lines, evidence
+
 
 def check_measurements(verify, parts):
     """_verify.measurements: saved measure.py reports with --expect. Each entry gets a `result`:

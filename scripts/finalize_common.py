@@ -52,12 +52,15 @@ DIM_KEYS = ("id", "what", "unit", "params", "source", "tol", "by", "url", "where
 
 STATES = ("error", "failed", "not verified", "excluded", "assumed", "accepted", "verified")
 
+
 class FinalizeError(Exception):
     pass
+
 
 class JsonArgParser(argparse.ArgumentParser):
     def error(self, message):
         raise FinalizeError(f"usage: {message}")
+
 
 def load_json(path, what):
     try:
@@ -67,6 +70,7 @@ def load_json(path, what):
         raise FinalizeError(f"{what} {path}: {exc.strerror or exc}")
     except ValueError as exc:
         raise FinalizeError(f"{what} {path}: not JSON ({exc})")
+
 
 def rel(path):
     """A path as the report shows it: relative to the working folder (no machine path)."""
@@ -78,6 +82,7 @@ def rel(path):
         return os.path.basename(path)
     return os.path.basename(path) if r.startswith("..") else r.replace(os.sep, "/")
 
+
 def machine_prefixes():
     """Absolute folders of this machine that must not leave it in a report or bundle."""
     out = []
@@ -85,6 +90,7 @@ def machine_prefixes():
         if p and len(p) > 3 and p not in out:
             out.append(p)
     return sorted(out, key=len, reverse=True)
+
 
 def path_forms(p):
     """The ways a folder is written in a report or a source: as is, with forward slashes, with
@@ -98,6 +104,7 @@ def path_forms(p):
     if m:
         forms |= {f"/{m.group(1).lower()}/{m.group(2)}", f"/mnt/{m.group(1).lower()}/{m.group(2)}"}
     return sorted(forms, key=len, reverse=True)
+
 
 def machine_forms():
     """(form, stand-in) for every form of this machine's folders, longest first."""
@@ -113,6 +120,7 @@ FORM_BEFORE = r"(?:(?<=-[A-Za-z])|(?<![\w.~-]))"
 
 FORM_AFTER = r"(?![\w-])"
 
+
 def scrub(text):
     """The report's text with this machine's folders taken out wherever they appear, in any
     case and form (a file:// link, after -I, in a JSON escape): the working folder becomes `.`,
@@ -121,6 +129,7 @@ def scrub(text):
         text = re.sub(FORM_BEFORE + re.escape(form) + FORM_AFTER, lambda _m, s_=stand_in: s_, text,
                       flags=re.IGNORECASE)
     return text
+
 
 def part_specs(params):
     parts = params.get("_parts")
@@ -133,14 +142,17 @@ def part_specs(params):
             raise FinalizeError(f"_parts in params.json: entry {name!r} must be an object or null")
     return {str(k): dict(v or {}) for k, v in parts.items()}
 
+
 def norm(text):
     """A check or joint name as names are compared: single spaces, lower case."""
     return " ".join(str(text).split()).lower()
 
 PROTOTYPE = re.compile(r"^\s*(\S+): delivered as a prototype, not verified(?:\s+\(.*\))?\s*$")
 
+
 def plural(n, word):
     return f"{n} {word}" + ("" if n == 1 else "s")
+
 
 def check_verify_shape(verify):
     lists = {"joints": dict, "strength": dict, "measurements": dict, "seen": dict, "test_prints": dict, "accepted": dict,
@@ -163,6 +175,7 @@ def check_verify_shape(verify):
                                        and all(isinstance(v, dict) for v in verify["references"].values())):
         raise FinalizeError("_verify.references must map each object to {direction: coverage}")
 
+
 def settings_for(build, args):
     """The validation settings: the build's, replaced by any given here."""
     s = dict(build.get("validate_settings") or {})
@@ -176,6 +189,7 @@ def settings_for(build, args):
     return SimpleNamespace(**{f: s.get(f) for f in SETTINGS}, wall_check=s["wall_check"])
 
 VALIDATE_DEFAULTS = {"tol": 0.1, "tools": "0", "overhang_angle": 45.0, "min_wall": 1.2}   # validate.py's own
+
 
 def _setting(f, v):
     """A setting as validate.py will use it: its default when not given; tools as a set."""
@@ -191,6 +205,7 @@ def _setting(f, v):
         except (TypeError, ValueError):
             return str(v)
     return str(v)
+
 
 def settings_drift(build, settings):
     """What differs between the settings the build judged its objects with and this report's
@@ -218,11 +233,13 @@ def settings_drift(build, settings):
         out.append(f"{rel(pr)} changed since the build")
     return out
 
+
 def effective_material(params, specs, name):
     """A part's material as params.json declares it now: _parts.<name>.material, else _material."""
     return (specs.get(name) or {}).get("material") or params.get("_material")
 
 LINKED_ORIGINS = ("param:", "table:", "default:", "build:")    # strength.py inputs_from that nobody typed in
+
 
 def lookup(params, key):
     """A params.json value by its key, or by a dotted path into nested objects ("phone.t")."""
@@ -234,6 +251,7 @@ def lookup(params, key):
             return False, None
         cur = cur[k]
     return True, cur
+
 
 def flatten(d, prefix=""):
     """Nested parameters as dotted leaf paths ({"plug": {"w": 13}} -> {"plug.w": 13}), so a dims
@@ -247,14 +265,17 @@ def flatten(d, prefix=""):
             out[path] = v
     return out
 
+
 def same_value(a, b):
     if isinstance(a, bool) or isinstance(b, bool):
         return a is b
     return a == b
 
+
 def text_field(entry, key):
     v = entry.get(key)
     return isinstance(v, str) and bool(v.strip())
+
 
 def finite(v):
     """A real, finite number; an integer too large for a float (10**400 in edited JSON) is not."""
@@ -263,11 +284,13 @@ def finite(v):
     except OverflowError:
         return False
 
+
 def valid_check_entry(a):
     """An accepted WARN: a check name and the user's reason, both in words, and no promise."""
     return "promise" not in a and isinstance(a.get("check"), str) and bool(a["check"].strip()) and text_field(a, "reason")
 
 SCAN_ENCODINGS = ("utf-8", "utf-16-le", "utf-16-be", "latin-1", "cp1252")   # what a text file may be saved in
+
 
 def _byte_bounds(enc):
     """FORM_BEFORE and FORM_AFTER as byte patterns for a form encoded in `enc` (the marks are
@@ -278,6 +301,7 @@ def _byte_bounds(enc):
     if enc == "utf-16-be":
         return rb"(?:(?<=\x00-\x00[A-Za-z])|(?<!\x00" + before + rb"))", rb"(?!\x00" + after + rb")"
     return rb"(?:(?<=-[A-Za-z])|(?<!" + before + rb"))", rb"(?!" + after + rb")"
+
 
 def machine_byte_patterns():
     """[(pattern, its forms in lower case)], one per encoding in SCAN_ENCODINGS, matching every form
@@ -297,6 +321,7 @@ def machine_byte_patterns():
             pats.setdefault(pat, {f.lower() for f in forms})     # Latin-1, cp1252 and UTF-8 write ASCII alike
     return [(re.compile(p, re.IGNORECASE), lows) for p, lows in pats.items()]
 
+
 def holds_machine_path(path):
     """Whether a file holds a folder of this machine, in any form machine_forms knows, searched in
     its bytes as each encoding in SCAN_ENCODINGS writes it (decoded as UTF-8 alone, a Latin-1
@@ -308,6 +333,7 @@ def holds_machine_path(path):
         return False
     low = data.lower()                                   # ASCII letters only, as IGNORECASE folds bytes
     return any(any(f in low for f in lows) and p.search(data) for p, lows in machine_byte_patterns())
+
 
 def same_file(a, b):
     try:

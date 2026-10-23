@@ -9,7 +9,8 @@ import shlex
 import shutil
 import validate
 
-from finalize_common import (ENGINES_DIR, FinalizeError, finite, holds_machine_path, rel, same_file, scrub, HERE)
+from finalize_common import (ENGINES_DIR, FinalizeError, finite, holds_machine_path, rel, same_file, scrub,
+    HERE)
 from finalize_deliver import (manifest_folders, threemf_manifest_files)
 
 
@@ -23,6 +24,7 @@ BUNDLE_OWN = ("params.json", "printers.json", "REPRODUCE.md", "verification.json
 
 RUN_ENGINES = ("openscad", "python", "blender")                  # what `build.py run` builds again
 
+
 def made_by_run(b):
     """Whether a build JSON is a `build.py run` (built again by REPRODUCE.md) rather than a
     `record` (whose STLs came from Fusion or a live Blender, which a script cannot run). Since
@@ -34,6 +36,7 @@ def made_by_run(b):
 
 NOT_TEXT = (".png", ".jpg", ".jpeg", ".gif", ".webp", ".heic", ".heif", ".tif", ".tiff", ".bmp", ".mp4", ".mov",
             ".3mf")                                              # pictures and zips: no path a script reads is in them
+
 
 def bundle_path(src):
     """Where a source goes in the bundle: its path relative to the working folder (the folder the
@@ -53,6 +56,7 @@ def bundle_path(src):
             return None
     return r.replace(os.sep, "/")
 
+
 def json_object(path):
     """A JSON object from a file, or {}: a missing or malformed report is the verdict's to judge."""
     try:
@@ -61,6 +65,7 @@ def json_object(path):
     except (OSError, ValueError):
         return {}
     return data if isinstance(data, dict) else {}
+
 
 def bundle_contents(verify, build, deliver=None, joints=None):
     """What a bundle carries besides the generator, params.json and printers.json, so that the
@@ -76,121 +81,143 @@ def bundle_contents(verify, build, deliver=None, joints=None):
     command that builds it again}}, outside: the paths outside the project folder). A
     place is the path relative to the project folder; a 3MF's manifest found only elsewhere
     (out/, which a rebuild rewrites) goes beside the 3MF."""
-    built = {os.path.normcase(os.path.abspath(p["stl"])) for p in build.get("parts") or []
-             if isinstance(p, dict) and isinstance(p.get("stl"), str)}
-    files, missing, proxies, outside = {}, {}, {}, []
+    c = _Contents(build)
+    _carry_proxies(c, verify, joints)
+    _carry_reports(c, verify)
+    _carry_delivery(c, deliver, build)
+    return c.files, c.missing, c.proxies, c.outside
 
-    def carry(path, what, place=None):
+
+class _Contents:
+    """What bundle_contents collects: files carried, missing, proxies built again, paths outside."""
+
+    def __init__(self, build):
+        self.built = {os.path.normcase(os.path.abspath(p["stl"])) for p in build.get("parts") or []
+                      if isinstance(p, dict) and isinstance(p.get("stl"), str)}
+        self.files, self.missing, self.proxies, self.outside = {}, {}, {}, []
+
+    def carry(self, path, what, place=None):
         """Carry the file at its place (True), or note it missing or outside (False)."""
         if not (isinstance(path, str) and path.strip()):
             return False
         own = bundle_path(path)
         if own is None:
-            if path not in outside:
-                outside.append(path)
+            if path not in self.outside:
+                self.outside.append(path)
             return False
         place = place or own
         if not os.path.isfile(path):
-            missing.setdefault(place, what)
+            self.missing.setdefault(place, what)
             return False
-        files.setdefault(place, (path, what))
+        self.files.setdefault(place, (path, what))
         return True
 
-    def hashed(path, what):
+    def hashed(self, path, what):
         """A file a report read by its sha256: a part of this build is rebuilt; any other file is
         carried, with its build manifest when it has one (fit.py and the proxy check read it)."""
-        if not isinstance(path, str) or os.path.normcase(os.path.abspath(path)) in built:
+        if not isinstance(path, str) or os.path.normcase(os.path.abspath(path)) in self.built:
             return
-        if carry(path, what) and os.path.isfile(validate.manifest_path(path)):
-            carry(validate.manifest_path(path), f"build manifest of {bundle_path(path)}")
+        if self.carry(path, what) and os.path.isfile(validate.manifest_path(path)):
+            self.carry(validate.manifest_path(path), f"build manifest of {bundle_path(path)}")
 
-    def proxy(path, joint, tied):
+    def proxy(self, path, joint, tied):
         """A proxy's build: one `build.py run --proxy` made is made again by REPRODUCE.md, as the
         parts are (its build JSON records paths of this machine, as the main one does): its
         generator and params file are carried, its STLs, manifests and JSON are not. Any other
         (a recorded proxy) is carried as it is, with its inputs."""
         b = json_object(path) if isinstance(path, str) and os.path.isfile(path) else {}
         if b.get("schema") != "3dprint-scout.build/1":
-            carry(path, f"proxy build of {joint}")               # missing or malformed: as the verdict sees it
+            self.carry(path, f"proxy build of {joint}")          # missing or malformed: as the verdict sees it
             return
         srcs = [s for s in b["sources"] if isinstance(s, str)] if isinstance(b.get("sources"), list) else []
         for s in own_sources({"sources": srcs}):
-            carry(s, f"proxy generator of {joint}")
-        carry(b.get("params"), f"params file of the proxy of {joint}")
+            self.carry(s, f"proxy generator of {joint}")
+        self.carry(b.get("params"), f"params file of the proxy of {joint}")
         stls = ([p for p in b["parts"] if isinstance(p, dict) and isinstance(p.get("stl"), str)]
                 if isinstance(b.get("parts"), list) else [])
         src, prm, place = b.get("source"), b.get("params"), bundle_path(path)
         out = bundle_path(os.path.dirname(stls[0]["stl"]) or ".") if stls else None
         if not (b.get("proxy") is True and made_by_run(b) and isinstance(src, str) and bundle_path(src)
                 and isinstance(prm, str) and bundle_path(prm) and out and place):
-            carry(path, f"proxy build of {joint}")
+            self.carry(path, f"proxy build of {joint}")
             for p in stls:
-                hashed(p["stl"], f"proxy STL of {joint}")
+                self.hashed(p["stl"], f"proxy STL of {joint}")
         elif tied:
             writes = [w for w in (bundle_path(p["stl"]) for p in stls) if w]
             writes += [w + ".manifest.json" for w in writes]
             if b["engine"] == "blender":                         # bb.main saves <out>/<generator>.blend
                 stem = posixpath.splitext(posixpath.basename(bundle_path(src)))[0]
                 writes.append(posixpath.normpath(posixpath.join(out, stem + ".blend")))
-            proxies.setdefault(place, {"joint": joint, "out": out, "writes": writes, "command": (
+            self.proxies.setdefault(place, {"joint": joint, "out": out, "writes": writes, "command": (
                 f'python3 "$SKILL_DIR/scripts/build.py" run {shlex.quote(bundle_path(src))} --params '
                 f"{shlex.quote(bundle_path(prm))} --proxy {shlex.quote(','.join(str(p.get('name')) for p in stls))} "
                 f"--engine {shlex.quote(b['engine'])} --out {shlex.quote(out)} > {shlex.quote(place)}")})   # as built
-            built.update(os.path.normcase(os.path.abspath(p["stl"])) for p in stls)
+            self.built.update(os.path.normcase(os.path.abspath(p["stl"])) for p in stls)
         else:                                                    # built again it would be another proxy
             for p in stls:
-                hashed(p["stl"], f"proxy STL of {joint}")
-            if place not in proxies:                             # another joint's fit ties it: built again
-                missing.setdefault(place, f"proxy build of {joint}, left out: a build.py run JSON is made again, "
-                                          "not carried, and this proxy was not built from its params file as it is "
-                                          "now (build the proxy and fit it again)")
+                self.hashed(p["stl"], f"proxy STL of {joint}")
+            if place not in self.proxies:                        # another joint's fit ties it: built again
+                self.missing.setdefault(place, f"proxy build of {joint}, left out: a build.py run JSON is made again, "
+                                               "not carried, and this proxy was not built from its params file as it "
+                                               "is now (build the proxy and fit it again)")
 
+
+def _carry_proxies(c, verify, joints):
+    """The proxies first, tied ones first: an STL built again is not carried."""
     states = [e.get("proxy_build") for e in joints or []]
     declared = verify.get("joints") or []
     tied = [i < len(states) and states[i] == "tied" for i in range(len(declared))]
-    for i in sorted(range(len(declared)), key=lambda i: not tied[i]):   # the proxies first, tied ones first: an STL
-        j = declared[i]                                                  # built again is not carried
+    for i in sorted(range(len(declared)), key=lambda i: not tied[i]):
+        j = declared[i]
         if j.get("proxy") and isinstance(j.get("proxy_build"), str):
-            proxy(j["proxy_build"], f"joint '{j.get('name') or j.get('report')}'", tied[i])
+            c.proxy(j["proxy_build"], f"joint '{j.get('name') or j.get('report')}'", tied[i])
+
+
+def _carry_reports(c, verify):
+    """Every report _verify names, and what each read: fitted STLs, measured files, images, photos."""
     for j in verify.get("joints") or []:
         joint = f"joint '{j.get('name') or j.get('report')}'"
-        if carry(j.get("report"), f"fit report of {joint}"):
+        if c.carry(j.get("report"), f"fit report of {joint}"):
             sides = json_object(j["report"]).get("parts")
             for k in ("a", "b"):
                 side = sides.get(k) if isinstance(sides, dict) else None
                 if isinstance(side, dict):
-                    hashed(side.get("path"), f"STL fitted in {joint}")
+                    c.hashed(side.get("path"), f"STL fitted in {joint}")
     for s in verify.get("strength") or []:
-        carry(s.get("report"), f"strength report of member '{s.get('name') or s.get('report')}'")
+        c.carry(s.get("report"), f"strength report of member '{s.get('name') or s.get('report')}'")
     for m in verify.get("measurements") or []:
         what = f"measurement '{m.get('name') or m.get('report')}'"
-        if carry(m.get("report"), f"report of {what}"):
-            hashed(json_object(m["report"]).get("file"), f"file read by {what}")
+        if c.carry(m.get("report"), f"report of {what}"):
+            c.hashed(json_object(m["report"]).get("file"), f"file read by {what}")
     for e in verify.get("seen") or []:
         what = f"seen '{e.get('name') or e.get('image')}'"
-        if carry(e.get("image"), f"image of {what}"):
-            carry(e["image"] + ".json", f"sidecar of the image of {what}")
+        if c.carry(e.get("image"), f"image of {what}"):
+            c.carry(e["image"] + ".json", f"sidecar of the image of {what}")
     for t in verify.get("test_prints") or []:
         for p in t["photos"] if isinstance(t.get("photos"), list) else []:
-            carry(p, f"photo of test print '{t.get('name')}'")
+            c.carry(p, f"photo of test print '{t.get('name')}'")
+
+
+def _carry_delivery(c, deliver, build):
+    """Every delivered STL and 3MF, each 3MF with the manifest check_delivered judged it by."""
     if deliver and bundle_path(deliver) is None:
-        outside.append(deliver)
+        c.outside.append(deliver)
     elif deliver and os.path.isdir(deliver):
         manifests = threemf_manifest_files(manifest_folders(deliver, build))
         for fn in sorted(os.listdir(deliver)):                 # the files check_delivered judges
             path = os.path.join(deliver, fn)
             if not (os.path.isfile(path) and fn.lower().endswith((".stl", ".3mf"))):
                 continue
-            carry(path, "delivered file")
+            c.carry(path, "delivered file")
             if not fn.lower().endswith(".3mf") or bundle_path(path) is None:
                 continue
             place = bundle_path(path)
             chosen = manifests.get(validate.file_sha256(path))   # the one check_delivered judged it by
             if chosen:
                 pick, mine = chosen[0], bundle_path(chosen[0])
-                carry(pick, f"manifest of {place}" + ("" if mine == place + ".manifest.json" else f", found at {mine}"),
-                      place=place + ".manifest.json")     # beside its 3MF: out/ is written again by the rebuild
-    return files, missing, proxies, outside
+                c.carry(pick, f"manifest of {place}" + ("" if mine == place + ".manifest.json" else f", found at {mine}"),
+                        place=place + ".manifest.json")     # beside its 3MF: out/ is written again by the rebuild
+
 
 def build_field_problems(build):
     """The build JSON's fields the bundle reads that are not as build.py writes them."""
@@ -215,6 +242,7 @@ def build_field_problems(build):
         if "wall_check" in vs and not isinstance(vs["wall_check"], bool):
             bad.append("validate_settings.wall_check")
     return bad
+
 
 def rebuild_blockers(build, specs, parts, drift, metadata_drift, material_lines, settings=None):
     """Why a bundle could not reach this verdict again: REPRODUCE.md builds the parts again from
@@ -245,12 +273,14 @@ def rebuild_blockers(build, specs, parts, drift, metadata_drift, material_lines,
         again.append(f"{rel(pr)} is gone since the build, which judged its objects with it")
     return again, overrides
 
+
 def created_root(folder):
     """The outermost folder that os.makedirs(folder) creates: what a failed write takes away."""
     top = os.path.abspath(folder)
     while os.path.dirname(top) != top and not os.path.exists(os.path.dirname(top)):
         top = os.path.dirname(top)
     return top
+
 
 def not_utf8(names):
     """The names that cannot be written as UTF-8 text (a file name in another encoding, which
@@ -263,6 +293,7 @@ def not_utf8(names):
             out.append(n.encode("utf-8", "backslashreplace").decode("utf-8"))
     return out
 
+
 def write_bundle(folder, build, params_path, settings, report, verify=None, deliver=None, given=None,
                  stale=((), ())):
     """The bundle (module docstring, --bundle). Everything that can refuse it, or make writing it
@@ -271,7 +302,19 @@ def write_bundle(folder, build, params_path, settings, report, verify=None, deli
     finalize itself, `stale` what rebuild_blockers found."""
     if os.path.lexists(folder):
         raise FinalizeError(f"{folder} exists; the bundle goes into a new folder (never overwrites)")
-    deliver_found = bool(deliver) and os.path.isdir(deliver)      # before the bundle folder, which may be inside it
+    c = {"deliver_found": bool(deliver) and os.path.isdir(deliver)}  # before the bundle folder, which may be inside it
+    _bundle_preflight(c, build, params_path, settings, stale)
+    _rebuild_plan(c, build, given)
+    inputs, missing, proxies = _bundle_inputs(c, build, params_path, verify, deliver, report)
+    _check_rewrites(c, build, inputs, missing, proxies)
+    delivered = bundle_path(deliver) if deliver else None    # named even when missing: the rerun says so too
+    reproduce_text = _reproduce_text(c, delivered, inputs, missing, proxies)
+    return _write_files(folder, c, params_path, report, delivered, inputs, missing, proxies, reproduce_text)
+
+
+def _bundle_preflight(c, build, params_path, settings, stale):
+    """What refuses the bundle before anything is read: the build JSON, its sources, a build that is
+    no longer this project's, other settings, and files outside the project or holding machine paths."""
     bad = build_field_problems(build)
     if bad:
         raise FinalizeError(f"the build JSON's {', '.join(bad)} {'is' if len(bad) == 1 else 'are'} not as build.py "
@@ -325,9 +368,14 @@ def write_bundle(folder, build, params_path, settings, report, verify=None, deli
                             "ran in): REPRODUCE.md builds the parts again inside the bundle, where the reports would "
                             "not find them; build into a folder of the project (--out out), fit and measure again, and "
                             "bundle again")
+    c.update(srcs=srcs, printer=printer, printers=printers, places=places, reserved=reserved, parts=parts,
+             threemf=threemf)
 
-    # The rebuild, as the build was made: its engine, its core 3MF (or none), its own settings.
-    engine = build["engine"]
+
+def _rebuild_plan(c, build, given):
+    """The rebuild, as the build was made: its engine, its core 3MF (or none), its own settings;
+    and the settings the re-check gives finalize."""
+    srcs, parts, threemf, printer, printers = c["srcs"], c["parts"], c["threemf"], c["printer"], c["printers"]
     by_run = made_by_run(build)                           # built again by REPRODUCE.md, or recorded STLs exported again
     main_src = build.get("source") or (srcs[0] if srcs else None)
     main = (bundle_path(main_src) or os.path.basename(main_src)) if main_src else "model"
@@ -363,7 +411,14 @@ def write_bundle(folder, build, params_path, settings, report, verify=None, deli
             recheck += [f"--{f.replace('_', '-')}", str(given[f])]
     if given.get("wall_check") is False:
         recheck.append("--no-wall-check")
+    c.update(engine=build["engine"], by_run=by_run, main=main, part_places=part_places, tm_place=tm_place, out=out,
+             threemf_flags=threemf_flags, printer_place=printer_place, rebuild=rebuild, recheck=recheck)
 
+
+def _bundle_inputs(c, build, params_path, verify, deliver, report):
+    """The evidence files the verdict reads ({place: (source, what)}), those named but missing, and
+    the proxies built again; refused where one would take a place the bundle writes itself."""
+    reserved, places = c["reserved"], c["places"]
     inputs, missing, proxies, far = bundle_contents(verify or {}, build, deliver, report.get("joints"))
     taken = sorted(place for place in missing if place.lower() in reserved)
     if taken:                         # REPRODUCE.md would make it, and the verdict would read that, not "missing"
@@ -374,29 +429,35 @@ def write_bundle(folder, build, params_path, settings, report, verify=None, deli
                             "REPRODUCE.md runs as written inside it: move it into the project folder and name it there")
     for place, (src, _what) in list(inputs.items()):
         if place in places.values() or (place.lower() in reserved and (same_file(src, params_path)
-                                                                     or same_file(src, printers))):
+                                                                     or same_file(src, c["printers"]))):
             del inputs[place]                                    # already in the bundle (a source, params.json)
         elif place.lower() in reserved:
             raise FinalizeError(f"{place} would take the place of a file the bundle writes itself; rename it")
-    if printer and not printers:                                 # named, not found: the re-check says so too
-        if printer_place.lower() in reserved - {"printers.json"}:
-            raise FinalizeError(f"{printer_place} would take the place of a file the bundle writes itself; rename it")
-        missing.setdefault(printer_place, "the printers.json the build used")
+    if c["printer"] and not c["printers"]:                       # named, not found: the re-check says so too
+        if c["printer_place"].lower() in reserved - {"printers.json"}:
+            raise FinalizeError(f"{c['printer_place']} would take the place of a file the bundle writes itself; "
+                                "rename it")
+        missing.setdefault(c["printer_place"], "the printers.json the build used")
+    return inputs, missing, proxies
 
-    # What the commands of REPRODUCE.md write: nothing carried may be one of them (the rebuild would
-    # replace what was judged), and no two builds may write the same file.
+
+def _check_rewrites(c, build, inputs, missing, proxies):
+    """What the commands of REPRODUCE.md write: nothing carried may be one of them (the rebuild would
+    replace what was judged), no two builds may write the same file, and no carried text file may
+    hold a path of this machine."""
+    reserved, tm_place = c["reserved"], c["tm_place"]
     writes = {"build.json": ("build.json", "the build JSON")}
-    names = [p["name"] for p in parts]
-    for n, place in zip(names, part_places):
+    names = [p["name"] for p in c["parts"]]
+    for n, place in zip(names, c["part_places"]):
         writes.setdefault(place.lower(), (place, f"the part {n}"))
         writes.setdefault((place + ".manifest.json").lower(), (place + ".manifest.json", f"the build manifest of {n}"))
     if tm_place:
         writes.setdefault(tm_place.lower(), (tm_place, "the core 3MF"))
         writes.setdefault((tm_place + ".manifest.json").lower(),
                           (tm_place + ".manifest.json", "the core 3MF's manifest"))
-    if engine == "blender":                                       # bb.main saves <out>/<generator>.blend
-        stem = posixpath.splitext(posixpath.basename(main))[0]
-        for blend in [posixpath.normpath(posixpath.join(out, stem + ".blend"))] + (
+    if c["engine"] == "blender":                                  # bb.main saves <out>/<generator>.blend
+        stem = posixpath.splitext(posixpath.basename(c["main"]))[0]
+        for blend in [posixpath.normpath(posixpath.join(c["out"], stem + ".blend"))] + (
                 [bundle_path(build["blend"])] if build.get("blend") and bundle_path(build["blend"]) else []):
             writes.setdefault(blend.lower(), (blend, "the .blend"))
     for place, px in sorted(proxies.items()):
@@ -414,7 +475,7 @@ def write_bundle(folder, build, params_path, settings, report, verify=None, deli
             writes[w.lower()] = (w, f"the proxy of {px['joint']}")
     rewritten = [f"{place} ({what}; REPRODUCE.md writes {writes[place.lower()][1]} there)"
                  for place, what in sorted([(p, w) for p, (_s, w) in inputs.items()] + list(missing.items())
-                                           + [(p, "a source") for p in places.values()])
+                                           + [(p, "a source") for p in c["places"].values()])
                  if place.lower() in writes]
     if rewritten:
         raise FinalizeError(f"{'; '.join(rewritten)}: the commands in REPRODUCE.md write this again, so the bundle "
@@ -427,25 +488,27 @@ def write_bundle(folder, build, params_path, settings, report, verify=None, deli
                             "to the project folder (fit.py, measure.py, strength.py --from-build, preview.py and "
                             "render.py record the paths they are given) before bundling")
 
-    # REPRODUCE.md: the prose is scrubbed, the commands (relative paths, each quoted) are not.
+
+def _reproduce_text(c, delivered, inputs, missing, proxies):
+    """REPRODUCE.md: the prose is scrubbed, the commands (relative paths, each quoted) are not."""
     q = shlex.quote
-    delivered = bundle_path(deliver) if deliver else None    # named even when missing: the rerun says so too
-    tail = " ".join(q(w) for w in threemf_flags + rebuild)
+    engine, main, out = c["engine"], c["main"], c["out"]
+    tail = " ".join(q(w) for w in c["threemf_flags"] + c["rebuild"])
     lines = [("# Reproduce", False), ("", False),
              (f"Engine: {engine}. Generator: `{main}`. Parameters: `params.json`. Run from this folder, with "
               "`SKILL_DIR` the 3dprint-scout skill folder.", False), ("", False)]
-    if by_run:
+    if c["by_run"]:
         lines += [("```bash", False),
                   (f'python3 "$SKILL_DIR/scripts/build.py" run {q(main)} --engine {q(engine)} --params params.json '
                    f"--out {q(out)} {tail} > build.json", True), ("```", False), ("", False)]
     else:
-        recorded = " ".join(q(p) for p in part_places) or f"{q(out)}/<part>.stl ..."
+        recorded = " ".join(q(p) for p in c["part_places"]) or f"{q(out)}/<part>.stl ..."
         lines += [(f"This build was recorded (`build.py record`, engine {engine}): run the generator in {engine}, "
                    f"export one STL per part named after the part into `{out}/`, then:", False), ("", False),
                   ("```bash", False),
                   (f'python3 "$SKILL_DIR/scripts/build.py" record {recorded} --source '
-                   f"{' '.join(q(places[s]) for s in srcs) or q(main)} --params params.json --engine {q(engine)} "
-                   f"--out {q(out)} {tail} > build.json", True), ("```", False), ("", False)]
+                   f"{' '.join(q(c['places'][s]) for s in c['srcs']) or q(main)} --params params.json "
+                   f"--engine {q(engine)} --out {q(out)} {tail} > build.json", True), ("```", False), ("", False)]
     if proxies:
         lines += [("Then the proxies the fit reports measured, built again from their own generators and params "
                    "files as the parts are (a fit report holds while each STL is the one it measured):", False),
@@ -454,7 +517,7 @@ def write_bundle(folder, build, params_path, settings, report, verify=None, deli
     lines += [("Then re-check" + (f", with the delivered files in `{delivered}`" if delivered else "") + ":", False),
               ("", False), ("```bash", False),
               ('python3 "$SKILL_DIR/scripts/finalize.py" --build build.json --params params.json'
-               + "".join(f" {q(w)}" for w in recheck) + (f" --deliver {q(delivered)}" if delivered else ""), True),
+               + "".join(f" {q(w)}" for w in c["recheck"]) + (f" --deliver {q(delivered)}" if delivered else ""), True),
               ("```", False), ("", False),
               ("`verification.json` is the report this delivery was made with: what was verified, and what was not.",
                False), ("", False)]
@@ -470,11 +533,16 @@ def write_bundle(folder, build, params_path, settings, report, verify=None, deli
                   ("Named, but not here: not there when the bundle was made, unless the line says why. A re-check "
                    "here finds them missing:", False), ("", False)]
         lines += [(f"- `{place}`: {missing[place]}", False) for place in sorted(missing)] + [("", False)]
-    reproduce_text = "\n".join(text if command else scrub(text) for text, command in lines)
+    return "\n".join(text if command else scrub(text) for text, command in lines)
 
+
+def _write_files(folder, c, params_path, report, delivered, inputs, missing, proxies, reproduce_text):
+    """Copy the files, make the folders REPRODUCE.md writes into, write REPRODUCE.md and
+    verification.json; never a half-written bundle. Returns the files written."""
+    srcs, places, printers = c["srcs"], c["places"], c["printers"]
     copies = ([(src, places[src]) for src in srcs] + [(params_path, "params.json")]
               + ([(printers, "printers.json")] if printers else []) + [(inputs[p][0], p) for p in sorted(inputs)])
-    made = ([delivered] if delivered and deliver_found else []) + [posixpath.dirname(p) for p in proxies]
+    made = ([delivered] if delivered and c["deliver_found"] else []) + [posixpath.dirname(p) for p in proxies]
     written = [rel(os.path.join(folder, *place.split("/"))) for _src, place in copies]
     written += [rel(os.path.join(folder, "REPRODUCE.md")), rel(os.path.join(folder, "verification.json"))]
     final = dict(report, bundle=written, bundle_missing=[f"{place}: {missing[place]}" for place in sorted(missing)])
@@ -490,7 +558,6 @@ def write_bundle(folder, build, params_path, settings, report, verify=None, deli
             raise FinalizeError("the report holds text that is not UTF-8 (near "
                                 f"{bad[0][max(0, at.start() - 30):at.end() + 10]!r}): write it again in UTF-8 before "
                                 "bundling")
-
     top = created_root(folder)
     try:
         os.makedirs(folder)

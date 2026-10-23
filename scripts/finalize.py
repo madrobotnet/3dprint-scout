@@ -166,7 +166,7 @@ import re
 import sys
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from finalize_common import (  # noqa: E402,F401  (every name stays importable from finalize)
+from finalize_common import (# noqa: E402, F401  (every name stays importable from finalize)
     ALLOWED,
     COVERAGE,
     DIM_KEYS,
@@ -217,14 +217,14 @@ from finalize_common import (  # noqa: E402,F401  (every name stays importable f
     settings_for,
     text_field,
     valid_check_entry)
-from finalize_geometry import (  # noqa: E402,F401  (every name stays importable from finalize)
+from finalize_geometry import (# noqa: E402, F401  (every name stays importable from finalize)
     assembly_drift,
     check_build,
     check_objects,
     check_parts,
     check_prints,
     check_references)
-from finalize_evidence import (  # noqa: E402,F401  (every name stays importable from finalize)
+from finalize_evidence import (# noqa: E402, F401  (every name stays importable from finalize)
     MEASURE_ARGS,
     check_dims,
     check_joints,
@@ -242,19 +242,19 @@ from finalize_evidence import (  # noqa: E402,F401  (every name stays importable
     remeasure,
     strength_link,
     user_file_problems)
-from finalize_promises import (  # noqa: E402,F401  (every name stays importable from finalize)
+from finalize_promises import (# noqa: E402, F401  (every name stays importable from finalize)
     check_promises,
     evidence_index,
     judged_evidence,
     promise_state)
-from finalize_deliver import (  # noqa: E402,F401  (every name stays importable from finalize)
+from finalize_deliver import (# noqa: E402, F401  (every name stays importable from finalize)
     NO_PROJECT,
     check_delivered,
     check_delivered_print,
     manifest_folders,
     threemf_manifest_files,
     threemf_manifests)
-from finalize_bundle import (  # noqa: E402,F401  (every name stays importable from finalize)
+from finalize_bundle import (# noqa: E402, F401  (every name stays importable from finalize)
     BUNDLE_OWN,
     NOT_TEXT,
     RUN_ENGINES,
@@ -271,25 +271,7 @@ from finalize_bundle import (  # noqa: E402,F401  (every name stays importable f
 
 
 def finalize(args):
-    build = load_json(args.build, "build report")
-    if not isinstance(build, dict) or build.get("schema") != "3dprint-scout.build/1":
-        raise FinalizeError(f"{args.build}: not a build.py run / record report")
-    for key, kind, ok in (("sources", "file names", lambda x: isinstance(x, str)),
-                          ("parts", "objects", lambda x: isinstance(x, dict))):
-        if build.get(key) is not None and not (isinstance(build[key], list) and all(ok(x) for x in build[key])):
-            raise FinalizeError(f"{args.build}: {key} must be a list of {kind}, as build.py writes it")
-    vs = build.get("validate_settings")
-    if vs is not None and not (isinstance(vs, dict) and (vs.get("printer") is None or isinstance(vs["printer"], str))):
-        raise FinalizeError(f"{args.build}: validate_settings must be an object whose printer is a file name, as "
-                            "build.py writes it")
-    params = load_json(args.params, "params")
-    if not isinstance(params, dict):
-        raise FinalizeError(f"{args.params}: not a params object")
-    specs = part_specs(params)
-    verify = params.get("_verify") or {}
-    if not isinstance(verify, dict):
-        raise FinalizeError("_verify in params.json must be an object")
-    check_verify_shape(verify)
+    build, params, specs, verify = _load_inputs(args)
     settings = settings_for(build, args)
     out = {"schema": SCHEMA, "ran": True, "build": rel(args.build), "engine": build.get("engine"),
            "use": None, "geometry": None, "shape": {}, "slicing": "unverified", "print": "unverified",
@@ -365,6 +347,42 @@ def finalize(args):
                    + material_lines + delivery_lines + to_decide + print_lines + shape_lines
                    + [f"unverified: {u}" for u in out["unverified_dimensions"]]
                    + [f"assumption: {a}" for a in out["assumptions"]])
+    prototypes, unlinked = _prototypes(out)
+    out["summary"] = _summary(out, use, prototypes, unlinked, geometry_ok, len(reasons) + len(open_warns), shape,
+                              args.deliver)
+    if args.bundle:
+        given = {f: getattr(args, f, None) for f in SETTINGS} | {"wall_check": args.wall_check}
+        write_bundle(args.bundle, build, args.params, settings, out, verify, args.deliver, given,
+                     rebuild_blockers(build, specs, parts, drift, metadata_drift, material_lines, settings))
+    return json.loads(scrub(json.dumps(out, ensure_ascii=False)))
+
+
+def _load_inputs(args):
+    """The build JSON and params.json, each as finalize reads it, or a FinalizeError naming what is wrong."""
+    build = load_json(args.build, "build report")
+    if not isinstance(build, dict) or build.get("schema") != "3dprint-scout.build/1":
+        raise FinalizeError(f"{args.build}: not a build.py run / record report")
+    for key, kind, ok in (("sources", "file names", lambda x: isinstance(x, str)),
+                          ("parts", "objects", lambda x: isinstance(x, dict))):
+        if build.get(key) is not None and not (isinstance(build[key], list) and all(ok(x) for x in build[key])):
+            raise FinalizeError(f"{args.build}: {key} must be a list of {kind}, as build.py writes it")
+    vs = build.get("validate_settings")
+    if vs is not None and not (isinstance(vs, dict) and (vs.get("printer") is None or isinstance(vs["printer"], str))):
+        raise FinalizeError(f"{args.build}: validate_settings must be an object whose printer is a file name, as "
+                            "build.py writes it")
+    params = load_json(args.params, "params")
+    if not isinstance(params, dict):
+        raise FinalizeError(f"{args.params}: not a params object")
+    specs = part_specs(params)
+    verify = params.get("_verify") or {}
+    if not isinstance(verify, dict):
+        raise FinalizeError("_verify in params.json must be an object")
+    check_verify_shape(verify)
+    return build, params, specs, verify
+
+
+def _prototypes(out):
+    """The promises delivered as prototypes, and how many assumptions are not linked to a promise."""
     # A promise delivered unproven (phase 4, "Leaving Phase 4") is recorded as the _assumptions
     # line "<id>: delivered as a prototype, not verified", with an optional note in parentheses
     # saying who chose it: it belongs to that promise while the promise is not verified, so it is
@@ -379,6 +397,11 @@ def finalize(args):
     unlinked = (sum(1 for a in out["assumptions"] if not (isinstance(a, str) and PROTOTYPE.match(a)
                                                           and PROTOTYPE.match(a).group(1) in prototypes))
                 + len(out["unverified_dimensions"]))
+    return prototypes, unlinked
+
+
+def _summary(out, use, prototypes, unlinked, geometry_ok, n_open, shape, deliver):
+    """The report's summary lines, one per tier."""
     if out["use"] == "not declared":
         use_line = "use: not declared (_verify.promises)"
     else:
@@ -391,21 +414,16 @@ def finalize(args):
         parts_of += [f"delivered as a prototype: {', '.join(prototypes)}"] if prototypes else []
         parts_of += [plural(unlinked, "assumption") + " not linked to a promise"] if unlinked else []
         use_line = f"use: {out['use']} ({'; '.join(parts_of)})"
-    out["summary"] = [
+    return [
         use_line,
         "geometry: " + ("verified (every part, object, declared joint and member checked; the delivered files are "
-                        "the verified ones)" if geometry_ok and args.deliver else
+                        "the verified ones)" if geometry_ok and deliver else
                         "verified (every part, object, declared joint and member checked)" if geometry_ok else
-                        f"not verified ({len(reasons) + len(open_warns)} open items)"),
+                        f"not verified ({n_open} open items)"),
         "shape: " + ("; ".join(f"{o} from {', '.join(v['verified_from']) or 'no direction'}" for o, v in shape.items())
                      or "not declared"),
         "slicing: unverified (not sliced here)",
         "print: " + out["print"]]
-    if args.bundle:
-        given = {f: getattr(args, f, None) for f in SETTINGS} | {"wall_check": args.wall_check}
-        write_bundle(args.bundle, build, args.params, settings, out, verify, args.deliver, given,
-                     rebuild_blockers(build, specs, parts, drift, metadata_drift, material_lines, settings))
-    return json.loads(scrub(json.dumps(out, ensure_ascii=False)))
 
 
 def main(argv=None):
