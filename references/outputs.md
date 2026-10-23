@@ -242,3 +242,62 @@ declared preset) and leaves the test prints of its parts `assumed`, even with `_
 A core 3MF selects neither, so its entry has neither `filaments` nor `preset`. None of these is
 a geometry reason.
 Without `--deliver` nothing of the print file is read.
+
+## A worked `_verify`
+
+The phone stand's declarations at the end of Phase 5 (each key's fields: `references/checks.md`):
+
+
+```json
+"_verify": {
+  "promises": [
+    {"id": "seat-pm15-case", "kind": "use", "text": "a 15 Pro Max in its case sits in the seat",
+     "conditions": "phone upright, 15 mm thick with its case, stand on a desk",
+     "success": "the lip reaches half the phone's thickness above the seat",
+     "evidence": [{"measurement": "lip height"}]},
+    {"id": "cable-out", "kind": "use",
+     "text": "a right-angle USB-C cable plugs in and leaves at the front",
+     "conditions": "phone in the seat, right-angle plug",
+     "success": "plug head and cable clear the part by 0.2 mm or more",
+     "evidence": [{"joint": "plug through notch", "covers": "the plug at rest in its pocket"}]},
+    {"id": "cable-bend", "kind": "use", "text": "the cable bends down to the desk without a kink",
+     "conditions": "the user's own cable", "success": "no sharp bend at the lip", "evidence": []},
+    {"id": "tap-holds", "kind": "use", "text": "tapping the screen does not break the ribbon",
+     "conditions": "phone leaning on the ribbon, a finger pushing at its top",
+     "success": "the ribbon reaches SF 3 under finger_push; the printed stand takes a firm push",
+     "evidence": [{"strength": "ribbon"},
+                  {"test_print": "first sled", "covers": "a firm push by hand"}]},
+    {"id": "wave-back", "kind": "look", "text": "the back waves once",
+     "evidence": [{"seen": "back wave"}]}
+  ],
+  "dims": [
+    {"id": "pm15-case", "what": "15 Pro Max in its case, thickness", "unit": "mm",
+     "params": {"phone_t": 15.0}, "source": "caliper", "by": "user"},
+    {"id": "usb-c-plug", "what": "right-angle USB-C plug head and cable", "unit": "mm",
+     "params": {"plug_w": 13, "plug_h": 8, "plug_l": 9, "cable_d": 4.5},
+     "source": "assumed", "tol": 0.5,
+     "note": "a typical right-angle plug; the user has none at hand"}
+  ],
+  "joints": [{"name": "plug through notch", "report": "out/fit_plug.json", "proxy": true,
+              "dims": ["usb-c-plug"], "proxy_build": "out/plug/build.json"}],
+  "strength": [{"name": "ribbon", "report": "out/strength_ribbon.json"}],
+  "measurements": [{"name": "lip height", "report": "out/m_lip.json", "dims": ["pm15-case"]}],
+  "seen": [{"name": "back wave", "image": "out/preview.png", "by": "user", "promises": ["wave-back"],
+            "result": "passed",
+            "image_sha256": "83fd97b2d288a3114da16be54a781ce0a05f1ade7549bcb5894caa2a83b6073f"}],
+  "test_prints": [{"name": "first sled", "status": "passed", "promises": ["tap-holds"],
+                   "printer": "x2d", "orientation": "as built", "by": "user",
+                   "photos": ["photos/first-sled.jpg"],
+                   "preset": "0.20mm Standard @BBL X2D", "parts": {"sled": {"material": "pla_basic",
+                     "sha256": "1fc1c97fe97d3feb7d4094720716000d30855fe7e5a62b4e3bd039cdef9b2c44"}}}],
+  "accepted": [{"promise": "cable-bend", "reason": "I'll try it with my own cable", "by": "user"}],
+  "references": {"sled": {"front": "real", "top": "real", "right": "real", "back": "estimated"}}
+}
+```
+
+Delivered with `--deliver` on a folder that holds the sled's STL and a Bambu project printing
+it in Bambu PLA Basic under `0.20mm Standard @BBL X2D`, finalize reads this as `use: excluded`
+(5 promises: 1 excluded, 1 assumed, 3 verified): `cable-bend` the user took unverified, and
+`cable-out` rests on `usb-c-plug`, which nobody measured. Delivered as STLs only, `tap-holds`
+reads `assumed` too (2 assumed, 2 verified): nothing says which filament the slicer prints the
+sled in.
