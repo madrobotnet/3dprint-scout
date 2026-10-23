@@ -1947,6 +1947,10 @@ def write_bundle(folder, build, params_path, settings, report, verify=None, deli
     srcs = own_sources(build)
     printers = settings.printer if settings.printer and os.path.isfile(settings.printer) else None
     files = [*srcs, params_path] + ([printers] if printers else [])
+    far_cfg = [rel(f) for f in [params_path] + ([printers] if printers else []) if bundle_path(f) is None]
+    if far_cfg:                                          # a link to one outside counts as outside (copied, it is carried)
+        raise FinalizeError(f"{', '.join(far_cfg)} is outside the project folder (the folder the build ran in): keep "
+                            "params.json and printers.json in the project's .3dprint/ folder before bundling")
     leaking = [rel(f) for f in files if holds_machine_path(f)]
     if leaking:
         raise FinalizeError(f"{', '.join(leaking)} holds a path of this machine; take it out (a name, not a path) "

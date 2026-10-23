@@ -1947,6 +1947,23 @@ class FinalizeBundle(FinalizePromises):
         code, out = self.finalize("--deliver", outside, "--bundle", "deliver/source")
         self.assertEqual(code, 1)
         self.assertIn("is outside the project folder", out["errors"][0])     # a delivery folder outside it too
+        # params.json and printers.json outside the project, or linked from inside it (Codex, PR #22).
+        self.params(self.verify([self.SEAT, self.CABLE]), **self.PLUG)
+        far_params = os.path.join(outside, "params.json")
+        shutil.copyfile(".3dprint/params.json", far_params)
+        code, out = self.finalize("--params", os.path.relpath(far_params), "--bundle", "deliver/source")
+        self.assertEqual(code, 1)
+        self.assertIn("params.json is outside the project folder", out["errors"][0])
+        shutil.copyfile(".3dprint/printers.json", os.path.join(outside, "printers.json"))
+        os.remove(".3dprint/printers.json")
+        try:
+            os.symlink(os.path.join(outside, "printers.json"), ".3dprint/printers.json")
+        except (OSError, NotImplementedError):                                # Windows without the privilege
+            return
+        code, out = self.finalize("--bundle", "deliver/source")
+        self.assertEqual(code, 1)
+        self.assertIn(".3dprint/printers.json is outside the project folder", out["errors"][0])
+        self.assertFalse(os.path.exists("deliver/source"))
 
     def test_photos_are_paths_in_the_project_folder(self):
         """A test print's photos are optional; given, they list paths in the project folder
