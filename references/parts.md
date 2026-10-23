@@ -134,8 +134,9 @@ with `--only`, so it shows `seconds` per part and a `partial` object):
 {"schema": "3dprint-scout.build/1", "ran": true, "engine": "python", "source": "adapter.py",
  "gate": "PASS | FAIL | INCOMPLETE", "R4": "PASS",
  "assembly_sha256": "<sha256 of the assembly inputs>",
- "parts": [{"name": "lid", "stl": "out/lid.stl", "seconds": 0.4, "artifact_sane": true, "object": "lid", "role": "fused",
-            "rotation_deg": 0, "engine_warnings": [],
+ "parameters": {"scope": "merged", "values": {"w": 70.0, "wall": 2.0, "clearance": 0.3}},
+ "parts": [{"name": "lid", "stl": "out/lid.stl", "seconds": 0.4, "material": "pla_basic", "artifact_sane": true,
+            "object": "lid", "role": "fused", "rotation_deg": 0, "engine_warnings": [],
             "validate": {"schema": "3dprint-scout.validate/1", "gate": "PASS",
                          "files": [{"path": "out/lid.stl", "checks": {"D1": {"state": "PASS", "...": "..."}},
                                     "metrics": {"bbox_mm": [70, 45, 3], "volume_mm3": 9450, "...": "..."}}]},
@@ -159,6 +160,24 @@ with `--only`, so it shows `seconds` per part and a `partial` object):
   (plus `partial` and `gate` when it is one part of a larger object built with `--only`).
 - `params` is the params file the engine got. A `--proxy` build (`references/measure.md`) carries
   `"proxy": true` and no `threemf`.
+- `parameters` is what the parts were built with. `values` holds the params.json engine keys
+  (no `_` keys), merged with the generator's defaults when build.py knows them:
+  - `"scope": "merged"`: a Python module's `DEFAULTS` dict (`engines/python.md`) or a Blender
+    generator's `PARAMETERS` (`bb.main(build, PARAMETERS)`), as `{**defaults, **params}`. A
+    params.json key the defaults lack is a warning, `params.json key 'x' is not in the
+    generator's DEFAULTS (a typo?)` (`PARAMETERS` for Blender): a misspelt key leaves the part
+    at the default.
+  - `"scope": "overrides"`: OpenSCAD, a Python generator without `DEFAULTS`, and `record`
+    (Fusion, a live Blender): only the params.json values; a default kept in the generator is
+    not recorded, so put a value in params.json to link to it.
+  - Values are JSON. A default that is not (a function, a set, a NaN) is recorded as its repr
+    string, with a warning. A value the generator computes from others (a rib height = seat +
+    clearance) is not here; check it with a `measurement` instead.
+  - `strength.py --from-build` links its inputs to these values (`--param h=ribbon_t`).
+- `material` on a part is its material: `_parts.<name>.material`, else `_material`, else
+  `null` (strength.py material keys). `_` keys are not in the freshness hash, so a changed
+  material leaves the build fresh; `finalize.py` compares this record with the current
+  params.json instead.
 - `seconds` on a part is the engine's time for it (`run`); the top-level `seconds` is the
   whole command. `sha256` on a part is the STL its verdicts are about, and `validate_settings`
   the printer, printer id, tools and tolerances they were made with (and `printer_sha256`, the

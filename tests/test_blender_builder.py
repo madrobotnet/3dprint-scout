@@ -234,6 +234,27 @@ class PureHelpers(unittest.TestCase):
         self.assertEqual(bb.prop_value([1, 2.5]), [1.0, 2.5])
         self.assertEqual(bb.prop_value(["a", "/home/someone/b.ttf"]), '["a", "b.ttf"]')
         self.assertEqual(bb.prop_value({"k": "C:\\\\Users\\\\x\\\\f.ttf"}), '{"k": "f.ttf"}')
+        # A PARAMETERS value JSON cannot hold no longer stops the build: its repr is stored.
+        self.assertEqual(bb.prop_value({"f": len, "w": 2.0}), '{"f": "<built-in function len>", "w": 2.0}')
+        self.assertEqual(bb.prop_value(len), '"<built-in function len>"')
+
+    def test_parameters_record_is_build_pys(self):
+        """The runner's copy of build.py's parameters_record (Blender cannot import build.py):
+        the same scope, values and warnings for the same input, PARAMETERS named."""
+        import build
+        bb = self.bb
+        defaults = {"w": 40.0, "d": 30.0, "nested": {"a": 1, "f": len}, "t": (1, 2), "_k": 1, "nan": float("nan")}
+        for given, dflt in (({"w": 41.0, "wdith": 1, "_material": "pla_basic"}, defaults),
+                            ({"w": 41.0, "x": [1, {"y": float("inf")}]}, None),
+                            ({}, {}), ({"w": 1}, {}), ({"w": 1}, [("w", 2)]), ({}, None)):
+            with self.subTest(given=given, defaults=dflt):
+                self.assertEqual(bb.parameters_record(given, dflt), build.parameters_record(given, dflt, kind="PARAMETERS"))
+        rec, warns = bb.parameters_record({"w": 41.0, "wdith": 1, "_material": "pla_basic"}, defaults)
+        self.assertEqual(rec, {"scope": "merged", "values": {"w": 41.0, "d": 30.0, "nested": {"a": 1, "f": "<built-in function len>"},
+                                                             "t": [1, 2], "nan": "nan", "wdith": 1}})
+        self.assertEqual(warns[0], "params.json key 'wdith' is not in the generator's PARAMETERS (a typo?)")
+        self.assertEqual(len(warns), 3)                                     # the typo, nested.f, nan
+        self.assertEqual(bb.parameters_record({"w": 1, "_parts": {}}), ({"scope": "overrides", "values": {"w": 1}}, []))
 
     def test_summary_line_and_solver_by_version(self):
         bb = self.bb
@@ -1084,6 +1105,45 @@ except ValueError as exc:
         self.assertIn("'source'", rep["error"])
         self.assertIn("'a'", rep["error"])
         self.assertEqual(rep["files"], [])                                     # nothing was written
+
+    def test_main_reports_the_parameters_it_built_with(self):
+        """The @@3DPS line carries PARAMETERS merged with params.json (what build.py records as
+        scope merged), taken before build() adds to its dict; a misspelt key and a default JSON
+        cannot hold are warnings, and that default does not stop the build. Without PARAMETERS
+        only the params.json values are known: scope overrides, no typo warning."""
+        params = os.path.join(self.tmp, "params.json")
+        with open(params, "w", encoding="utf-8") as f:
+            json.dump({"_material": "pla_basic", "_parts": {"body": {}}, "w": 25.0, "wdith": 1.0}, f)
+        rep = run_in_blender(f"""
+import contextlib, io
+from mathutils import Vector
+PARAMETERS = {{"w": 30.0, "d": 20.0, "offset": Vector((1.0, 2.0, 3.0)), "_hidden": 1}}
+def build(p):
+    body = bb.box([p["w"], p.get("d", 20.0), 5], "body"); bb.part(body, "body")
+    p["derived"] = p["w"] / 2                     # computed inside: not a parameter
+    return {{"body": body}}
+def line(defaults, out):
+    buf = io.StringIO()
+    with contextlib.redirect_stdout(buf):
+        bb.main(build, defaults, argv=["blender", "--", "--params", {params!r}, "--out", out])
+    return json.loads([ln for ln in buf.getvalue().splitlines() if ln.startswith("@@3DPS ")][-1][7:])
+merged = line(PARAMETERS, os.path.join({self.tmp!r}, "a"))
+props = dict(bpy.data.objects["PARAMETERS"].items())
+bare = line(None, os.path.join({self.tmp!r}, "b"))
+emit(merged=merged, bare=bare, offset=props.get("offset"), files=sorted(os.listdir(os.path.join({self.tmp!r}, "a"))))
+""")
+        m = rep["merged"]
+        self.assertEqual(m["parameters"], {"scope": "merged", "values": {"w": 25.0, "d": 20.0, "offset": "Vector((1.0, 2.0, 3.0))",
+                                                                         "wdith": 1.0}})
+        self.assertEqual(m["parameter_warnings"][0], "params.json key 'wdith' is not in the generator's PARAMETERS (a typo?)")
+        self.assertIn("parameter 'offset' is not a JSON value (Vector)", m["parameter_warnings"][1])
+        self.assertEqual(len(m["parameter_warnings"]), 2)
+        self.assertTrue(set(m["parameter_warnings"]) <= set(m["warnings"]))    # a live reader sees them too
+        self.assertEqual(rep["offset"], '"Vector((1.0, 2.0, 3.0))"')          # stored, not a crash
+        self.assertIn("body.stl", rep["files"])
+        b = rep["bare"]
+        self.assertEqual(b["parameters"], {"scope": "overrides", "values": {"w": 25.0, "wdith": 1.0}})
+        self.assertEqual(b["parameter_warnings"], [])
 
     def test_save_blend_refuses_overwrite_and_leaks_no_path(self):
         ttf = next(iter(glob.glob("/usr/share/fonts/**/*.ttf", recursive=True)), None)

@@ -55,7 +55,12 @@ Output (one JSON document, schema 3dprint-scout.build/1; references/parts.md has
 full description):
   gate            PASS | FAIL | INCOMPLETE over every part and object
   R4              PASS when the generator ran and every artifact is sane
-  parts[]         name, stl, artifact_sane, object, role, rotation_deg, engine_warnings,
+  parameters      {"scope": "merged" | "overrides", "values": {...}}: the engine parameters the
+                  parts were built with, merged with the generator's defaults when known (a Python
+                  module's DEFAULTS dict, a Blender generator's PARAMETERS), else params.json's own
+                  (OpenSCAD, Python without DEFAULTS, record)
+  parts[]         name, stl, material (_parts.<name>.material, else _material, else null),
+                  artifact_sane, object, role, rotation_deg, engine_warnings,
                   validate (the validate.py document for that part: files[0].checks,
                   files[0].metrics), assembly (A1 / A2 for a part in a group)
   objects[]       name, parts, gate, checks (D2, P1, P2 of the whole object when it has
@@ -421,6 +426,52 @@ def load_params(path: str | None) -> dict:
 engine_params = validate.engine_params      # one definition: the freshness hash uses the same filter
 
 
+def json_value(value, path: str, warnings: list):
+    """`value` as JSON: null, booleans, strings, numbers (finite floats), lists (a tuple is one)
+    and objects with string keys, recursively. Anything else (a function, a set, a NaN, a
+    numpy integer) becomes its repr string, with a warning that names it by its dotted path."""
+    if value is None or isinstance(value, (bool, str, int)):
+        return value
+    if isinstance(value, float):
+        if math.isfinite(value):
+            return value
+    elif isinstance(value, (list, tuple)):
+        return [json_value(v, f"{path}[{i}]", warnings) for i, v in enumerate(value)]
+    elif isinstance(value, dict) and all(isinstance(k, str) for k in value):
+        return {k: json_value(v, f"{path}.{k}", warnings) for k, v in value.items()}
+    text = repr(value)
+    warnings.append(f"parameter '{path}' is not a JSON value ({type(value).__name__}): the build JSON records "
+                    f"its repr string {text[:80]!r}")
+    return text
+
+
+def parameters_record(params: dict, defaults=None, kind: str = "DEFAULTS") -> tuple[dict, list[str]]:
+    """The build JSON's "parameters" and the warnings about it. `params` is params.json (its
+    "_" keys are dropped, as for the engine). With the generator's defaults (a dict: a Python
+    module's DEFAULTS, a Blender generator's PARAMETERS) the values are the two merged as the
+    generator merges them, {**defaults, **params}, scope "merged", and a params.json key the
+    defaults do not have is a warning (a typo builds with the default). Without them the values
+    are the overrides alone, scope "overrides": a default the generator keeps to itself is not
+    known here."""
+    given = engine_params(params)
+    warnings = []
+    if isinstance(defaults, dict):
+        warnings += [f"params.json key '{k}' is not in the generator's {kind} (a typo?)"
+                     for k in given if k not in defaults]
+        values, scope = {**engine_params(defaults), **given}, "merged"
+    else:
+        values, scope = given, "overrides"
+    return {"scope": scope, "values": {str(k): json_value(v, str(k), warnings) for k, v in values.items()}}, warnings
+
+
+def part_material(params: dict, name: str):
+    """A part's material as finalize.py reads it: `_parts.<name>.material`, else `_material`,
+    else None (strength.py MATERIALS keys; finalize.py checks them)."""
+    parts = params.get("_parts")
+    spec = parts.get(name) if isinstance(parts, dict) else None
+    return (spec if isinstance(spec, dict) else {}).get("material") or params.get("_material") or None
+
+
 def part_specs(params: dict, default_name: str) -> dict:
     """{part name: spec} from params "_parts": an object {"name": {...}} (the documented form),
     a plain list of names, or nothing (one part named after the generator)."""
@@ -571,7 +622,7 @@ def build_python(source, params, parts, out_dir, timeout):
     results = [{"name": p["name"], "stl": p["stl"], "seconds": p["seconds"], "engine_warnings": []}
                for p in rep["parts"]]
     return (results, sorted(set(rep["deps"]) | {os.path.abspath(source)}),
-            {"manifold3d": rep["version"], "warnings": rep.get("warnings", [])})
+            {"manifold3d": rep["version"], "warnings": rep.get("warnings", []), "parameters": rep.get("parameters")})
 
 
 def _pyrun(source, params_file, out_dir, parts_csv):
@@ -594,9 +645,16 @@ def _pyrun(source, params_file, out_dir, parts_csv):
         spec.loader.exec_module(mod)
         if not hasattr(mod, "build"):
             raise SystemExit("generator has no build(params) function")
+        # The parameters the part is built with, read before build() can touch them: a module
+        # DEFAULTS dict is merged as the generator merges it ({**DEFAULTS, **params}, python.md).
+        defaults = getattr(mod, "DEFAULTS", None)
+        record, param_notes = parameters_record(params, defaults)
+        if defaults is not None and not isinstance(defaults, dict):
+            param_notes.append(f"the generator's DEFAULTS is a {type(defaults).__name__}, not a dict: the build JSON "
+                               "records only the params.json values (parameters.scope overrides)")
         t0 = time.time()
         built = mod.build(params)
-    notes = list(dict.fromkeys(str(w.message) for w in caught if issubclass(w.category, UserWarning)))
+    notes = param_notes + list(dict.fromkeys(str(w.message) for w in caught if issubclass(w.category, UserWarning)))
     wanted = [p for p in parts_csv.split(",") if p]
     if isinstance(built, m3d.Manifold):
         built = {wanted[0] if wanted else "part": built}
@@ -624,7 +682,7 @@ def _pyrun(source, params_file, out_dir, parts_csv):
                    if getattr(m, "__file__", None) and m.__file__.endswith(".py")
                    and norm(m.__file__).startswith(roots) and norm(m.__file__) not in own})
     print("@@3DPS " + json.dumps({"parts": out, "deps": deps, "version": getattr(m3d, "__version__", "unknown"),
-                                  "warnings": notes}))
+                                  "warnings": notes, "parameters": record}))
 
 
 def engine_marker(source: str) -> str | None:
@@ -739,6 +797,14 @@ def build_blender(source, params, parts, out_dir, timeout, blender_python=None):
         engine_info["path"] = exe
     else:
         engine_info["python"] = python
+    # bb.main merged PARAMETERS with params.json and reports what the parts were built with. A
+    # report without it (a blender_builder.py from before 0.7 next to the generator, which wins
+    # on the path) leaves the overrides to cmd_run.
+    record = rep.get("parameters")
+    if (isinstance(record, dict) and record.get("scope") in ("merged", "overrides")
+            and isinstance(record.get("values"), dict)):
+        engine_info["parameters"] = {"scope": record["scope"], "values": record["values"]}
+        engine_info["warnings"] = [str(w) for w in rep.get("parameter_warnings") or []]
     return results, sources, engine_info
 
 
@@ -859,6 +925,8 @@ def _relpath(path: str) -> str:
 
 
 def finish(out, parts, sources, params, params_path, specs, args, engine):
+    for p in parts:
+        p["material"] = part_material(params, p["name"])     # what finalize.py compares the current params.json with
     # G4: artifact sanity first. A broken STL gets no manifest, is left out of the 3MF, and is
     # reported; the sane parts still get their full treatment.
     for p in parts:
@@ -1105,6 +1173,13 @@ def cmd_run(args) -> dict:
         out["errors"].append(str(exc))
         return out
     out["warnings"] += info.pop("warnings", [])
+    # What the parts were built with: merged with the generator's defaults when the engine knows
+    # them (a Python DEFAULTS, Blender PARAMETERS), else the params.json values (OpenSCAD).
+    record = info.pop("parameters", None)
+    if record is None:
+        record, notes = parameters_record(params)
+        out["warnings"] += notes
+    out["parameters"] = record
     out["engine_info"] = info
     args.source_main = source
     out = finish(out, parts, sources, params, args.params, specs, args, engine)
@@ -1220,6 +1295,9 @@ def cmd_record(args) -> dict:
         objects = [p["name"] for p in parts]
     args.threemf_stem = threemf_stem(objects)
     sources = sorted(set(given) | extra, key=lambda s: (os.path.basename(s), s))
+    # Built elsewhere (Fusion, a live Blender): only the params.json values are known here.
+    out["parameters"], notes = parameters_record(params)
+    out["warnings"] += notes
     out = finish(out, parts, sources, params, args.params, specs, args, args.engine)
     out["seconds"] = round(time.time() - t0, 2)
     return out
@@ -1233,7 +1311,8 @@ class _JsonArgParser(argparse.ArgumentParser):
 OUTPUT_HELP = """\
 Prints one JSON document (schema 3dprint-scout.build/1):
   gate      PASS | FAIL | INCOMPLETE over every part and object; R4 = the generator ran
-  parts[]   name, stl, artifact_sane, object, role, rotation_deg, validate (validate.py's
+  parameters  scope (merged with the generator's defaults, or overrides) and values
+  parts[]   name, stl, material, artifact_sane, object, role, rotation_deg, validate (validate.py's
             document: files[0].checks, files[0].metrics), assembly (A1 / A2 in a group)
   objects[] name, parts, gate, checks (D2 / P1 / P2 of the whole object when it has
             several parts), metrics, rotation_deg

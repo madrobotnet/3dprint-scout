@@ -30,7 +30,8 @@ fails M5.
 `main` builds into a scene of its own, calls `build`, writes the parameters as custom
 properties on a PARAMETERS empty, exports one binary STL per part (modifiers applied,
 1 unit = 1 mm, scene unit off), saves `<out>/<generator>.blend` and prints one `@@3DPS {...}`
-line that build.py reads. validate.py decides every verdict from the STLs; nothing Blender
+line that build.py reads (with the parameters merged from PARAMETERS and params.json, which
+the build JSON records). validate.py decides every verdict from the STLs; nothing Blender
 reports about dimensions is trusted.
 
 Run as a script, this file renders STLs (`-- render a.stl b.stl -o out.png ...`); scripts/render.py
@@ -401,14 +402,15 @@ def scrub_text(text):
 def prop_value(v):
     """A params.json value as a custom-property value: numbers, bools and lists of numbers as
     they are, strings with absolute paths reduced to their base name, anything else as a JSON
-    string (scrubbed the same way)."""
+    string (scrubbed the same way; a value JSON cannot hold, such as a function or a Vector in
+    PARAMETERS, as its repr, which the build JSON records with a warning)."""
     if isinstance(v, bool) or isinstance(v, (int, float)):
         return v
     if isinstance(v, str):
         return scrub_text(v)
     if isinstance(v, (list, tuple)) and v and all(isinstance(x, (int, float)) and not isinstance(x, bool) for x in v):
         return [float(x) for x in v]
-    return json.dumps(_scrub(v))
+    return json.dumps(_scrub(v), default=repr)
 
 
 def _scrub(v):
@@ -2929,6 +2931,43 @@ def load_params(path, defaults=None):
     return p
 
 
+def json_value(value, path, warnings):
+    """`value` as JSON (build.py's json_value: this file cannot import build.py inside Blender):
+    null, booleans, strings, finite numbers, lists and string-keyed objects, recursively;
+    anything else (a Vector, a function, a NaN) becomes its repr string, with a warning."""
+    if value is None or isinstance(value, (bool, str, int)):
+        return value
+    if isinstance(value, float):
+        if math.isfinite(value):
+            return value
+    elif isinstance(value, (list, tuple)):
+        return [json_value(v, f"{path}[{i}]", warnings) for i, v in enumerate(value)]
+    elif isinstance(value, dict) and all(isinstance(k, str) for k in value):
+        return {k: json_value(v, f"{path}.{k}", warnings) for k, v in value.items()}
+    text = repr(value)
+    warnings.append(f"parameter '{path}' is not a JSON value ({type(value).__name__}): the build JSON records "
+                    f"its repr string {text[:80]!r}")
+    return text
+
+
+def parameters_record(given, defaults=None):
+    """({"scope", "values"}, warnings) for the @@3DPS line, which build.py copies into the build
+    JSON's "parameters" (build.py's parameters_record). `given` is what params.json passed
+    (load_params(path)); with PARAMETERS the values are the two merged, as `main` builds with
+    them, scope "merged", and a params.json key PARAMETERS does not have is a warning (a typo
+    builds with the default). Without PARAMETERS only the given values are known: "overrides"."""
+    given = {k: v for k, v in (given or {}).items() if not str(k).startswith("_")}
+    warnings = []
+    if isinstance(defaults, dict):
+        warnings += [f"params.json key '{k}' is not in the generator's PARAMETERS (a typo?)"
+                     for k in given if k not in defaults]
+        values, scope = {k: v for k, v in defaults.items() if not str(k).startswith("_")}, "merged"
+        values.update(given)
+    else:
+        values, scope = given, "overrides"
+    return {"scope": scope, "values": {str(k): json_value(v, str(k), warnings) for k, v in values.items()}}, warnings
+
+
 def _generator_stem():
     main = sys.modules.get("__main__")
     f = getattr(main, "__file__", None)
@@ -2987,7 +3026,11 @@ def main(build, defaults=None, argv=None):
     if args.cmd == "render":
         return render_cli(args)
     out_dir = os.path.abspath(args.out)
-    params = load_params(args.params, defaults)
+    given = load_params(args.params)
+    params = dict(defaults or {})                       # load_params(args.params, defaults), read once
+    params.update(given)
+    # What the parts are built with, taken before build() can add to the dict it gets.
+    parameters, param_warnings = parameters_record(given, defaults)
     t0 = time.time()
     new_scene_mm(args.scene)
     LOG.append(f"Blender {bpy.app.version_string}, {run_mode()}, "
@@ -3010,8 +3053,8 @@ def main(build, defaults=None, argv=None):
     if blend:
         blend = save_blend(blend, overwrite=rewrite, out_dir=out_dir)
     print(summary(info, deps=_deps(), blend=blend, blender=bpy.app.version_string, solver=boolean_solver(),
-                  mode=run_mode(), notes=list(LOG),
-                  warnings=[f"{p['name']}: {p['warning']}" for p in info if p.get("warning")],
+                  mode=run_mode(), notes=list(LOG), parameters=parameters, parameter_warnings=param_warnings,
+                  warnings=[f"{p['name']}: {p['warning']}" for p in info if p.get("warning")] + param_warnings,
                   seconds=round(time.time() - t0, 2)))
     return info
 

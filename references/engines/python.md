@@ -23,7 +23,7 @@ Contents:
 import manifold3d as m3d
 import parts                        # the skill's part library (scripts/parts.py)
 
-# PARAMETERS come from params.json; defaults here document units and sources.
+# Every parameter with its unit and source; params.json overrides by key.
 DEFAULTS = {
     "w": 60.0,          # mm, outer width
     "wall": 2.0,        # mm
@@ -41,6 +41,12 @@ def build(params):
 ```
 
 - `build(params)` returns `{part_name: Manifold}`. Names must match `_parts` in params.json.
+- Defaults are a module-level dict named `DEFAULTS`, merged as `p = {**DEFAULTS, **params}`
+  (`params` is params.json without its `_` keys). `build.py` records the same merge in the
+  build JSON (`parameters`, scope `merged`), which `strength.py --from-build` links to, and warns
+  about a params.json key that `DEFAULTS` lacks (a typo builds with the default). Without
+  `DEFAULTS` the build records only the params.json values (scope `overrides`). Values the
+  generator computes from others are not recorded (`references/parts.md`).
 - Model Z-up with Z = 0 on the bed. `build.py` exports each part as binary STL itself; do not write
   files from the generator.
 - `import parts` and `import sdf` work from any generator: `build.py` puts the skill's `scripts/`
