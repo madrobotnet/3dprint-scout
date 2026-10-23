@@ -119,14 +119,11 @@ resting on no unmeasured size. The plan (in Korean) and the Codex review it take
   unmeasured size) and C (a parameter changed after the strength calculation). Each has a file
   with the opening message, scripted replies and a grading checklist; `setup.py` writes each
   start state with the skill's own scripts, and `--check-docs` checks the files against
-  `conversation-checks.md`. The table moved out of the shipped `references/development.md`
-  after a run agent read its row. Claude ran all nine: 6 matched and 3 differed. The causes
-  were fixed (#23, #24, the table moved) and the five affected scenarios run again, graded by
-  an agent that took no part: bambu-template now matches and the agreement item holds in every
-  attended re-run; holes-unknown and change-request differ only through the harness;
-  given-answers showed the base-shape look after the features were built, and unattended still
-  opens its delivery with a result. Runs with Codex were deferred: the next check is a run in a
-  chat app. Results: `docs/scenarios/results-v0.7.0.md`.
+  `conversation-checks.md`. The expected behaviour moved out of the shipped
+  `references/development.md`, so a run agent cannot read it. Claude ran all nine; the causes of
+  the differences found were fixed (#23, #24) and the affected scenarios run again. Runs with
+  Codex were deferred. The graded runs are in `docs/scenarios/results-v0.7.0.md` in the
+  repository.
 - **Upgrading**:
   - Build JSONs from before 0.7.0 have no `parameters`, `parts[].material` or `command`.
     finalize still judges the geometry from them, but `strength.py --from-build` refuses them
