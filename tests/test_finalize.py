@@ -749,6 +749,14 @@ class FinalizePromises(Workspace):
         fit_report("out/fit_plug.json", "out/box.stl", "out/plug.stl")        # fitted again
         out = self.run_use(self.verify([self.SEAT, self.CABLE], dims=dims), values=measured)
         self.assertEqual((out["use"], self.promise(out, "cable-out")["state"]), ("verified", "verified"))
+        # The part under the proxy rebuilt, the joint not fitted again: the reason names the part's change.
+        write_stl("out/box.stl", box(61, 40, 30))
+        out = self.run_use(self.verify([self.SEAT, self.CABLE], dims=dims), values=measured)
+        cable = self.promise(out, "cable-out")
+        self.assertEqual(cable["state"], "not verified")
+        self.assertIn("joint 'plug through notch': the part it was fitted to has changed since", cable["reasons"])
+        self.assertIn("joint 'plug through notch': the part it was fitted to has changed since (neither STL the "
+                      "report measured is a part of this build now): run fit.py again", out["open"])
 
     def test_declaration_errors(self):
         """Reverse tests: a promise that is declared wrongly is an error, never verified."""

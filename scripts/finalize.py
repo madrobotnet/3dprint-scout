@@ -69,7 +69,8 @@ accepted: WARNs the user accepted, named "<part> <check>" or "object <name> <che
 reason; any other WARN is open
 ("<part> D1" also accepts a D1 whose expect was copied from the model, when no intended size
 exists); and promises the user takes without verifying them ("by": "user"). unverified:
-dimensions taken without a measurement. references: for each object, which directions a
+estimated sizes no promise rests on (a real-world size a promise rests on is a dims entry,
+assumed when nobody measured it). references: for each object, which directions a
 reference shows (`real`), or was generated or inferred (`estimated`), or given up on
 (`assumed`); a direction without a real reference is one whose shape is not verified.
 
@@ -550,7 +551,8 @@ def check_joints(verify, parts, taken=frozenset()):
                          "with those numbers, not that the numbers are right")
             if len(unknown) == 2:
                 foreign = True
-                reasons.append(f"joint '{name}': neither STL the report measured is a part of this build")
+                reasons.append(f"joint '{name}': the part it was fitted to has changed since (neither STL the report "
+                               "measured is a part of this build now): run fit.py again")
             entry["proxy_build"], note, built_from = proxy_provenance(j, [rparts.get(k) or {} for k in unknown])
             if note:
                 entry["proxy_note"] = note
@@ -583,7 +585,7 @@ def proxy_provenance(j, sides):
     note, the engine parameters the proxy was built from when tied)."""
     if len(sides) != 1:                               # two: not this build's fit; none: no proxy in it
         return "stale", ("the fit report measured no proxy, only parts of this build: drop \"proxy\" or fit the proxy"
-                         if not sides else "neither STL the fit report measured is a part of this build"), None
+                         if not sides else "the part it was fitted to has changed since"), None
     pb = j.get("proxy_build")
     if not pb:
         return "untied", "no proxy_build names the build.py run that made the proxy", None
