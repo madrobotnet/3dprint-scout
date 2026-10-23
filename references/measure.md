@@ -45,9 +45,10 @@ command with `--expect` on the number you read, named by its path in the output,
 report:
 
 ```bash
-# a hand calculation confirmed on the built part (the lip holds at least 7.5 mm)
-python3 "$SKILL_DIR/scripts/measure.py" slice out/sled.stl --axis x --z 0 \
-  --expect "levels[0].loops[0].size[1]>=7.5" --what "lip height" > out/m_lip.json
+# a hand calculation confirmed on the built part (the lip top at least 17.5 mm above the bed:
+# a cut across the stand at y = 2, so the loop's size[1] is its height)
+python3 "$SKILL_DIR/scripts/measure.py" slice out/sled.stl --axis y --z 2 \
+  --expect "levels[0].loops[0].size[1]>=17.5" --what "lip top above the bed" > out/m_lip.json
 # a size read from the user's file (the plug head is 13 mm wide)
 python3 "$SKILL_DIR/scripts/measure.py" info ref/plug.stl --expect "objects[0].size_mm[0]=13" --tol 0.2 \
   --what "plug head width" > out/m_plug_w.json
@@ -57,6 +58,8 @@ python3 "$SKILL_DIR/scripts/measure.py" info ref/plug.stl --expect "objects[0].s
   (raymap, row by v then u), `objects[0].size_mm[2]` (info). Look at the output first and
   choose the number that is the size you mean; loops are sorted by area, largest first.
 - `=` needs `--tol`; `>=` and `<=` are bounds, for success criteria such as "at least 6 mm".
+- With `--axis y` (or x) `--z` is the position along that axis and the cut is the x/z (or y/z)
+  plane, so a loop's `size` is its width and height there.
 - The report records the file's sha256 and the command, and `gate` is PASS only when every
   expectation passes. A rebuilt part has a new hash, so the report goes stale: measure again.
 - Declare it in params.json `_verify.measurements` (`{"name": "lip height", "report":
