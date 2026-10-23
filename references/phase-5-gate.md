@@ -23,11 +23,14 @@ all times; `references/checks.md` describes `validate.py`'s JSON and the `_verif
    leaves it stale: run each fit of that part again (`fit.py`, the same command), each
    `strength.py --from-build` command of it (the same `--param` links) and each `measure.py
    --expect` on it; draw each preview that showed it again and ask the user to look again (a new
-   `seen` entry with the new `image_sha256`); a test print of it stands only after a new print.
+   `seen` entry with the new `image_sha256`; the old look is never copied onto it, nor recorded
+   as `excluded` or `accepted`); a test print of it stands only after a new print.
    A changed `dims` value also changes the proxy built from it: build the proxy again, then its
    fit. A changed `_material` leaves the STLs fresh but the build's record old: build again,
    then run strength.py again. `finalize.py` names every stale item; run it (Phase 4) until none
-   is left that you can renew.
+   is left that you can renew. A promise it reports not verified for the first time now (added
+   late, or made stale by a late change) is decided with the user as Phase 4 says ("Leaving
+   Phase 4").
 2. Decide the checks `validate.py` lists in `not_covered`: F3 with `fit.py` (one run per joint,
    both parts placed as assembled); F1, F2, R1, R2 and R4 yourself, each with evidence. F3
    counts only from a report about the STLs being delivered: `fit.py --check out/fit_box_lid.json`
@@ -44,8 +47,15 @@ all times; `references/checks.md` describes `validate.py`'s JSON and the `_verif
    (step 3). The delivery message carries only what the user must know or do.
 3. On a hard FAIL, go where its `return_to` says (the checklist table in SKILL.md), fix the
    cause, rebuild, re-validate. On a soft WARN, explain it and let the user choose (slicer
-   supports or a redesign). Never model support structures into the part: overhangs get the
-   slicer's supports (set per object in step 4) or a redesign such as a chamfer or teardrop.
+   supports, a redesign, or keeping it as it is). Accept it only on their agreement
+   (`references/phase-4-features-joints.md`, "What counts as agreement"): a question that names
+   the warning, says that it stays and what that can cost, and offers the choices, and a reply
+   that takes keeping it, recorded word for word as the `reason`. A reply that hands the decision
+   back to you ("I'm not sure, you decide") accepts nothing: fix it, or leave it unaccepted (it
+   stays in `open` and is named at delivery), with an `_assumptions` line saying so (`"cap P3:
+   the user handed the decision to me; not accepted"`).
+   Never model support structures into the part: overhangs get the slicer's supports (set per
+   object in step 4) or a redesign such as a chamfer or teardrop.
 4. **Print settings.** Keep the user's slicer preset as the baseline and change only what this
    part needs, each change with a reason. Bambu Studio: read `references/bambu-process.md`, make
    a template if `printers.json` has none (a saved empty project first, generated from preset
@@ -61,7 +71,8 @@ all times; `references/checks.md` describes `validate.py`'s JSON and the `_verif
    promises with their evidence, the real-world sizes they rest on (`dims`, Phase 2), every joint
    F3 covers with its saved report, every member's saved `strength.py --from-build` report, the
    measurements, the user's looks at preview images (`seen`), the test prints, each WARN the
-   user accepted and each promise they took unverified. A list left out is reported as "not
+   user accepted and each promise they took unverified (each with their reply to the question
+   that named it as its `reason`). A list left out is reported as "not
    declared", which keeps its tier from being verified; an empty list says there is nothing of
    that kind. The phone stand:
 
