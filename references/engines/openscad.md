@@ -98,7 +98,8 @@ module countersunk_hole(d, head_d, depth, head_clearance = 0.3) {   // mouth at 
   the ISO table in `design.md`; the module adds the 2 × 0.3 mm clearance itself
   (`head_clearance`, as `parts.screw_hole`; `design.md`, "Screws, inserts and threads").
 - A snap's strain check runs outside OpenSCAD: `strength.py snap --length --h --b --undercut
-  --material` (standard library only: strain against the limit, `--repeated` for a joint opened
-  often, the deflection force as its load, insertion and release forces), or
+  --material` (standard library only: strain against the limit, `repeated` for a joint opened
+  often, the deflection force as its load, insertion and release forces; linked to the build as
+  every input is), or
   `parts.snap_fit_check(L, t, y, material)` where manifold3d is installed
   (`phase-4-features-joints.md`).

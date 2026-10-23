@@ -24,7 +24,9 @@ Write one generator script:
 - **Every number a later check links to is a parameter**, not a literal and not a value worked
   out inside the generator: each size of a member `strength.py` will check (`ribbon_t`,
   `ribbon_w`, `ribbon_len`), each choice it takes as a string (`"ribbon_support": "cantilever"`;
-  orientation, duty, pin, shear, hole), a safety factor other than strength.py's 2
+  orientation, duty, pin, shear, hole), each flag it takes as `true` or `false`
+  (`"snap_repeated": true` for a snap opened often, `"pin_across_layers": true` for
+  `load_across_layers`), a safety factor other than strength.py's 2
   (`"ribbon_sf": 3.0` for a member loaded at every use), a load a lever amplifies
   (`"latch_load": 141.2`, N), and every real-world size of a `dims` entry (Phase 2).
   `strength.py --from-build` reads them from the build JSON's `parameters`: a Python
@@ -98,8 +100,8 @@ scratch may already build them: review the shell first, or give it a parameter t
 features off for this look. Build and validate:
 
 ```bash
-python3 "$SKILL_DIR/scripts/build.py" run model.scad --params .3dprint/params.json --out out \
-  --printer .3dprint/printers.json > out/build.json
+mkdir -p out && python3 "$SKILL_DIR/scripts/build.py" run model.scad --params .3dprint/params.json \
+  --out out --printer .3dprint/printers.json > out/build.json
 ```
 
 (`--tools`, the nozzles the print uses: `references/phase-2-printer-dimensions.md`, step 1.)

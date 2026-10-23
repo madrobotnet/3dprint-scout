@@ -62,6 +62,9 @@ python3 "$SKILL_DIR/scripts/measure.py" info ref/plug.stl --expect "objects[0].s
   plane, so a loop's `size` is its width and height there.
 - The report records the file's sha256 and the command, and `gate` is PASS only when every
   expectation passes. A rebuilt part has a new hash, so the report goes stale: measure again.
+  Run it from the project folder with a relative path, and keep a user's file inside the
+  project folder (`ref/plug.stl`): the report records the path as given, and the bundle refuses
+  an absolute one or a file outside.
 - Declare it in params.json `_verify.measurements` (`{"name": "lip height", "report":
   "out/m_lip.json"}`) and name it in a promise's evidence, or, for the user's file, in the
   `from` of a `user-file` dims entry (`references/checks.md`). Evidence of a promise must have
@@ -90,17 +93,17 @@ def build(p):
 
 Keep it to the faces the part touches or sweeps past; everything else can be a box. Take every
 size from the parameters, never a number written in the generator, and give the proxy a params
-file of its own that holds only its numbers, with the values in the project's params.json
-(`.3dprint/housing_proxy.json`). Build and validate it with `--proxy`, which writes no 3MF:
+file of its own that holds only the numbers of its `dims` entry, with the values in the
+project's params.json (`.3dprint/housing_proxy.json`). Build and validate a proxy with
+`--proxy`, which writes no 3MF, into a folder of its own, and save its JSON there; the phone
+stand's plug proxy, `plug_proxy.py` with its numbers in `.3dprint/usb_c_plug.json`:
 
 ```bash
-python3 "$SKILL_DIR/scripts/build.py" run housing_proxy.py --params .3dprint/housing_proxy.json \
-  --proxy housing_proxy --out out/proxy > out/proxy_build.json
+mkdir -p out/plug && python3 "$SKILL_DIR/scripts/build.py" run plug_proxy.py \
+  --params .3dprint/usb_c_plug.json --proxy plug_proxy --out out/plug > out/plug/build.json
 ```
 
-Use it as part A in `fit.py` (seated fit) or with `--sweep-angles` (a lever's travel to its
-stop). The joint names `out/proxy_build.json` as `proxy_build` and the numbers as `dims`
-(`references/checks.md`). `finalize.py` then checks that the proxy was generated from its params
-file as it is now, and that those numbers are exactly the ones the dims declare, with the same
-values. Without that, or for a proxy taken in with `record`, a promise resting on the joint is
-only `assumed`; a proxy built from other values is not verified. A proxy stays in `out/`: it is never delivered.
+Use it in `fit.py` (seated fit) or with `--sweep-angles` (a lever's travel to its stop). The
+joint names `out/plug/build.json` as `proxy_build` and the entry as `dims`; what `finalize.py`
+makes of it: `references/checks.md`. A proxy stays in `out/` and is never delivered; the
+bundle carries its generator and params file, and its REPRODUCE.md builds it again.

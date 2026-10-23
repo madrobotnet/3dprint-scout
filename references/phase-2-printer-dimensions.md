@@ -135,16 +135,16 @@ different prints (`combined`) were never printed together, so a combination star
 reference model) is measured with `measure.py` (`references/measure.md`): interface numbers
 only, never its geometry (licences); an official file counts as "official file, measured",
 another maker's model as a secondary source. Dimension research has its own cap, about six page
-fetches (Phase 1's counts only the reference table); past it, ask or mark the value unverified.
+fetches (Phase 1's counts only the reference table); past it, ask, or record the best value you
+have as not measured (`assumed`, below).
 
 **Published standards** (a bin system, a rail, a connector): a spec or drawing published by the
 standard's owner counts as the official spec. Numbers read from a spec, a drawing or published
 constants are sourced dimensions: record where each came from (R2). A standard defined by a
 reference model rather than a drawing (Gridfinity, for one): offer the user to supply that file
-for `measure.py` (numbers only). A value found in a single source is recorded and reported as
-unverified. When secondary sources disagree, use the value two independent sources share, note
-the other, and mark it unverified; if none agree and the part must mate, ask, or offer a fit
-test (Phase 4).
+for `measure.py` (numbers only). A value found in a single secondary source, or one two
+independent sources share while another disagrees, was not measured: `assumed`, with its sources
+(below). If none agree and the part must mate, ask, or offer a fit test (Phase 4).
 
 **The sizes a promise rests on** (`_verify.dims`). Every real object the part must fit or hold
 (the phone in its case, a USB-C plug, a cable, a screw) gets an entry: `id`, `what` (the object
@@ -152,9 +152,10 @@ and its sizes, in words), `unit`, `params` (the params.json keys the model is bu
 their values), `source`, and `tol` when known (how far the real object may vary; recorded, not
 applied to the fits). The keys must be engine parameters in params.json itself (not `_` keys,
 not only a default in the generator), and the values must be the same numbers: `finalize.py`
-compares them. Write such a size here, not as a sentence in `_assumptions` or
-`_verify.unverified`: a sentence cannot be tied to a promise. For a phone stand with a cable
-notch:
+compares them. Write such a size here even when nobody measured it, never as a sentence in
+`_assumptions` or `_verify.unverified`: a sentence cannot be tied to a promise.
+`_verify.unverified` holds only estimated sizes no promise rests on. For a phone stand with a
+cable notch:
 
 ```json
 {"phone_w": 78.5, "phone_t": 15.0, "plug_w": 13, "plug_h": 8, "plug_l": 9, "cable_d": 4.5,
@@ -163,7 +164,7 @@ notch:
     "params": {"phone_w": 78.5, "phone_t": 15.0}, "source": "caliper", "by": "user", "tol": 0.2},
    {"id": "usb-c-plug", "what": "right-angle USB-C plug head and its cable", "unit": "mm",
     "params": {"plug_w": 13, "plug_h": 8, "plug_l": 9, "cable_d": 4.5}, "source": "assumed",
-    "tol": 0.5}
+    "tol": 0.5, "note": "a typical right-angle plug; the user has none at hand"}
  ]}}
 ```
 
@@ -179,7 +180,8 @@ notch:
   the file inside the project folder (`ref/plug.stl`): `finalize.py --bundle` copies it and
   refuses one outside.
 - `assumed`: everything else: a typical size, a value from secondary sources (two that agree
-  are still `assumed`; put their links in `note`), a guess.
+  are still `assumed`), a guess. Say where the number came from in `note` (the links, "a
+  typical right-angle plug").
 
 A promise rests on the dims its evidence names (a proxy joint names the dims it is built from,
 `references/measure.md`) and on its own `assumes`. One that rests on an `assumed` size is
@@ -194,10 +196,11 @@ and the cable notch rests on that; a small test piece would confirm it." Unatten
 ask: a size is `spec` or `assumed` from a source you found, and a size the part must fit with no
 source at all stops the run (SKILL.md, "Unattended runs").
 
-When a measurement arrives later, change `source` and the value together (with `"by": "user"`
-for a caliper value). A new value changes the model: update the proxy's own params file too,
-build again and run the fits and calculations that rest on it. A value equal to the assumed one
-leaves the reports standing.
+When a measurement arrives later, change `source` and the value together in the dims entry,
+params.json and any proxy's own params file (with `"by": "user"` for a caliper value). A new
+value changes the model: build the part and the proxy again, then run again every check that
+rests on it (finalize names each stale one). A value equal to the assumed one changes only the
+source and leaves the reports standing.
 
 **Members that carry load** (pins, knuckles, links, levers, hooks, brackets, handles): when a
 proven reference's file is at hand (supplied by the user, or their own earlier project that
