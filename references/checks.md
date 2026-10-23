@@ -106,7 +106,7 @@ what each state asks of you, in the tier's order:
 - `assumed`: a size nobody measured (`rests_on` names the dims entry): ask the user to measure
   it (`references/phase-2-printer-dimensions.md`, step 3, records it), or offer a test print, or
   go on with it assumed. Or a print file whose filament or preset finalize cannot read: tell the
-  user what to choose in the slicer (`references/phase-6-deliver.md`, "The print file"). Never
+  user what to choose in the slicer (`references/phase-6-files.md`, "The print file"). Never
   call an assumed promise verified.
 - `accepted`: name the WARN the user accepted.
 - `verified`: say what showed it, and what its evidence's `covers` leaves out of the promise's
