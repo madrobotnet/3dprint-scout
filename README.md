@@ -22,6 +22,8 @@ Studio, that is a project file with the print settings already set per object.
 4. **Dimensions** — a table of every dimension with its source (your caliper, an official spec,
    or two secondary sources that agree). Nothing is invented. For parts that must fit an object of
    uncertain shape, it makes small fit-test pieces first (three clearance steps, marked 1, 2, 3).
+   With it comes the list of what the part must let you do (hold the phone, let the cable out),
+   written with you; each item is later checked by its own evidence.
 5. **Modeling** — [Blender](https://www.blender.org) first, for every shape, when it is there
    (your own Blender through MCP, a `blender` binary, or the `bpy` module): fillets with a true
    radius, rounds along curves in the profile, Manifold booleans, text in any font, an editable
@@ -45,15 +47,19 @@ Studio, that is a project file with the print settings already set per object.
    printed first, a few grams; a print-in-place lid hinge always gets that coupon, on top of
    its margin. Every part gets a preview image (iso, front, right, top) rendered without a
    display, and a Blender render in your filament's colour when Blender is there.
-7. **Delivery** — a final report first (`finalize.py`): geometry verified or not, the shape by
-   the directions the references cover, and slicing and printing as not verified here, with
-   every open item listed; then STL per part plus a 3MF that fits your slicer, with print-setting
-   changes and the reason for each, one line naming the separate parts and how to recolour them,
-   and a bundle with the generator, the parameters and the commands that rebuild them.
+7. **Delivery** — a final report first (`finalize.py`): each thing you were promised, verified
+   only by its own evidence on the current parts (otherwise named as assumed, not verified or a
+   prototype); then geometry verified or not, the shape by the directions the references cover,
+   and slicing and printing as not verified here, with every open item listed. Then STL per
+   part plus a 3MF that fits your slicer, with print-setting changes and the reason for each,
+   one line naming the separate parts and how to recolour them, and a bundle with the generator,
+   the parameters, the evidence and the commands that rebuild them and reach the same verdict.
 
 The agent stops for your choice after references, after the concepts, after the dimension table
-and after the base shape. If you hand it a file of the thing the part must fit (a manufacturer's
-kit, a reference model), it measures the interface dimensions from the file and copies nothing.
+and after the base shape. Before delivery it names each promise that is not verified yet and
+decides it with you: measure it, print a test piece, take it unproven as a prototype, or drop
+the promise. If you hand it a file of the thing the part must fit (a manufacturer's kit, a
+reference model), it measures the interface dimensions from the file and copies nothing.
 
 ## Examples
 
@@ -148,7 +154,7 @@ the X2D and H2D, objects that need both nozzles are placed where both can reach.
 
 | Path | Contents |
 |---|---|
-| `.3dprint/params.json` | Every dimension, with assumptions taken when you weren't asked |
+| `.3dprint/params.json` | Every dimension, with assumptions taken when you weren't asked; what you were promised and the evidence for each (`_verify`) |
 | `.3dprint/printers.json` | Your printer: bed, nozzles, slicer, template (no serials, access codes or IPs) |
 | `.3dprint/calibration.json` | Your own print results (which fit-test ring fit, which latch held or broke), written only after you say yes; a value here beats every table |
 | `.3dprint/templates/` | Bambu Studio template. A saved one holds your account ID: keep it private |
@@ -156,6 +162,19 @@ the X2D and H2D, objects that need both nozzles are placed where both can reach.
 | a new delivery folder | Final files. Existing files are never overwritten |
 
 ## Status
+
+**v0.7.0** ties the verification evidence to the design. What you were promised (something you
+do with the part, a feature it must have, a look) is written down with its conditions and what
+counts as success, and the final report calls a promise verified only when its own evidence is
+of the right kind, was made on the current parts (by the STL's sha256), passed, and rests on no
+size nobody measured. That evidence can be a fit check, a strength calculation that takes its
+numbers from the build, a measurement of the built part, your look at a preview image, or a
+test print on the same printer, material and preset. The report gives this `use` tier first,
+apart from the geometry; a project from before 0.7.0 reads `not declared` there. Rebuilding the
+same generator now writes the same STL bytes, so a rebuild with nothing changed keeps the
+evidence; the first rebuild after upgrading changes every hash once (see
+[CHANGELOG.md](CHANGELOG.md)). The source bundle carries every input of the verdict, and the
+nine conversation scenarios were run with Claude and graded.
 
 **v0.6.1** combines verification fixes with setup and workflow improvements.
 Assembly evidence now tracks object membership, roles and free-part clearances separately
@@ -228,7 +247,9 @@ python3 -m unittest discover -s tests
 Finish installing dependencies before running tests; do not reinstall bpy while a Blender
 subprocess is using it. Skill changes also need the conversation scenarios in
 [`docs/scenarios/`](docs/scenarios/README.md), which are not shipped with the skill; Python unit
-tests alone do not exercise agent decisions.
+tests alone do not exercise agent decisions. The kit holds nine scenarios, each with an opening
+message, scripted replies and a grading checklist, a script that sets up each start state, and
+the graded runs of 0.7.0.
 
 `SKILL.md` is the entry point: the rules that hold at all times, a short skeleton of each phase
 and the checklist. Each phase's how-to (`references/phase-0-detect.md` to `phase-6-deliver.md`),

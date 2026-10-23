@@ -1,5 +1,176 @@
 # Changelog
 
+## 0.7.0 — 2026-10-23
+
+Verification evidence tied to the design. 0.6 checked that each report was about the current
+STLs, but what the user was promised in words was outside every check: in a demo phone stand,
+features promised with the concept were missing from the model, a seat height was
+hand-calculated without the corner round, and a cable passage rested on plug sizes nobody had
+measured. In 0.7.0 the promises are declared, and `finalize.py` calls one `verified` only when
+its evidence is of a kind allowed for it, tied to the current build by sha256, passed, and
+resting on no unmeasured size. The plan (in Korean) and the Codex review it takes in are in
+`docs/plans/`.
+
+- **Promises and the `use` tier** (#18). `_verify.promises` lists what the user was told, each
+  with a `kind`: `use` (something the user does with the object; needs `conditions` and
+  `success`), `feature` (needs `success`) or `look`. Its `evidence` names declared joints,
+  members, measurements, seen images or test prints, each with an optional `covers` line: a use
+  takes joints, members, measurements and test prints, a feature joints, measurements and test
+  prints, a look seen images and test prints. A part's own check (`box M1`) is never evidence.
+  Each promise gets one state: error, failed, not verified, excluded, assumed, accepted or
+  verified; an exclusion never hides a failure. `use` is a fifth tier, judged apart from the
+  geometry: the worst state of its promises, or `not declared` with no list or an empty one. It
+  leads the summary, and the promises that are not verified lead `open`. A fit report now
+  counts only when it holds F3, and F3_sweep too for a joint marked `"sweep": true`.
+- **Real-world sizes in `_verify.dims`** (#18, #19). Each size the design rests on (a plug, a
+  phone in its case) is tied to the params.json values it sets, which must be equal, and names
+  its source: `assumed`; `caliper`, with `"by": "user"`; `spec`, with a `url` and `where` each
+  number is in it (listed for the person to check: finalize reads no spec); or `user-file`,
+  each number backed by a fresh, passed measurement of the user's file within `tol` (otherwise
+  the entry is `unbacked`). A promise rests on the sizes its evidence names, so one that passed
+  on an assumed size is `assumed`, not verified. A proxy (the plug as a box) is built with
+  `build.py run --proxy` from a params file of its own whose numbers must be exactly its dims;
+  a recorded proxy, or one built from numbers no dims entry declares, is assumed, one built
+  from other values is not verified, and a changed params file makes it stale.
+- **Measurements as evidence** (#19). `measure.py info`, `slice` and `raymap` take
+  `--expect PATH=VALUE` with `--tol`, or `PATH>=VALUE` / `PATH<=VALUE`, on a number of their
+  own output; the report gains the file's sha256, each expectation and a gate.
+  `_verify.measurements` lists the saved reports, each `missing`, `stale`, `failed` or
+  `passed`. finalize runs a report's command again on its file and reads every value itself, so
+  an edited report does not count. A size a hand calculation assumed (a lip top = seat + lip
+  height) is checked on the built part this way.
+- **Seen images and test prints tied to the design** (#20). `preview.py` and `render.py` write
+  a sidecar next to each image (`<image>.png.json`): the image's sha256, views, language,
+  renderer and every STL drawn with its sha256, taken before drawing. A `_verify.seen` entry is
+  a person's judgement of an image: the digest they looked at, `by` user or agent, the promises
+  judged and `passed` or `failed`. It stands while the image is still those bytes, its sidecar
+  says so and every STL it shows is a part of this build now; only the user's judgement
+  verifies a look. A test print that lists `promises` records each printed part's sha256 and
+  material, the printer, `orientation`, `by` and the preset. It verifies only for the current
+  parts in their current materials, on the build's printer, printed as built, reported passed
+  by the user, under the delivered preset. A 0.6 entry without `promises` stays in the print
+  tier. A test print may list the user's `photos`; they are no evidence.
+- **Materials and the process preset** (#20, #21). params.json declares `_material` (a
+  strength.py key such as `pla_basic`), `_parts.<name>.material` for a part that differs, and
+  `_print.preset`, the slicer's process preset. The build JSON records each part's material; a
+  material changed since the build is open (`material_drift`), and a linked strength report or
+  a test print of that part does not verify.
+- **Strength tied to the build** (#21). The build JSON records `parameters`,
+  `{"scope": "merged" | "overrides", "values": {...}}`: `merged` for Blender and for a Python
+  generator with a `DEFAULTS` dict (a params.json key the defaults lack gives a warning),
+  `overrides` for Python without `DEFAULTS`, OpenSCAD and `record`.
+  `strength.py --from-build out/build.json --part NAME --param INPUT=PARAM` takes sizes and
+  choices from those values (a dotted path reaches a nested one) and the material from the
+  part; every report says where each input came from (`inputs_from`: `param:`, `table:`,
+  `build:material`, `default:` or `manual`). Only a linked report with nothing typed in is
+  evidence of a use. It goes stale, by name, when the part's STL, a linked parameter ("h was
+  ribbon_t = 4.5, now 5.0") or the material changes. A missing part or parameter, an input
+  given twice, a value not valid for its input, or `--material` with `--from-build` is an error
+  that names the cause.
+- **The delivered print file's filament and preset** (#21). `bambu3mf.py` writes each part's
+  filament slot and the template's filament preset for it, and the process preset, into the 3MF
+  manifest. `finalize.py --deliver` compares each part's filament with its material: another
+  material leaves the part's material-dependent evidence not verified; a filament finalize
+  cannot name, or a part delivered only as STL or core 3MF, leaves it assumed. A process preset
+  other than `_print.preset` keeps the part's test prints from verifying, and a project that
+  names none leaves them assumed.
+- **`render.py --lang ko`** draws the view names in Korean (Blender; checked on bpy 5.2.2 and
+  4.5.14). `preview.py` keeps English: its 5x7 bitmap font has no Hangul (#20).
+- **`finalize.py --bundle` carries every input of the verdict** (#22): the reports `_verify`
+  names, the measured user files, each proxy's generator and params file, seen images with
+  their sidecars, test-print photos and, with `--deliver`, every delivered STL and 3MF with its
+  manifest. `REPRODUCE.md` rebuilds the parts and proxies with the build's own engine and
+  settings and runs finalize with `--deliver` on the bundled delivery, for the same tiers,
+  states and reasons. A missing file is listed in `bundle_missing`. A build that no longer
+  matches the project (stale sources, changed settings, grouping or material, a part not
+  built), a file outside the project folder and a carried text file holding a path of this
+  machine refuse the bundle. The build JSON says `"command": "run" | "record"`, so a recorded
+  Blender build is not rebuilt as a run.
+- **Guidance in every phase** (#22). Phase 1 writes a concept's features as promises; Phase 2
+  makes the use list with the user, asks for real objects to be measured (otherwise an
+  `assumed` dims entry and an offered test print) and records the material and preset; Phase 3
+  makes every number a check links to a parameter; Phase 4 links strength with `--from-build`,
+  checks hand-calculated sizes with `measure.py --expect`, and ends when finalize names no
+  declaration error, each promise that is not verified decided with the user; Phase 5 lists
+  what a rebuild makes stale; Phase 6 runs finalize with `--deliver`, puts `--bundle` on the
+  last run and opens the delivery message with the `use` tier, in plain words.
+- **What counts as the user's agreement** (#24). Excluding a promise, accepting a WARN and, in
+  an attended run, delivering a promise that is not verified as a prototype rest on the user's
+  reply to a question that named it, said in plain words what taking it means and costs, and
+  offered the choices; the reply is recorded word for word. A reply that hands the decision
+  back, a look, a reference or concept choice, an earlier answer or silence is never agreement:
+  the agent then decides, but never excludes or accepts. A look belongs to its image; a stale
+  one needs a new image and a new look. Unattended runs never exclude or accept, and their
+  delivery opens with what was decided alone. The prototype line
+  `"<id>: delivered as a prototype, not verified"` may end with a note in parentheses saying
+  who chose it.
+- **Rebuilds write the same STL bytes** (#23). Evidence is tied to an STL's sha256, but Blender
+  and OpenSCAD 2021.01 wrote the same triangles in another order on some runs, and Blender's
+  `from_mesh` dissolved edges in the order of a Python `set` and so made different triangles: a
+  rebuild with nothing changed could make the evidence stale. `build.py run` now rewrites every
+  part STL into one canonical order (the 50-byte triangle records sorted, each kept whole; the
+  header kept) before anything hashes it, for every engine, `--only` and `--proxy`; `record`
+  never rewrites an STL. `blender_builder.py` takes edges and faces in mesh-index order. The
+  core 3MF and the `.blend` still differ per build; no evidence is tied to them.
+- **A Python build no longer lists the skill's own `assembly.py`** among its sources (#22):
+  since 0.6, updating the skill made every Python build stale.
+- **Conversation scenarios, run** (#25). `docs/scenarios/` (not shipped) is a kit for the nine
+  conversation checks: the six of 0.6.1 plus A (a kept and a broken promise), A2 (a use on an
+  unmeasured size) and C (a parameter changed after the strength calculation). Each has a file
+  with the opening message, scripted replies and a grading checklist; `setup.py` writes each
+  start state with the skill's own scripts, and `--check-docs` checks the files against
+  `conversation-checks.md`. The table moved out of the shipped `references/development.md`
+  after a run agent read its row. Claude ran all nine: 6 matched and 3 differed. The causes
+  were fixed (#23, #24, the table moved) and the five affected scenarios run again, graded by
+  an agent that took no part: bambu-template now matches and the agreement item holds in every
+  attended re-run; holes-unknown and change-request differ only through the harness;
+  given-answers showed the base-shape look after the features were built, and unattended still
+  opens its delivery with a result. Runs with Codex were deferred: the next check is a run in a
+  chat app. Results: `docs/scenarios/results-v0.7.0.md`.
+- **Upgrading**:
+  - Build JSONs from before 0.7.0 have no `parameters`, `parts[].material` or `command`.
+    finalize still judges the geometry from them, but `strength.py --from-build` refuses them
+    (no material or parameters recorded), a linked strength report against one is stale ("built
+    before 0.7.0: build again"), no material drift can be reported, and the bundle tells a run
+    from a record by its engine and `engine_info`. Build again and save the new JSON.
+  - Promises need `_verify.promises` with their evidence. A project from before 0.7.0 has none,
+    so its `use` tier reads `not declared`; its geometry is judged as before.
+  - A strength report is evidence of a use only when made with `--from-build` and nothing typed
+    in. A 0.6 report (every input typed) still counts for the geometry, with a note, but leaves
+    a use not verified.
+  - `build.py run` now sorts every part STL's triangles, so the first rebuild after upgrading
+    changes the sha256 of every part it builds (Blender, OpenSCAD and the Python engine alike),
+    with the same triangles. Evidence tied to the old hashes goes stale once and must be made
+    again: fit reports, and any measurements, seen images, test prints or `--from-build`
+    strength reports made before the change. A delivery folder made before it is no longer the
+    verified STLs under `--deliver`: deliver into a new folder. `record` leaves STLs as
+    exported.
+- **Known, for 0.7.x**:
+  - A use that needs a path by hand (sliding a part in), or a promise whose success rests on a
+    hand calculation (a tip-over angle), can read `verified` on a fit or measurements alone,
+    without a test print. The guidance asks for a test print; finalize cannot tell such a use.
+  - `validate.py` P3 reads thin where a sloped wall meets the bed at an acute angle: rays from
+    the bottom face near that edge leave through the slope.
+  - A verified promise the user takes as a prototype has no record: the prototype line applies
+    only to a promise that is not verified.
+  - The soft checks the agent decides (P4, P5, P6) have no place to be recorded; finalize keeps
+    listing them as yours to decide.
+  - A data file a generator opens itself (not an import or include) is tracked by neither R3
+    nor the bundle; the guidance says to keep those numbers in the parameters.
+  - A user's own Bambu filament preset that inherits a Bambu one is not traced to it: finalize
+    cannot name its material, so the evidence that rests on it stays assumed.
+  - `build.py` writes absolute STL paths in the build JSON.
+  - A seen image that also draws a declared proxy (a phone on the stand) is not taken: the
+    proxy's STL is not a part of the build, so the look reads stale.
+- **Tests and reviews**: 345 → 441 tests (here on Python 3.13 + bpy 5.2.2; the PRs also ran
+  Python 3.11 + bpy 4.5.14 and Python 3.9). `test_pipeline` runs build.py, strength.py
+  `--from-build`, bambu3mf.py and finalize.py `--deliver` together; other new tests bundle a
+  project made by the real scripts and run REPRODUCE.md inside it for the same verdict. Codex
+  reviewed steps 1 to 4 until a round found nothing; the bundle (step 5) took seven Codex
+  rounds and an auditor who tried to break it and reproduced 13 more problems, all fixed. The
+  Codex reviews of #23 and #24 did not finish: those rest on their tests, an independent
+  reproduction (#23) and a reviewer's check (#24).
+
 ## 0.6.1 — 2026-10-22
 
 Verification fixes and development setup/workflow improvements are shipped together in this
