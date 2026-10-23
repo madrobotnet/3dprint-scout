@@ -86,7 +86,8 @@ the build report (`_parts.<name>.material`, else `_material`; `--material` is th
 and so is a part with no material), and each `--param INPUT=PARAM` takes one input of the
 report's `inputs` (`h`, `b`, `length`, `pin_d`, `knuckles`, `orientation`, `support` …) from
 the build's `parameters.values` (`plug.w` reaches into an object), checked as its option is
-checked. An input is either typed or linked, not both. A build of scope `overrides`
+checked; a flag (`repeated`, `load_across_layers`) is a `true` or `false` there. An input is
+either typed or linked, not both. A build of scope `overrides`
 (OpenSCAD, Python without `DEFAULTS`, `record`) holds only what params.json passed: a value
 left to a generator default goes into params.json first. Every report says where each input
 came from in `inputs_from`: `param:<PARAM>`, `build:material`, `table:<key>` (a hand-force or
@@ -115,8 +116,9 @@ from the support type:
   double shear.
 - Layers: `--orientation` is the direction of the bending stress, which runs along the pin
   (xy for a pin lying flat, z for one standing up). Shear slides layer on layer when the pin
-  stands up or when a flat pin is pushed across the layers: pass `--load-across-layers` for
-  the latter and the shear check uses the Z strength while bending keeps X-Y.
+  stands up or when a flat pin is pushed across the layers: for the latter set
+  `load_across_layers` (a params.json `true` linked with `--param load_across_layers=...`, below)
+  and the shear check uses the Z strength while bending keeps X-Y.
 
 ## The hinge model
 

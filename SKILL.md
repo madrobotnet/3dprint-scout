@@ -198,8 +198,8 @@ printed.
 - Clearances from `references/tolerances.md` (radial or on the diameter, as marked); shapes from
   `references/design.md`, `parts.py` in Python.
 - Every joint from both sides with `fit.py` (F3: overlap, play, gap, contact); a moving part gets
-  a sweep through the travel it needs; build a proxy of the mating part from measured numbers
-  when there is no closed mesh (`references/measure.md`).
+  a sweep through the travel it needs (its joint declared `"sweep": true`); build a proxy of the
+  mating part from its `dims` numbers when there is no closed mesh (`references/measure.md`).
 - Every pin, knuckle, lever and latch bar against its duty's P7 floors before the fit, plus a
   `strength.py` hand calculation (`hinge` for knuckles) with a cited load (`references/materials.md`),
   run with `--from-build out/build.json --part NAME --param INPUT=PARAM` (a hand-force key is the
@@ -211,12 +211,12 @@ printed.
   pieces and the final part use the same printer, filament and preset.
 - A size a hand calculation assumed (a lip height, a wall) is checked on the built STL with
   `measure.py --expect` and the report saved (`references/measure.md`).
-- Leave Phase 4 only when every promise has a state and the `use` tier is not `error`
-  (`finalize.py`). Name each one not verified to the user and decide it together: measure or
-  test print; go on assumed; a prototype (it stays not verified and leads the delivery); or the
-  user excludes it in their words (`_verify.accepted`, `"by": "user"`), never in unattended runs.
-  A `failed` promise is never excluded or accepted away: go back to the phase of the evidence that
-  failed (G7); if the user wants the files anyway, the failure is the delivery's first line.
+- Leave Phase 4 only when `finalize.py` names no error (`promise_errors` empty, `use` not
+  `error`). Decide each promise not verified with the user ("Leaving Phase 4"): an `assumed` one
+  may go on assumed; a `not verified` one gets its evidence, goes out as a prototype, or the user
+  excludes it in their words (`"by": "user"`), never in unattended runs. A `failed` promise is
+  never excluded or accepted away: go back to the phase of the evidence that failed (G7); if the
+  user wants the files anyway, the failure is the delivery's first line.
 
 ## Phase 5 — Gate and process tuning (review point)
 
@@ -225,13 +225,12 @@ Read `references/phase-5-gate.md` now (required); `references/checks.md` has `va
 Goal: every part validated against its own `expect` on fresh artifacts, every uncovered check
 decided with evidence, print settings chosen with a reason.
 
-- Re-run the Phase 3 build (or `record`), its JSON saved (`> out/build.json`); `validate.py` once
-  per part with the build's `--source` list. Into `_verify`: saved fit, strength and measure
-  reports, accepted WARNs, the user's look at an image (`seen`, `image_sha256` from its sidecar),
-  test prints (parts' sha256 and material, printer, `"as built"`, preset, `photos`); promises name
-  them. A user's file or photo stays inside the project folder: `--bundle` refuses one outside.
+- Re-run the Phase 3 build (or `record`), its JSON saved (`> out/build.json`), and renew what went
+  stale (its step 1); `validate.py` once per part with the build's `--source` list. Into `_verify`
+  (`references/checks.md`): saved reports, accepted WARNs, the user's looks (`seen`), test prints;
+  promises name them. Paths relative to the project folder: `--bundle` refuses others.
 - Decide `not_covered`: F3 with `fit.py` (one run per joint), F1, F2, R1, R2 and R4 yourself with
-  evidence; P6 (not in that list, still yours) from the preview image or the generator and its log.
+  evidence; P4, P5 and P6, which finalize leaves to you, from the preview or the generator.
 - Hard FAIL → the phase in the table below, fix the cause, rebuild, re-validate (G7). Soft WARN →
   explain, the user decides (slicer supports or a redesign).
 - Print settings: the user's preset is the baseline, each change with a reason. Bambu Studio:
@@ -246,12 +245,12 @@ Goal: new files outside `out/` the user can open in their slicer, with every ver
 assumption repeated.
 
 - First `finalize.py --build out/build.json`, always with `--deliver` (the files, each part's
-  filament, the process preset: without it a promise can read verified on another material) and
-  `--bundle` (the sources and the evidence); call verified only what it does. The message opens
-  with the `use` tier: each promise's state and, if not verified, why; a failure, or a
-  prototype's unproven promises, come first; then the other tiers and `open`.
+  filament, the process preset: without it a promise can read verified on another material);
+  `--bundle` (sources and evidence) only on the last run, into a new folder. Call verified only
+  what it does. The message, in plain words throughout, opens with the `use` tier: each promise's
+  state and, if not verified, why; a failure or a prototype first; then the rest, summarised.
 - Files by the slicer saved in Phase 2 (the phase file's table): Bambu project 3MF plus STL per
-  part, or STL per part plus the core 3MF; every STL named after its part.
+  part, or STL per part plus the core 3MF; every part (coupons too) an STL named after it.
 - Then: the parameter table and "anything to change?"; the print settings with their reasons;
   one line on which parts are separate and how to recolour one; the sources of the references.
 - When the user later reports a print result, offer **once** to record it with

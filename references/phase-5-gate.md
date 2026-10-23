@@ -1,7 +1,7 @@
 # Phase 5 — Gate and process tuning (review point)
 
 Read this on entering Phase 5 (SKILL.md holds the checklist table and the rules that hold at
-all times; `references/checks.md` describes `validate.py`'s JSON).
+all times; `references/checks.md` describes `validate.py`'s JSON and the `_verify` declarations).
 
 1. Validate every part against **its own** `expect`: re-run the Phase 3 `build.py run` (or
    `record`) command and save what it prints (`build.py run ... > out/build.json`); it validates
@@ -21,11 +21,13 @@ all times; `references/checks.md` describes `validate.py`'s JSON).
    **After a rebuild, renew what went stale.** Evidence is tied to the STLs, parameters and
    material it was made from, so a rebuild that changed a part, a linked parameter or a material
    leaves it stale: run each fit of that part again (`fit.py`, the same command), each
-   `strength.py --from-build` command of it and each `measure.py --expect` on it; draw each
-   preview that showed it again and ask the user to look again (a new `seen` entry with the new
-   `image_sha256`); a test print of it stands only after a new print. A changed `_material`
-   leaves the STLs fresh but the build's record old: build again, then run strength.py again.
-   `finalize.py` names every stale item; run it (Phase 4) until none is left that you can renew.
+   `strength.py --from-build` command of it (the same `--param` links) and each `measure.py
+   --expect` on it; draw each preview that showed it again and ask the user to look again (a new
+   `seen` entry with the new `image_sha256`); a test print of it stands only after a new print.
+   A changed `dims` value also changes the proxy built from it: build the proxy again, then its
+   fit. A changed `_material` leaves the STLs fresh but the build's record old: build again,
+   then run strength.py again. `finalize.py` names every stale item; run it (Phase 4) until none
+   is left that you can renew.
 2. Decide the checks `validate.py` lists in `not_covered`: F3 with `fit.py` (one run per joint,
    both parts placed as assembled); F1, F2, R1, R2 and R4 yourself, each with evidence. F3
    counts only from a report about the STLs being delivered: `fit.py --check out/fit_box_lid.json`
@@ -34,7 +36,12 @@ all times; `references/checks.md` describes `validate.py`'s JSON).
    list but is yours too, from the `preview.py` image, or from the generator and its log when
    the image cannot show the bed edge: a `bb.bevel` with `bed=False` leaves it alone, and with
    no chamfer the preset's elephant-foot compensation covers it (0.15 mm in the X2D's
-   `0.20mm Standard`, `phase-2-printer-dimensions.md`, step 4).
+   `0.20mm Standard`, `phase-2-printer-dimensions.md`, step 4). finalize lists every soft check
+   left to you as "UNVERIFIED (yours to decide)": P6, P4 (bridges) and P5 (small features),
+   which no script checks, and P3 when the wall check was skipped. Decide each now, before the
+   delivery, from the preview and the generator: one that holds needs nothing more; one that
+   needs the user (supports under a bridge, a feature too thin to print) is a WARN they decide
+   (step 3). The delivery message carries only what the user must know or do.
 3. On a hard FAIL, go where its `return_to` says (the checklist table in SKILL.md), fix the
    cause, rebuild, re-validate. On a soft WARN, explain it and let the user choose (slicer
    supports or a redesign). Never model support structures into the part: overhangs get the
@@ -46,7 +53,7 @@ all times; `references/checks.md` describes `validate.py`'s JSON).
    (supports, support interface filament and Z distance, brim, walls, infill, ...).
    Any other slicer: give a three-line recipe (material, layer height, walls, infill, supports,
    orientation, and why). Record the process preset the user prints with as `_print.preset`
-   (`{"_print": {"preset": "0.20mm Standard @BBL X2D"}}`), named as the slicer names it: test
+   if Phase 2 did not (`phase-2-printer-dimensions.md`, "Material and process preset"): test
    prints count only under it, and `finalize.py --deliver` compares a Bambu project's preset and
    filaments with it and with each part's material (Phase 6).
 5. **Declare the evidence** in `params.json` under `_verify`, for `finalize.py` in Phase 6. Most
@@ -55,9 +62,8 @@ all times; `references/checks.md` describes `validate.py`'s JSON).
    F3 covers with its saved report, every member's saved `strength.py --from-build` report, the
    measurements, the user's looks at preview images (`seen`), the test prints, each WARN the
    user accepted and each promise they took unverified. A list left out is reported as "not
-   declared": without `joints` or `strength` the geometry is not verified, and without promises
-   (or with an empty list) the use tier is not declared. Otherwise an empty list says there is
-   nothing of that kind. The phone stand:
+   declared", which keeps its tier from being verified; an empty list says there is nothing of
+   that kind. The phone stand:
 
    ```json
    "_verify": {
@@ -86,7 +92,8 @@ all times; `references/checks.md` describes `validate.py`'s JSON).
         "params": {"phone_t": 15.0}, "source": "caliper", "by": "user"},
        {"id": "usb-c-plug", "what": "right-angle USB-C plug head and cable", "unit": "mm",
         "params": {"plug_w": 13, "plug_h": 8, "plug_l": 9, "cable_d": 4.5},
-        "source": "assumed", "tol": 0.5}
+        "source": "assumed", "tol": 0.5,
+        "note": "a typical right-angle plug; the user has none at hand"}
      ],
      "joints": [{"name": "plug through notch", "report": "out/fit_plug.json", "proxy": true,
                  "dims": ["usb-c-plug"], "proxy_build": "out/plug/build.json"}],
@@ -105,25 +112,10 @@ all times; `references/checks.md` describes `validate.py`'s JSON).
    }
    ```
 
-   finalize reads this as `use: excluded` (5 promises: 1 excluded, 1 assumed, 3 verified):
-   `cable-bend` the user took unverified, and `cable-out` rests on `usb-c-plug`, which nobody
-   measured. Which evidence each kind takes, and every state: `references/checks.md`.
-
-   - `dims` on a joint, member or measurement names the sizes its numbers come from; a promise
-     on it takes their state. A real-world size a promise rests on goes into `dims`;
-     `unverified` holds only an estimated size no promise rests on (free text is linked to no
-     promise).
-   - `image_sha256` is copied from the image's sidecar (`out/preview.png.json`) when the user
-     judges the image, a test print's part `sha256` from the build JSON of the files the user
-     printed; never fill them in later from the files as they are then.
-   - `covers` says in one line what the evidence covers; the report shows it next to the
-     promise's conditions and success.
-   - A joint fitted against a proxy gets `"proxy": true` with its `dims` and `proxy_build`
-     (Phase 4); `finalize.py` then says the fit shows agreement with those numbers, not that
-     they are right.
-   - Test print status: `passed`, `failed`, `skipped`, `offered` or `pending`; a print without
-     `promises` (a hinge coupon the user skipped, `fit_test.py` pieces) stays in the print tier.
-   - An accepted WARN is `{"check": "<name>", "reason": "<the user's reason>"}`, named as
-     `finalize.py` lists it in `open`: `<part> <check>` (`lid A2`), `object <name> <check>` (an
-     object's D2 / P1 / P2), `joint <name> <check>` (a fit's WARN) or `member <name>` (a
-     strength.py WARN). A FAIL cannot be accepted.
+   Delivered with `--deliver` on a folder that holds the sled's STL and a Bambu project printing
+   it in Bambu PLA Basic under `0.20mm Standard @BBL X2D`, finalize reads this as `use: excluded`
+   (5 promises: 1 excluded, 1 assumed, 3 verified): `cable-bend` the user took unverified, and
+   `cable-out` rests on `usb-c-plug`, which nobody measured. Delivered as STLs only, `tap-holds`
+   reads `assumed` too (2 assumed, 2 verified): nothing says which filament the slicer prints the
+   sled in. Each key's fields, the test prints' among them: `references/checks.md`, "The `_verify`
+   declarations"; which evidence each kind takes, and every state: the same file.
