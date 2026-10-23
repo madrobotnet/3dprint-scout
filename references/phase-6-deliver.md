@@ -13,6 +13,9 @@ project's working state is allowed under SKILL.md's file-protection rule. The ve
 come from `out/` before the copy, where the build's manifests are; copy `<part>.stl.manifest.json`
 along only when the copy is to be re-checked (without it R3 reads UNVERIFIED).
 
+A part rebuilt to other bytes since the user last looked at it is shown again, and their look
+recorded, before the delivery (Phase 5, step 1: a stale `seen` entry).
+
 **First, the final report.** Run it before the delivery message, and again after every fix, always
 with `--deliver` on the delivery folder. Add `--bundle` only to the last run, the one the message
 reports, into a new folder: it refuses a folder that exists, so a re-check never takes it. The
