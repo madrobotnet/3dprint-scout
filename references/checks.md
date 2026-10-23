@@ -202,8 +202,9 @@ every declared member's `strength.py` gate is PASS (and a `--from-build` report 
 build: see below), no WARN is left unaccepted, the delivered
 copies (with `--deliver`) are the verified files, and `joints` and `strength` were declared at
 all. Paths are relative to the folder it ran in. Exit 0 when it ran, 1 on a usage or file error
-(a missing or wrong `--build`, a bad `_verify`; with `--bundle`, a folder that exists, a file it
-would carry or the `--deliver` folder outside the project folder, or a carried text file that
+(a missing or wrong `--build`, a bad `_verify`; with `--bundle`, any refusal the phase 6 file
+lists under "The source bundle": a folder that exists, a build that is no longer the project's,
+a file outside the project folder, a carried file the rebuild writes again, a text file that
 holds a path of this machine). `bundle` lists the files `--bundle` wrote; `bundle_missing` the files
 `_verify` names that were not found (`"<path>: <what it is>"`), which the bundle leaves out and
 REPRODUCE.md lists too. A malformed 3MF manifest is an `open` reason, not an error. A joint WARN

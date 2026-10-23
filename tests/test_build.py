@@ -288,6 +288,7 @@ class PythonEngine(Base):
                          ["params.json key 'walll' is not in the generator's DEFAULTS (a typo?)"])
         self.assertEqual({p["name"]: p["material"] for p in out["parts"]}, {"body": "petg_hf", "peg": "pla_basic"})
         self.assertEqual(out["params"], build._relpath(prm))                   # the params path stays (another drive on Windows: absolute)
+        self.assertEqual(out["command"], "run")                                # finalize --bundle builds it again
         self.assertNotIn("parameters", out["engine_info"])
         self.assertEqual(out["parts"][0]["validate"]["files"][0]["checks"]["D1"]["state"], "PASS")
 
@@ -380,6 +381,7 @@ class Record(Base):
         code, out = run("record", lid, body, "--source", src, "--params", prm, "--out", self.out, "--no-wall-check", "--no-3mf")
         self.assertEqual(code, 0, out.get("errors"))
         self.assertEqual(out["parameters"], {"scope": "overrides", "values": {"w": 20.0, "zzz": 1}})
+        self.assertEqual(out["command"], "record")                             # its STLs are exported, not built
         self.assertFalse(any("typo" in w for w in out["warnings"]), out["warnings"])
         self.assertEqual({p["name"]: p["material"] for p in out["parts"]}, {"lid": "petg_hf", "body": "pla_basic"})
         code, out = run("record", lid, "--source", src, "--out", self.out, "--no-wall-check", "--no-3mf")

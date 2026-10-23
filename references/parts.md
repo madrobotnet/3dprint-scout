@@ -135,7 +135,7 @@ One JSON document, schema `3dprint-scout.build/1`, also for `record` (this one i
 with `--only`, so it shows `seconds` per part and a `partial` object):
 
 ```json
-{"schema": "3dprint-scout.build/1", "ran": true, "engine": "python", "source": "adapter.py",
+{"schema": "3dprint-scout.build/1", "ran": true, "command": "run", "engine": "python", "source": "adapter.py",
  "gate": "PASS | FAIL | INCOMPLETE", "R4": "PASS",
  "assembly_sha256": "<sha256 of the assembly inputs>",
  "parameters": {"scope": "merged", "values": {"w": 70.0, "wall": 2.0, "clearance": 0.3}},
@@ -162,6 +162,8 @@ with `--only`, so it shows `seconds` per part and a `partial` object):
   exists only for parts in a group.
 - `objects[]` lists every object; a single-part object has only `name`, `parts`, `main`
   (plus `partial` and `gate` when it is one part of a larger object built with `--only`).
+- `command` is `run` or `record` (since 0.7.0): `finalize.py --bundle` builds a `run` again and asks
+  for a `record`'s STLs to be exported again, whatever `engine` says (`record --engine blender`).
 - `params` is the params file the engine got. A `--proxy` build (`references/measure.md`) carries
   `"proxy": true` and no `threemf`.
 - `parameters` is what the parts were built with. `values` holds the params.json engine keys

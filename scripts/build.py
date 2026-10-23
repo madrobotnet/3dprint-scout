@@ -1157,7 +1157,7 @@ def cmd_run(args) -> dict:
                         "total": len(members)}
                 args.partial_objects[built[0] if len(built) == 1 else obj] = info
     os.makedirs(args.out, exist_ok=True)
-    out = {"schema": SCHEMA, "ran": True, "engine": engine, "source": source, "gate": None,
+    out = {"schema": SCHEMA, "ran": True, "command": "run", "engine": engine, "source": source, "gate": None,
            "warnings": [], "errors": []}
     try:
         if engine == "openscad":
@@ -1271,8 +1271,8 @@ def cmd_record(args) -> dict:
         raise ValueError(f"source not found: {missing}")
     specs = part_specs(params, "part")
     given = [os.path.abspath(s) for s in args.source]
-    out = {"schema": SCHEMA, "ran": True, "engine": args.engine, "source": args.source[0], "gate": None,
-           "warnings": [], "errors": []}
+    out = {"schema": SCHEMA, "ran": True, "command": "record", "engine": args.engine, "source": args.source[0],
+           "gate": None, "warnings": [], "errors": []}
     parts, extra = [], set()
     for stl in args.stl:
         name = os.path.splitext(os.path.basename(stl))[0]
