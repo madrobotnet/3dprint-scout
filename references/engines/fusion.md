@@ -55,6 +55,8 @@ python3 "$SKILL_DIR/scripts/build.py" record out/body.stl out/lever.stl --source
 validates every part, groups parts from `_parts` into objects (`parts.md`) and writes the core
 3MF. Its JSON is described in `build.py record --help` and `outputs.md`. If an STL comes back
 10× too small or large, D4 reports a unit error: fix the export, never scale the mesh.
+Preview the recorded STLs with `preview.py` like any other; the MCP screenshot of Fusion's
+viewport is an extra.
 
 When your shell is a VM or a cloud container linked to the user's computer, `B.export` writes
 on their machine, where `build.py` cannot see it. Export into a folder the user connected (or
