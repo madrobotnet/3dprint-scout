@@ -3,12 +3,12 @@
 ## Expected behaviour
 
 Copied word for word from `references/development.md`, "Conversation checks when editing the
-skill", at commit 0d76bd5. `setup.py --check-docs` compares it with development.md as it is;
+skill", at commit 97d529c. `setup.py --check-docs` compares it with development.md as it is;
 when they differ, development.md wins and this file is out of date.
 
 > **Scenario:** Bambu printer, project from a generated template
 >
-> **Expected behavior:** Record `model`: the delivered project carries the system preset with both corrections off. Do not ask the user for settings the project already fixes.
+> **Expected behavior:** Record `compensation.holes: model` in printers.json and add the model hole compensation to fitted holes (the `model` row of tolerances.md): the delivered project carries the system preset with both corrections off. Do not ask the user for settings the project already fixes.
 
 In this run: an end cap for a clothes rail, a round steel tube of 22.0 mm measured with
 calipers; the cap must go on and come off by hand. The printer settings are already saved in the
@@ -60,13 +60,14 @@ Nothing else: no `params.json`, no generator. finalize has nothing to read yet.
 
 ## Grading checklist
 
-The compensation decision:
-- [ ] **must** `.3dprint/printers.json` records `"compensation": {"holes": "model", ...}`, with
-  the reason in the reply or `_assumptions`: the delivered project carries the generated
-  template's system preset, which has both hole corrections off.
-- [ ] **must** The socket is 22.0 mm plus the fit clearance on the diameter (tolerances.md: +0.40
-  sliding, +0.30 snug) plus the model hole compensation (+0.20 to +0.40 on the diameter): 22.5 to
-  22.8 mm. A fit against a proxy of the tube uses `fit.py --min-clearance` of the radial
+The compensation decision (each item is in the row):
+- [ ] **must** `.3dprint/printers.json` records `compensation.holes` `model`, with the reason in
+  the reply or `_assumptions`: the delivered project carries the generated template's system
+  preset, which has both hole corrections off.
+- [ ] **must** The socket, a fitted hole, gets the model hole compensation (the `model` row of
+  tolerances.md): 22.0 mm plus the fit clearance on the diameter (+0.40 sliding, +0.30 snug) plus
+  the compensation (+0.20 to +0.40 on the diameter), 22.5 to 22.8 mm; 22.4 mm or less means none
+  was added. A fit against a proxy of the tube uses `fit.py --min-clearance` of the radial
   clearance with the compensation included (0.25 to 0.40).
 
 Asking:

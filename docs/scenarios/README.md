@@ -79,9 +79,6 @@ starts a new conversation, so the agent has no record of these commands beyond w
 hold (the fit's placement, the measurement's command, the member's `inputs_from`): finding the
 links again is part of the run.
 
-Development.md's rows A and A2 name a right-angle plug at the notch of a desk stand; here a
-straight plug passes between the prongs of a wall holder. The expectations are the same.
-
 ## Before a run
 
 1. **The skill at a known commit.** Check out the commit to test in a skill checkout and note it

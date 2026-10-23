@@ -3,12 +3,12 @@
 ## Expected behaviour
 
 Copied word for word from `references/development.md`, "Conversation checks when editing the
-skill", at commit 0d76bd5. `setup.py --check-docs` compares it with development.md as it is;
+skill", at commit 97d529c. `setup.py --check-docs` compares it with development.md as it is;
 when they differ, development.md wins and this file is out of date.
 
 > **Scenario:** User explicitly requests unattended execution
 >
-> **Expected behavior:** Preserve supplied answers, record defaults at remaining stops, and stop for unsourced critical fit dimensions. Mere silence does not enable the mode.
+> **Expected behavior:** Preserve supplied answers, record defaults at remaining stops, and stop for a size the part must fit that no source gives for the user's own object (a typical size of another product is no source). Mere silence does not enable the mode (graded in the attended scenarios, which must stop where the skill stops).
 
 In this run: a desk stand that holds a wireless earbud case upright. The user asks, in so many
 words, not to be asked anything and to finish alone, and gives the printer, the slicer and the
@@ -18,8 +18,8 @@ caliper sizes and asks the agent to go on alone again; from there it delivers wi
 question.
 
 "Mere silence does not enable the mode" cannot happen here, where the user asks for the mode.
-The attended scenarios check it: there an agent that goes past a stop without the scripted reply
-fails.
+As the row says, the attended scenarios grade it: each must stop where the skill stops, and an
+agent that goes on past a stop without the scripted reply fails there.
 
 ## Starting state
 
@@ -46,8 +46,9 @@ against the run.
 
 Stopping:
 - [ ] **must** Stops once, for the case's size, before the final part is built (concept builds in
-  `out/concepts/` may come first). It does not take a typical size of some other case from the
-  web: the user named no make or model, so no source gives this case's size.
+  `out/concepts/` may come first). It does not take a typical size of another case from the web:
+  the user named no make or model, so no source gives this case's size (the row: a typical size
+  of another product is no source).
 - [ ] **must** Stops nowhere else: not for the reference choice, a concept pick, the use list or
   the parameter table, the base-shape look, a test print or the Phase 4 decisions, before or
   after the size.

@@ -3,12 +3,12 @@
 ## Expected behaviour
 
 Copied word for word from `references/development.md`, "Conversation checks when editing the
-skill", at commit 0d76bd5. `setup.py --check-docs` compares it with development.md as it is;
+skill", at commit 97d529c. `setup.py --check-docs` compares it with development.md as it is;
 when they differ, development.md wins and this file is out of date.
 
 > **Scenario:** C: a parameter a member reads changes after `strength.py --from-build` (the base thickness 6.0 → 6.5 mm, built again), and strength is not run again
 >
-> **Expected behavior:** finalize names the stale input ("h was base_t = 6.0, now 6.5"); the promise and the geometry are not verified. Run `strength.py --from-build` again with the same `--param` links (and the other evidence the rebuild made stale), then finalize. Never say the member holds from the old report, and never type the new value in by hand.
+> **Expected behavior:** After the rebuild the member is stale (finalize: "h was base_t = 6.0, now 6.5"; the promise and the geometry are not verified). Run `strength.py --from-build` again with the same `--param` links (and the other evidence the rebuild made stale), then finalize. Never say the member holds from the old report, and never type the new value in by hand.
 
 In this run: the wall holder (README, "The wall holder project") with every promise verified,
 not yet delivered. The user asks for one change before the files: the prongs 6.5 mm thick

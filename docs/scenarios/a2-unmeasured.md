@@ -3,12 +3,12 @@
 ## Expected behaviour
 
 Copied word for word from `references/development.md`, "Conversation checks when editing the
-skill", at commit 0d76bd5. `setup.py --check-docs` compares it with development.md as it is;
+skill", at commit 97d529c. `setup.py --check-docs` compares it with development.md as it is;
 when they differ, development.md wins and this file is out of date.
 
 > **Scenario:** A2: a `use` promise rests on a size nobody measured (the plug head is `assumed` in `_verify.dims`; the proxy fit passes)
 >
-> **Expected behavior:** `use` is `assumed`, naming `usb-c-plug`. Ask the user to measure the plug, or offer a test print. A measurement is recorded only as the user's (`"source": "caliper", "by": "user"`). Never call the promise verified while it is assumed, at delivery included.
+> **Expected behavior:** finalize's `use` is `assumed`, naming `usb-c-plug`. Tell the user the promise rests on a plug size nobody measured and ask them to measure it, or offer a test print. A measurement is recorded only as the user's (`"source": "caliper", "by": "user"`). Never call the promise verified while it is assumed, at delivery included.
 
 In this run: the wall holder (README, "The wall holder project") with the plug size taken as a
 typical one, 12.0 × 6.5 × 22.0 mm, nobody having measured the user's plug. Every check passes,

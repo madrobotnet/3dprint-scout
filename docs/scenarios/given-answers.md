@@ -3,7 +3,7 @@
 ## Expected behaviour
 
 Copied word for word from `references/development.md`, "Conversation checks when editing the
-skill", at commit 0d76bd5. `setup.py --check-docs` compares it with development.md as it is;
+skill", at commit 97d529c. `setup.py --check-docs` compares it with development.md as it is;
 when they differ, development.md wins and this file is out of date.
 
 > **Scenario:** Request already gives printer, slicer, dimensions and choice C

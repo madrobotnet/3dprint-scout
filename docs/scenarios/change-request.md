@@ -3,12 +3,12 @@
 ## Expected behaviour
 
 Copied word for word from `references/development.md`, "Conversation checks when editing the
-skill", at commit 0d76bd5. `setup.py --check-docs` compares it with development.md as it is;
+skill", at commit 97d529c. `setup.py --check-docs` compares it with development.md as it is;
 when they differ, development.md wins and this file is out of date.
 
 > **Scenario:** User requests a change to the working project
 >
-> **Expected behavior:** Update relevant generator/state fields, preserve unrelated content, and write new delivery versions without overwriting originals.
+> **Expected behavior:** Update relevant generator/state fields, preserve unrelated content, and write new delivery versions without overwriting originals (the earlier delivery and unrelated files are byte-identical after the run).
 
 In this run: the wall holder (README, "The wall holder project"), every promise verified and
 delivered on 2026-10-20 (a Bambu project, the STL and the source bundle in
@@ -67,13 +67,15 @@ The relevant fields:
   the holder is built again from them.
 - [ ] **should** `holder.py` is unchanged, or changed only in `back_h`'s default and its comment.
 
-Everything else kept:
+Everything else kept (the row: byte-identical after the run; compare the sha256 of each file
+with the `files` list `setup.py` printed, for example with `sha256sum`):
 - [ ] **must** In params.json every other key keeps its value: the other parameters, `_material`,
   `_print`, both `_assumptions` lines (new lines may be added), and in `_verify` the promises,
   `dims` and `references`. Evidence entries may name renewed reports.
-- [ ] **must** Unchanged, by sha256 against `setup.py`'s output: `plug.py`,
-  `.3dprint/usb_c_plug.json`, `.3dprint/printers.json`, `.3dprint/templates/x1c.3mf`.
-- [ ] **must** Every file under `deliver/2026-10-20/` is unchanged and none was added there.
+- [ ] **must** Byte-identical: `plug.py`, `.3dprint/usb_c_plug.json`, `.3dprint/printers.json`,
+  `.3dprint/templates/x1c.3mf`.
+- [ ] **must** Byte-identical: every file under `deliver/2026-10-20/` (the earlier delivery), and
+  no file added there.
 
 The new version:
 - [ ] **must** Delivers into a new folder, outside `deliver/2026-10-20/`: `holder.stl` and a Bambu

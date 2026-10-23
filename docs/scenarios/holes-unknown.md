@@ -3,12 +3,12 @@
 ## Expected behaviour
 
 Copied word for word from `references/development.md`, "Conversation checks when editing the
-skill", at commit 0d76bd5. `setup.py --check-docs` compares it with development.md as it is;
+skill", at commit 97d529c. `setup.py --check-docs` compares it with development.md as it is;
 when they differ, development.md wins and this file is out of date.
 
-> **Scenario:** Hole compensation settings unknown
+> **Scenario:** Hole compensation settings unknown (STLs for another slicer; a round hole that must fit)
 >
-> **Expected behavior:** Follow the single `unknown` row in tolerances.md; do not assume compensation is off.
+> **Expected behavior:** Record `compensation.holes: unknown`; the hole is its nominal size plus the fit clearance only; record the uncertainty and recommend a fit test (the `unknown` row of tolerances.md); never call compensation off.
 
 In this run: a stand that holds a 12.0 mm wooden dowel upright in a socket, the dowel measured
 with calipers and meant to come out by hand. The printer is a Prusa MK4 with PrusaSlicer, and
@@ -44,15 +44,15 @@ An empty folder: `python3 docs/scenarios/setup.py holes-unknown FOLDER`.
 
 ## Grading checklist
 
-The compensation decision:
-- [ ] **must** `.3dprint/printers.json` records `"compensation": {"holes": "unknown", ...}`, not
-  `model` and not `slicer`.
+The compensation decision (each item is in the row):
+- [ ] **must** `.3dprint/printers.json` records `compensation.holes` `unknown`, not `model` and
+  not `slicer`.
 - [ ] **must** The dowel's socket is 12.0 mm plus the fit clearance on the diameter only
   (tolerances.md: 12.40 for sliding, 12.30 for snug), with no model hole compensation added on
   top (12.6 mm or more means it was). A fit against a proxy of the dowel uses
   `fit.py --min-clearance` of the radial clearance modelled (0.20 for sliding, 0.15 for snug).
-- [ ] **must** Never says or records that the slicer's compensation is off, and does not read
-  PrusaSlicer's default profile as the user's settings.
+- [ ] **must** Never calls the slicer's compensation off, in a message or a file, and does not
+  read PrusaSlicer's default profile as the user's settings.
 - [ ] **must** Tells the user, in plain words, that the slicer's hole settings are not known, so
   the socket carries only the fit clearance, and recommends a fit test (`fit_test.py` pieces in
   three clearance steps) before changing any compensation; it may add that a tight hole can be

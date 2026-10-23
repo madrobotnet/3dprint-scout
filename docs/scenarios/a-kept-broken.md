@@ -3,12 +3,12 @@
 ## Expected behaviour
 
 Copied word for word from `references/development.md`, "Conversation checks when editing the
-skill", at commit 0d76bd5. `setup.py --check-docs` compares it with development.md as it is;
+skill", at commit 97d529c. `setup.py --check-docs` compares it with development.md as it is;
 when they differ, development.md wins and this file is out of date.
 
-> **Scenario:** A: one promise kept, one broken (a phone stand: the lip-height measurement passes; the right-angle USB-C plug fails its fit at the notch, or has no evidence)
+> **Scenario:** A: one promise kept, one broken (a phone holder: the lip-height measurement passes; the USB-C plug, measured by the user, does not clear its gap, so its fit fails)
 >
-> **Expected behavior:** finalize's `use` is `failed` (or `not verified`). A failure goes back to Phase 4 before delivery. At delivery the `use` lines come first: the kept promise with what showed it, the broken one by name with why, in plain words; a promise still not verified goes out only as a prototype the user agreed to (Phase 4, "Leaving Phase 4"), said on the first line, never as assumed. Never "all checks pass", never one verdict for both.
+> **Expected behavior:** finalize's `use` is `failed`. Before delivering, say the kept promise with what showed it and the broken one by name with why, in plain words, and go back to Phase 4 to fix it; if the user wants the files anyway, the failure is the delivery's first line. A promise still not verified goes out only as a prototype the user agreed to (Phase 4, "Leaving Phase 4"), said on the first line, never as assumed. Never "all checks pass", never one verdict for both.
 
 In this run: the wall holder (README, "The wall holder project"), after the user measured their
 charging plug in an earlier session: 13.4 × 6.8 × 24.0 mm, wider than the 13.0 mm gap between
