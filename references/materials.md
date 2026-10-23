@@ -11,6 +11,7 @@ Contents:
 - [Bambu Lab filaments (MPa; X-Y = loaded within the layer plane, Z = across layers)](#bambu-lab-filaments-mpa-x-y--loaded-within-the-layer-plane-z--across-layers)
 - [Hand forces (N)](#hand-forces-n)
 - [Safety factor](#safety-factor)
+- [Inputs from the build](#inputs-from-the-build)
 - [The pin model](#the-pin-model)
 - [The hinge model](#the-hinge-model)
 - [What the model does not see](#what-the-model-does-not-see)
@@ -77,6 +78,23 @@ a part has walls and infill, corners without fillets and layer seams; PLA creeps
 held load; a snap or a drop is an impact the static formula does not see. Use 3 for a
 member that is loaded often or snapped over a cam. Below the factor, thicken the member or
 print the mechanism alone first (SKILL.md, Phase 4).
+
+## Inputs from the build
+
+`strength.py <case> --from-build out/build.json --part <name>` takes the part's material from
+the build report (`_parts.<name>.material`, else `_material`; `--material` is then refused,
+and so is a part with no material), and each `--param INPUT=PARAM` takes one input of the
+report's `inputs` (`h`, `b`, `length`, `pin_d`, `knuckles`, `orientation`, `support` …) from
+the build's `parameters.values` (`plug.w` reaches into an object), checked as its option is
+checked. An input is either typed or linked, not both. A build of scope `overrides`
+(OpenSCAD, Python without `DEFAULTS`, `record`) holds only what params.json passed: a value
+left to a generator default goes into params.json first. Every report says where each input
+came from in `inputs_from`: `param:<PARAM>`, `build:material`, `table:<key>` (a hand-force or
+material key), `default:<input>` (strength.py's own choice, such as `sf` 2.0) or `manual`
+(typed). With `--from-build` it also carries `from_build` (the build, the part, its sha256
+and material, the linked values) for finalize.py to compare with the current build. A value
+the generator derives inside (a rib height = seat + margin) is no parameter: check it with a
+measurement instead.
 
 ## The pin model
 
