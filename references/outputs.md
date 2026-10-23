@@ -3,7 +3,7 @@
 Read this when you need the exact shape of a script's JSON, or why `finalize.py` judged a piece
 of evidence as it did. What to declare in `_verify` and what each promise state asks of you are
 in `references/checks.md`; `build.py`'s JSON, which wraps one `validate.py` document per part, is
-in `references/parts.md`. The checklist itself, with every ID, its kind and who decides it, is the
+below ("`build.py` output"). The checklist itself, with every ID, its kind and who decides it, is the
 table in SKILL.md.
 
 ## `validate.py` output
@@ -39,7 +39,7 @@ internal error. A failed artifact has `artifact_sane: false` and `artifact_error
 `not_covered` always lists F1–F3, R1, R2, R4: F3 is decided by `fit.py` (schema
 `3dprint-scout.fit/1`, the same `checks.F3.state` / `kind` / `value` / `note` shape), the rest by you.
 `build.py` wraps one such document per part under `parts[].validate` and adds `objects[]`
-(`references/parts.md`).
+(below).
 
 ## `fit.py` output
 
@@ -242,6 +242,84 @@ declared preset) and leaves the test prints of its parts `assumed`, even with `_
 A core 3MF selects neither, so its entry has neither `filaments` nor `preset`. None of these is
 a geometry reason.
 Without `--deliver` nothing of the print file is read.
+
+## `build.py` output
+
+One JSON document, schema `3dprint-scout.build/1`, also for `record` (this one is a `run`
+with `--only`, so it shows `seconds` per part and a `partial` object):
+
+```json
+{"schema": "3dprint-scout.build/1", "ran": true, "command": "run", "engine": "python", "source": "adapter.py",
+ "gate": "PASS | FAIL | INCOMPLETE", "R4": "PASS",
+ "assembly_sha256": "<sha256 of the assembly inputs>",
+ "parameters": {"scope": "merged", "values": {"w": 70.0, "wall": 2.0, "clearance": 0.3}},
+ "parts": [{"name": "lid", "stl": "out/lid.stl", "seconds": 0.4, "material": "pla_basic", "artifact_sane": true,
+            "object": "lid", "role": "fused", "rotation_deg": 0, "engine_warnings": [],
+            "validate": {"schema": "3dprint-scout.validate/1", "gate": "PASS",
+                         "files": [{"path": "out/lid.stl", "checks": {"D1": {"state": "PASS", "...": "..."}},
+                                    "metrics": {"bbox_mm": [70, 45, 3], "volume_mm3": 9450, "...": "..."}}]},
+            "assembly": {"object": "lid", "role": "fused", "checks": {"A1": {"state": "PASS", "...": "..."}}}}],
+ "objects": [{"name": "lid", "parts": ["lid", "label"], "main": "lid", "gate": "PASS",
+              "checks": {"D2": {"...": "..."}, "P1": {"...": "..."}, "P2": {"...": "..."}},
+              "metrics": {"bbox_mm": [70, 45, 4], "volume_mm3": 9930, "shells": 1, "overhang_pct": 0.0, "...": "..."},
+              "rotation_deg": 0, "method": "union of the parts (manifold3d) ..."},
+             {"name": "box", "parts": ["latch", "keeper"], "main": "latch", "gate": "INCOMPLETE",
+              "partial": {"object": "box", "built": ["latch", "keeper"], "missing": ["body"], "total": 3},
+              "checks": {"D2": {"state": "UNVERIFIED", "note": "object built in part with --only ..."}, "...": "..."}}],
+ "sources": ["adapter.py"], "threemf": "out/adapter.3mf", "seconds": 1.2,
+ "warnings": ["..."], "errors": []}
+```
+
+- `parts[i].validate` is the full `validate.py` document for that part (`outputs.md` shows
+  its shape); the part's verdicts are at `parts[i].validate.files[0].checks`, its numbers
+  at `...files[0].metrics`. `role` is `null` for a part alone in its object; `assembly`
+  exists only for parts in a group.
+- `objects[]` lists every object; a single-part object has only `name`, `parts`, `main`
+  (plus `partial` and `gate` when it is one part of a larger object built with `--only`).
+- `command` is `run` or `record` (since 0.7.0): `finalize.py --bundle` builds a `run` again and asks
+  for a `record`'s STLs to be exported again, whatever `engine` says (`record --engine blender`).
+- `params` is the params file the engine got. A `--proxy` build (`references/measure.md`) carries
+  `"proxy": true` and no `threemf`.
+- `parameters` is what the parts were built with. `values` holds the params.json engine keys
+  (no `_` keys), merged with the generator's defaults when build.py knows them:
+  - `"scope": "merged"`: a Python module's `DEFAULTS` dict (`engines/python.md`) or a Blender
+    generator's `PARAMETERS` (`bb.main(build, PARAMETERS)`), as `{**defaults, **params}`. A
+    params.json key the defaults lack is a warning, `params.json key 'x' is not in the
+    generator's DEFAULTS (a typo?)` (`PARAMETERS` for Blender): a misspelt key leaves the part
+    at the default.
+  - `"scope": "overrides"`: OpenSCAD, a Python generator without `DEFAULTS`, and `record`
+    (Fusion, a live Blender): only the params.json values; a default kept in the generator is
+    not recorded, so put a value in params.json to link to it.
+  - Values are JSON. A default that is not (a function, a set, a NaN) is recorded as its repr
+    string, with a warning. A value the generator computes from others (a rib height = seat +
+    clearance) is not here; check it with a `measurement` instead.
+  - `strength.py --from-build` links its inputs to these values (`--param h=ribbon_t`).
+- `material` on a part is its material: `_parts.<name>.material`, else `_material`, else
+  `null` (strength.py material keys). `_` keys are not in the freshness hash, so a changed
+  material leaves the build fresh; `finalize.py` compares this record with the current
+  params.json instead.
+- `seconds` on a part is the engine's time for it (`run`); the top-level `seconds` is the
+  whole command. `sha256` on a part is the STL its verdicts are about, and `validate_settings`
+  the printer, printer id, tools and tolerances they were made with (and `printer_sha256`, the
+  printers.json as it was): `finalize.py` re-checks with the same, and only trusts the object
+  checks while every STL still has that hash, the settings and printers.json are unchanged,
+  and `assembly_sha256` matches the current grouping, roles and free-part clearances. `run`
+  writes every part STL with its triangles in a canonical order (sorted, each keeping its
+  normal and winding), so a rebuild with nothing changed keeps the same bytes and hash;
+  `record` leaves an STL as it was exported.
+- A `_parts` grouping that cannot be read (an unknown `role`, say) is in `errors` and makes the
+  gate FAIL: the parts were validated, but no object check ran.
+- `record` only: a part whose STL already has a manifest from `run` that describes this very
+  file gets `prior_manifest` (`engine`, `sources`, `fresh`). A fresh one is kept as the record
+  (its sources join `sources`); a stale one, or one none of whose generators is among
+  `--source`, is not re-stamped and the part's R3 FAILs with the reason. A manifest an
+  earlier `record` wrote is simply re-stamped.
+- A broken STL has `artifact_sane: false` and `artifact_error`, no manifest and no
+  `validate`; `R4` is then FAIL.
+- `warnings` and `errors` repeat everything worth reading from every part and object
+  (validator warnings, engine warnings, a Python generator's `UserWarning`s such as a font
+  switch, rotation notes), and every hard FAIL of a part, an object or an assembly check is
+  one line in `errors`, `<part> <check> FAIL: <note>`. Read those two lists first.
 
 ## A worked `_verify`
 

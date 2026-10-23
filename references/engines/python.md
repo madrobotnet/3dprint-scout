@@ -46,7 +46,7 @@ def build(params):
   build JSON (`parameters`, scope `merged`), which `strength.py --from-build` links to, and warns
   about a params.json key that `DEFAULTS` lacks (a typo builds with the default). Without
   `DEFAULTS` the build records only the params.json values (scope `overrides`). Values the
-  generator computes from others are not recorded (`references/parts.md`).
+  generator computes from others are not recorded (`references/outputs.md`).
 - Model Z-up with Z = 0 on the bed. `build.py` exports each part as binary STL itself; do not write
   files from the generator.
 - `import parts` and `import sdf` work from any generator: `build.py` puts the skill's `scripts/`

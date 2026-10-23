@@ -212,6 +212,56 @@ Constraints:
 - Change only what this part needs: a row of the table, or another need you can name, each with
   its reason (Phase 5). With no such need, write no overrides. The user's preset is the baseline.
 
+## What Bambu Studio does with touching parts (02.08.02.61 source)
+
+- Each part (a `ModelVolume` of type model part) gets a `PrintRegionConfig` from
+  `region_config_from_model_volume` (`PrintObject.cpp`): the object's config, then the
+  part's own config (`extruder` sets `wall_filament`, `sparse_infill_filament` and
+  `solid_infill_filament`, `apply_to_print_region_config`).
+- `generate_print_object_regions` (`PrintApply.cpp`) looks up or creates a `PrintRegion`
+  per config through `get_create_region`: **two parts with the same config share one
+  region** (the lookup key is the config hash and equality; a per-volume tag is added only
+  for the "per-part gradient" filament feature, off by default).
+- `slices_to_regions` (`PrintObjectSlice.cpp`): at every layer where two parts' bounding
+  boxes meet in XY (touching counts, `overlap_in_xy` is inclusive), the slices are clipped
+  against each other (`clip_multipart_objects`, default true; a later part carves an
+  earlier one, or the smaller the larger with "order-independent overlap carving") and
+  the slices of the **same region are appended and closed with `closing_ex(EPSILON)`**,
+  which unites polygons that touch. So two touching parts with the same filament and
+  settings become one polygon per layer, and perimeters run around the union: **no inner
+  wall between them**. Parts with different filaments are different regions, each with
+  its own perimeters: the seam is a wall-to-wall bond.
+- Consequence for the modelling rule: a same-colour seam costs nothing; a two-colour seam
+  is a bond between two outer walls, so keep it in a low-stress place. Confirmed in
+  Bambu Studio 02.08.02.61 (2026-10-18, an inlay in a pocket): no inner wall with one
+  filament, perimeters on both sides with two.
+- Per-part settings in `model_settings.config` (`<part>` metadata other than name,
+  matrix and source keys, `bbs_3mf.cpp` `_generate_volumes_new`) are applied to the part;
+  `bambu3mf.py` writes only `extruder` per part and keeps every other setting on the
+  object, so same-filament parts always share a region.
+
+## The Bambu project layout for an object with parts
+
+Verified against `bbs_3mf.cpp` (`_add_mesh_to_object_stream`,
+`_add_object_components_to_stream`, the `<part>` writer near `MESH_STAT_TAG`); opening a
+file written this way in Bambu Studio 02.08.02.61 is still to be confirmed:
+
+- `3D/Objects/object_N.model` holds **every part of object N** as its own sub-object
+  (`<object id=sub p:UUID=... type="model">` with its mesh, vertices centred on the part's
+  own box); the wrapper object in `3D/3dmodel.model` has one `<component p:path=...
+  objectid=sub transform=...>` per part whose translation is the part's centre relative to
+  the object's centre; the build item places the object.
+- `Metadata/model_settings.config`: `<object id=wrapper>` with `name`, `extruder` (the main
+  filament), the object-level settings and `face_count` (sum over parts), then one
+  `<part id=sub subtype="normal_part">` per part with `name`, `matrix` (4 × 4, row-major,
+  the same translation), `extruder` only when the part's filament differs from the object's,
+  and `mesh_stat`. A part without its own `extruder` follows the object (`GUI_ObjectList.cpp`
+  shows it the object's filament and erases the parts' own when the object's is changed), so
+  recolouring the object recolours every part that was not given a colour of its own.
+- On load (`_generate_volumes_new`) a part's mesh is centred again and its transform
+  becomes component transform × centring, so positions survive; `matrix` only becomes the
+  part's source transform.
+
 ## Checked so far
 
 - Structure follows Bambu Studio's own exporter (`bbs_3mf.cpp`): mesh in `3D/Objects/object_N.model`,
@@ -233,5 +283,5 @@ Constraints:
   shows it (move it or assign the other nozzle).
 - Not yet checked in the app: a project built from a template that was saved after slicing (extra
   entries dropped); an object with several parts written by `bambu3mf.py` (the format follows
-  `bbs_3mf.cpp`, see `parts.md`); the support interface keys; whether the slicing preview shows no
+  `bbs_3mf.cpp`, above); the support interface keys; whether the slicing preview shows no
   inner wall between two same-filament touching parts (the source says they are merged).

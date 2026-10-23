@@ -1,8 +1,8 @@
 # Parts, objects and the build report
 
 Read this when a design has more than one body that prints as one object (a colour part,
-a label, a lever, a print-in-place latch), when you need the exact shape of `build.py`'s
-JSON, or when a Bambu project needs several parts in one object.
+a label, a lever, a print-in-place latch), or when a mechanism is printed first. How Bambu
+Studio treats touching parts and lays out an object with parts: `references/bambu-process.md`.
 
 Contents:
 
@@ -11,31 +11,14 @@ Contents:
 - [Checks on an object](#checks-on-an-object)
 - [Printing the mechanism first](#printing-the-mechanism-first)
 - [`build.py` output](#buildpy-output)
-- [What Bambu Studio does with touching parts (02.08.02.61 source)](#what-bambu-studio-does-with-touching-parts-02080261-source)
-- [The Bambu project layout for an object with parts](#the-bambu-project-layout-for-an-object-with-parts)
 
 ## Why parts are split
 
-A region that has its own job or may get its own colour (a latch, a lever, a label, a
-sign plate, an insert, a logo) is modelled as a **separate body that touches the main
-body**: shared faces, no boolean union. The slicer then shows it as its own part, and the
-user can give it another filament by selecting it, without any remodelling. Never ask the
-user about colours: always split, give every part the main filament, and say at delivery
-which parts are separate and how to recolour them. If the user already named colours,
-apply them.
-
-Where to put the seam (`design.md`, "Colour and function seams" has the numbers):
-
-- Keep the seam in a low-stress place. Inside one object, two touching parts that print
-  with the **same** filament and settings are merged into one region per layer, so the
-  walls run continuously across the seam (see "What Bambu Studio does with touching
-  parts"). With **different** filaments the seam is a wall-to-wall bond between two
-  perimeters, weaker than continuous extrusion.
-- Do not split where flex or load concentrates: the root of a snap hook, a living hinge,
-  a boss that takes a screw. Split the lever's handle, not its pivot.
-- Both sides of a seam must be the same material (PLA to PLA); PLA onto PETG does not bond.
-- A print-in-place moving part is a separate part too, with its clearance kept (0.3 mm
-  per side, `tolerances.md`), and it is never merged with anything.
+A region that has its own job or may get its own colour is a separate body that touches the
+main body, never asked about, given the main filament and named at delivery; where to put the
+seam and why: `design.md`, "Colour and function seams". A print-in-place moving part is a
+separate part too, with its clearance kept (0.3 mm per side, `tolerances.md`), and it is never
+merged with anything.
 
 ## `_parts` schema (params.json)
 
@@ -131,128 +114,4 @@ result sets their own floors (`calibration.md`, `--kind lid_hinge`). A skipped c
 
 ## `build.py` output
 
-One JSON document, schema `3dprint-scout.build/1`, also for `record` (this one is a `run`
-with `--only`, so it shows `seconds` per part and a `partial` object):
-
-```json
-{"schema": "3dprint-scout.build/1", "ran": true, "command": "run", "engine": "python", "source": "adapter.py",
- "gate": "PASS | FAIL | INCOMPLETE", "R4": "PASS",
- "assembly_sha256": "<sha256 of the assembly inputs>",
- "parameters": {"scope": "merged", "values": {"w": 70.0, "wall": 2.0, "clearance": 0.3}},
- "parts": [{"name": "lid", "stl": "out/lid.stl", "seconds": 0.4, "material": "pla_basic", "artifact_sane": true,
-            "object": "lid", "role": "fused", "rotation_deg": 0, "engine_warnings": [],
-            "validate": {"schema": "3dprint-scout.validate/1", "gate": "PASS",
-                         "files": [{"path": "out/lid.stl", "checks": {"D1": {"state": "PASS", "...": "..."}},
-                                    "metrics": {"bbox_mm": [70, 45, 3], "volume_mm3": 9450, "...": "..."}}]},
-            "assembly": {"object": "lid", "role": "fused", "checks": {"A1": {"state": "PASS", "...": "..."}}}}],
- "objects": [{"name": "lid", "parts": ["lid", "label"], "main": "lid", "gate": "PASS",
-              "checks": {"D2": {"...": "..."}, "P1": {"...": "..."}, "P2": {"...": "..."}},
-              "metrics": {"bbox_mm": [70, 45, 4], "volume_mm3": 9930, "shells": 1, "overhang_pct": 0.0, "...": "..."},
-              "rotation_deg": 0, "method": "union of the parts (manifold3d) ..."},
-             {"name": "box", "parts": ["latch", "keeper"], "main": "latch", "gate": "INCOMPLETE",
-              "partial": {"object": "box", "built": ["latch", "keeper"], "missing": ["body"], "total": 3},
-              "checks": {"D2": {"state": "UNVERIFIED", "note": "object built in part with --only ..."}, "...": "..."}}],
- "sources": ["adapter.py"], "threemf": "out/adapter.3mf", "seconds": 1.2,
- "warnings": ["..."], "errors": []}
-```
-
-- `parts[i].validate` is the full `validate.py` document for that part (`outputs.md` shows
-  its shape); the part's verdicts are at `parts[i].validate.files[0].checks`, its numbers
-  at `...files[0].metrics`. `role` is `null` for a part alone in its object; `assembly`
-  exists only for parts in a group.
-- `objects[]` lists every object; a single-part object has only `name`, `parts`, `main`
-  (plus `partial` and `gate` when it is one part of a larger object built with `--only`).
-- `command` is `run` or `record` (since 0.7.0): `finalize.py --bundle` builds a `run` again and asks
-  for a `record`'s STLs to be exported again, whatever `engine` says (`record --engine blender`).
-- `params` is the params file the engine got. A `--proxy` build (`references/measure.md`) carries
-  `"proxy": true` and no `threemf`.
-- `parameters` is what the parts were built with. `values` holds the params.json engine keys
-  (no `_` keys), merged with the generator's defaults when build.py knows them:
-  - `"scope": "merged"`: a Python module's `DEFAULTS` dict (`engines/python.md`) or a Blender
-    generator's `PARAMETERS` (`bb.main(build, PARAMETERS)`), as `{**defaults, **params}`. A
-    params.json key the defaults lack is a warning, `params.json key 'x' is not in the
-    generator's DEFAULTS (a typo?)` (`PARAMETERS` for Blender): a misspelt key leaves the part
-    at the default.
-  - `"scope": "overrides"`: OpenSCAD, a Python generator without `DEFAULTS`, and `record`
-    (Fusion, a live Blender): only the params.json values; a default kept in the generator is
-    not recorded, so put a value in params.json to link to it.
-  - Values are JSON. A default that is not (a function, a set, a NaN) is recorded as its repr
-    string, with a warning. A value the generator computes from others (a rib height = seat +
-    clearance) is not here; check it with a `measurement` instead.
-  - `strength.py --from-build` links its inputs to these values (`--param h=ribbon_t`).
-- `material` on a part is its material: `_parts.<name>.material`, else `_material`, else
-  `null` (strength.py material keys). `_` keys are not in the freshness hash, so a changed
-  material leaves the build fresh; `finalize.py` compares this record with the current
-  params.json instead.
-- `seconds` on a part is the engine's time for it (`run`); the top-level `seconds` is the
-  whole command. `sha256` on a part is the STL its verdicts are about, and `validate_settings`
-  the printer, printer id, tools and tolerances they were made with (and `printer_sha256`, the
-  printers.json as it was): `finalize.py` re-checks with the same, and only trusts the object
-  checks while every STL still has that hash, the settings and printers.json are unchanged,
-  and `assembly_sha256` matches the current grouping, roles and free-part clearances. `run`
-  writes every part STL with its triangles in a canonical order (sorted, each keeping its
-  normal and winding), so a rebuild with nothing changed keeps the same bytes and hash;
-  `record` leaves an STL as it was exported.
-- A `_parts` grouping that cannot be read (an unknown `role`, say) is in `errors` and makes the
-  gate FAIL: the parts were validated, but no object check ran.
-- `record` only: a part whose STL already has a manifest from `run` that describes this very
-  file gets `prior_manifest` (`engine`, `sources`, `fresh`). A fresh one is kept as the record
-  (its sources join `sources`); a stale one, or one none of whose generators is among
-  `--source`, is not re-stamped and the part's R3 FAILs with the reason. A manifest an
-  earlier `record` wrote is simply re-stamped.
-- A broken STL has `artifact_sane: false` and `artifact_error`, no manifest and no
-  `validate`; `R4` is then FAIL.
-- `warnings` and `errors` repeat everything worth reading from every part and object
-  (validator warnings, engine warnings, a Python generator's `UserWarning`s such as a font
-  switch, rotation notes), and every hard FAIL of a part, an object or an assembly check is
-  one line in `errors`, `<part> <check> FAIL: <note>`. Read those two lists first.
-
-## What Bambu Studio does with touching parts (02.08.02.61 source)
-
-- Each part (a `ModelVolume` of type model part) gets a `PrintRegionConfig` from
-  `region_config_from_model_volume` (`PrintObject.cpp`): the object's config, then the
-  part's own config (`extruder` sets `wall_filament`, `sparse_infill_filament` and
-  `solid_infill_filament`, `apply_to_print_region_config`).
-- `generate_print_object_regions` (`PrintApply.cpp`) looks up or creates a `PrintRegion`
-  per config through `get_create_region`: **two parts with the same config share one
-  region** (the lookup key is the config hash and equality; a per-volume tag is added only
-  for the "per-part gradient" filament feature, off by default).
-- `slices_to_regions` (`PrintObjectSlice.cpp`): at every layer where two parts' bounding
-  boxes meet in XY (touching counts, `overlap_in_xy` is inclusive), the slices are clipped
-  against each other (`clip_multipart_objects`, default true; a later part carves an
-  earlier one, or the smaller the larger with "order-independent overlap carving") and
-  the slices of the **same region are appended and closed with `closing_ex(EPSILON)`**,
-  which unites polygons that touch. So two touching parts with the same filament and
-  settings become one polygon per layer, and perimeters run around the union: **no inner
-  wall between them**. Parts with different filaments are different regions, each with
-  its own perimeters: the seam is a wall-to-wall bond.
-- Consequence for the modelling rule: a same-colour seam costs nothing; a two-colour seam
-  is a bond between two outer walls, so keep it in a low-stress place. Confirmed in
-  Bambu Studio 02.08.02.61 (2026-10-18, an inlay in a pocket): no inner wall with one
-  filament, perimeters on both sides with two.
-- Per-part settings in `model_settings.config` (`<part>` metadata other than name,
-  matrix and source keys, `bbs_3mf.cpp` `_generate_volumes_new`) are applied to the part;
-  `bambu3mf.py` writes only `extruder` per part and keeps every other setting on the
-  object, so same-filament parts always share a region.
-
-## The Bambu project layout for an object with parts
-
-Verified against `bbs_3mf.cpp` (`_add_mesh_to_object_stream`,
-`_add_object_components_to_stream`, the `<part>` writer near `MESH_STAT_TAG`); opening a
-file written this way in Bambu Studio 02.08.02.61 is still to be confirmed:
-
-- `3D/Objects/object_N.model` holds **every part of object N** as its own sub-object
-  (`<object id=sub p:UUID=... type="model">` with its mesh, vertices centred on the part's
-  own box); the wrapper object in `3D/3dmodel.model` has one `<component p:path=...
-  objectid=sub transform=...>` per part whose translation is the part's centre relative to
-  the object's centre; the build item places the object.
-- `Metadata/model_settings.config`: `<object id=wrapper>` with `name`, `extruder` (the main
-  filament), the object-level settings and `face_count` (sum over parts), then one
-  `<part id=sub subtype="normal_part">` per part with `name`, `matrix` (4 × 4, row-major,
-  the same translation), `extruder` only when the part's filament differs from the object's,
-  and `mesh_stat`. A part without its own `extruder` follows the object (`GUI_ObjectList.cpp`
-  shows it the object's filament and erases the parts' own when the object's is changed), so
-  recolouring the object recolours every part that was not given a colour of its own.
-- On load (`_generate_volumes_new`) a part's mesh is centred again and its transform
-  becomes component transform × centring, so positions survive; `matrix` only becomes the
-  part's source transform.
+In `references/outputs.md`, "`build.py` output".

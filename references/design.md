@@ -110,8 +110,8 @@ In `design-mechanisms.md`.
   The slicer shows it as its own part, so the user recolours it by selecting it. Never
   ask about colours: split, give every part the main filament, say so at delivery.
 - Same filament on both sides: Bambu Studio merges touching parts of one object into
-  one region per layer, so the walls run through and the seam costs nothing (`parts.md`,
-  source reading). Different filaments: two sets of perimeters meet at the seam, a
+  one region per layer, so the walls run through and the seam costs nothing
+  (`bambu-process.md`, source reading). Different filaments: two sets of perimeters meet at the seam, a
   wall-to-wall bond, weaker than continuous extrusion (starting point: treat it like a
   layer bond, half of XY strength, the orientation rule above).
 - So keep seams in low-stress places: split a lever's handle, not its pivot; a label on

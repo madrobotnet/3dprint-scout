@@ -265,7 +265,7 @@ original or delivered version.
 ## Files
 
 Scripts, run as `python3 "$SKILL_DIR/scripts/<name>.py"` (each has `--help`; the JSON of
-`validate.py`, `fit.py` and `finalize.py` is in `references/outputs.md`, `build.py`'s in `references/parts.md`):
+`validate.py`, `fit.py`, `build.py` and `finalize.py` is in `references/outputs.md`):
 
 | Script | Does |
 |---|---|
@@ -291,7 +291,7 @@ References: each phase file on entering its phase; the others when a line names 
 | `references/design-mechanisms.md` | A mechanism: print-in-place joints, members that carry load (P7) |
 | `references/design-features.md` | The feature in hand: snap fits, screws, inserts, threads, keyholes, text |
 | `references/tolerances.md` | Phase 2 to 4: compensation (F1), fits and clearances, limits |
-| `references/parts.md` | Several bodies in one object, or printing the mechanism first; `build.py`'s JSON |
+| `references/parts.md` | Several bodies in one object, or printing the mechanism first |
 | `references/measure.md` | A supplied file, a proxy of the mating part, or `--expect` on the built part |
 | `references/materials.md` | A material other than PLA, or a member that carries load (`strength.py`) |
 | `references/calibration.md` | A calibration log exists (Phase 2), or the user reports a print (Phase 6) |

@@ -29,7 +29,7 @@ Write one generator script:
   `strength.py --from-build` reads them from the build JSON's `parameters`: a Python
   generator's defaults are recorded only from a dict named `DEFAULTS` (scope `merged`); OpenSCAD,
   Fusion and a live Blender record only params.json (scope `overrides`), so put the values there
-  (`references/parts.md`, `references/engines/python.md`). A derived value (the lip top = seat +
+  (`references/outputs.md`, `references/engines/python.md`). A derived value (the lip top = seat +
   lip height) is not recorded: check it with a measurement in Phase 4.
 - Read no data file of your own from the generator (a JSON or CSV of sizes, an SVG outline):
   the build hashes the generator and what it imports (Python modules, OpenSCAD includes, the
@@ -112,7 +112,7 @@ the union, A1 / A2 per part). A Blender generator runs through the same `build.p
 `out/<model>.blend`; Fusion, a live Blender and a mixed object hand their STLs to `build.py
 record` instead, as their engine file says.
 The build JSON records `parameters` (what the parts were built with, and its `scope`) and each
-part's `material` (`references/parts.md`). A warning that a params.json key is not in the
+part's `material` (`references/outputs.md`). A warning that a params.json key is not in the
 generator's `DEFAULTS` (or `PARAMETERS`) is a misspelt name that built with the default: fix it.
 Render the built STLs with `preview.py`
 (`references/phase-0-detect.md`, step 3; `render.py` when Blender is there) and look at it

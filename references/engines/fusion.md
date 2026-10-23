@@ -53,7 +53,7 @@ python3 "$SKILL_DIR/scripts/build.py" record out/body.stl out/lever.stl --source
 
 `record` writes the freshness manifests (the generator script and params are the source),
 validates every part, groups parts from `_parts` into objects (`parts.md`) and writes the core
-3MF. Its JSON is described in `build.py record --help` and `parts.md`. If an STL comes back
+3MF. Its JSON is described in `build.py record --help` and `outputs.md`. If an STL comes back
 10× too small or large, D4 reports a unit error: fix the export, never scale the mesh.
 
 When your shell is a VM or a cloud container linked to the user's computer, `B.export` writes
