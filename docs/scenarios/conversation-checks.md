@@ -18,8 +18,8 @@ release and record its actual questions, actions and final claims (below, "Recor
 
 ## Recording a run
 
-Run every scenario with each target agent (for 0.7.0, Claude and Codex) from the same opening
-message, word for word, and the same scripted reply to each kind of question
+Run every scenario with each target agent (0.7.0 ran Claude; Codex was deferred) from the same
+opening message, word for word, and the same scripted reply to each kind of question
 (`docs/scenarios/<id>.md` in the repository); the order of the replies follows the agent's
 questions. Use a new project folder and the skill at a known commit. For each run, record:
 

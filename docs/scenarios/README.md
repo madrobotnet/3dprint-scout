@@ -3,7 +3,7 @@
 A kit for running the nine conversation checks of
 [`conversation-checks.md`](conversation-checks.md) ("Conversation checks when editing the skill")
 with any agent, the same way every time, and recording what happened so that runs of different
-agents (for 0.7.0, Claude and Codex) can be compared. It does not run anything by itself: a
+agents can be compared (0.7.0 ran Claude; Codex was deferred). It does not run anything by itself: a
 person plays the user, from a script.
 
 | File | What it holds |
