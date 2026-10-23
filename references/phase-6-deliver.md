@@ -131,8 +131,8 @@ list and `_assumptions` included. In this order:
    (`references/phase-4-features-joints.md`, "Leaving Phase 4"), the first line says so and
    names each ("This is a prototype: the cable exit is not checked yet, because ..."). Then,
    when `_assumptions` or `_verify.unverified` hold other lines, how many (item 2 gives them).
-   The use summary counts them as "not linked to a promise", the prototype lines too: leave
-   those out, the first line named them.
+   finalize marks a prototype promise `"prototype": true` and names it in the use summary
+   ("delivered as a prototype: cable-out"), so its line is not counted among those.
 
    | State | Say |
    |---|---|

@@ -749,6 +749,27 @@ class FinalizePromises(Workspace):
         fit_report("out/fit_plug.json", "out/box.stl", "out/plug.stl")        # fitted again
         out = self.run_use(self.verify([self.SEAT, self.CABLE], dims=dims), values=measured)
         self.assertEqual((out["use"], self.promise(out, "cable-out")["state"]), ("verified", "verified"))
+        # A prototype (phase 4): the _assumptions line belongs to its promise while that promise is
+        # not verified, and is not counted as an assumption on its own; a dims note is shown.
+        proto = "cable-out: delivered as a prototype, not verified"
+        noted = [dict(dims[0], note="read off the user's own plug")]
+        write_stl("out/plug.stl", box(14.5, 8, 9, 50, 0, 0))                  # the proxy changed, not fitted again
+        out = self.run_use(self.verify([self.SEAT, self.CABLE], dims=noted), values=measured,
+                           _assumptions=[proto, "the stand sits on a flat desk", "seat: no proof"])
+        cable = self.promise(out, "cable-out")
+        self.assertEqual((cable["state"], cable.get("prototype")), ("not verified", True))
+        self.assertNotIn("prototype", self.promise(out, "seat"))
+        self.assertTrue(out["summary"][0].endswith("; delivered as a prototype: cable-out; 2 assumptions not linked "
+                                                   "to a promise)"), out["summary"][0])
+        self.assertEqual(out["dims"][0]["note"], "read off the user's own plug")
+        fit_report("out/fit_plug.json", "out/box.stl", "out/plug.stl")        # verified now: the line is a plain one
+        out = self.run_use(self.verify([self.SEAT, self.CABLE], dims=noted), values=measured, _assumptions=[proto])
+        self.assertNotIn("prototype", self.promise(out, "cable-out"))
+        self.assertTrue(out["summary"][0].endswith("(2 promises: 2 verified; 1 assumption not linked to a promise)"),
+                        out["summary"][0])
+        out = self.run_use(self.verify([self.SEAT, self.CABLE], dims=noted), values=measured,
+                           _assumptions=["lid: delivered as a prototype, not verified"])     # no such promise
+        self.assertTrue(out["summary"][0].endswith("1 assumption not linked to a promise)"), out["summary"][0])
         # The part under the proxy rebuilt, the joint not fitted again: the reason names the part's change.
         write_stl("out/box.stl", box(61, 40, 30))
         out = self.run_use(self.verify([self.SEAT, self.CABLE], dims=dims), values=measured)

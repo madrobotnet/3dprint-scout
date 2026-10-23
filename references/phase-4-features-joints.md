@@ -229,8 +229,9 @@ one together:
   named at delivery with what it rests on. No decision makes a `not verified` promise assumed.
 - **A prototype**, for a `not verified` promise: with the user's agreement it is delivered
   unproven. Add the `_assumptions` line `"<promise id>: delivered as a prototype, not verified"`
-  (`"cable-out: delivered as a prototype, not verified"`). It stays `not verified`, and the
-  delivery message opens with it. This choice is made here, or later when finalize first reports
+  (`"cable-out: delivered as a prototype, not verified"`, word for word: finalize reads it and
+  marks the promise `"prototype": true`). It stays `not verified`, and the delivery message
+  opens with it. This choice is made here, or later when finalize first reports
   a promise not verified (Phase 5 or 6); it follows the same rule.
 - **The user excludes it**: drops it, or takes it unverified, in their own words. It stays in the
   list as `excluded`, through an entry in `_verify.accepted`:

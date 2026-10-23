@@ -104,6 +104,9 @@ verified (no evidence, stale evidence, evidence on a part whose checks FAIL, a p
 other values, a member's inputs typed in, a material changed since the build or another in the
 delivered print file), assumed (it passed on an unmeasured size, or on a print file whose
 material cannot be read), accepted (it passed with a WARN the user accepted) or verified.
+A not verified promise the user agreed to deliver unproven has the _assumptions line
+"<id>: delivered as a prototype, not verified": it is marked "prototype": true, named in the
+use summary and not counted as an assumption on its own.
 
 The report has five tiers and never folds them into one PASS:
   use       the worst state of its promises (error, failed, not verified, excluded, assumed,
@@ -270,6 +273,9 @@ def part_specs(params):
 def norm(text):
     """A check or joint name as names are compared: single spaces, lower case."""
     return " ".join(str(text).split()).lower()
+
+
+PROTOTYPE = re.compile(r"^\s*(\S+): delivered as a prototype, not verified\s*$")
 
 
 def plural(n, word):
@@ -862,7 +868,7 @@ def check_dims(verify, params, measurements=()):
                     errs.append(f"{label}: {k} is {json.dumps(v)} here but {json.dumps(cur)} in params.json")
         entry = {"id": did, "what": d.get("what"), "source": src, "params": p,
                  "state": "error" if errs else DIM_STATE[src]}
-        entry.update({k: d[k] for k in ("unit", "tol", "by", "url", "where", "from") if k in d})
+        entry.update({k: d[k] for k in ("unit", "tol", "by", "url", "where", "from", "note") if k in d})
         if not errs and src == "user-file":
             problems = user_file_problems(d, measurements)
             if problems:
@@ -2148,7 +2154,19 @@ def finalize(args):
                    + material_lines + delivery_lines + to_decide + print_lines + shape_lines
                    + [f"unverified: {u}" for u in out["unverified_dimensions"]]
                    + [f"assumption: {a}" for a in out["assumptions"]])
-    unlinked = len(out["assumptions"]) + len(out["unverified_dimensions"])
+    # A promise the user agreed to deliver unproven (phase 4, "Leaving Phase 4") is recorded as the
+    # _assumptions line "<id>: delivered as a prototype, not verified": it belongs to that promise
+    # while the promise is not verified, so it is not counted as an assumption on its own.
+    by_id = {p["id"]: p for p in out["promises"] if isinstance(p.get("id"), str)}
+    prototypes = []
+    for a in out["assumptions"]:
+        m = PROTOTYPE.match(a) if isinstance(a, str) else None
+        if m and m.group(1) in by_id and by_id[m.group(1)]["state"] == "not verified" and m.group(1) not in prototypes:
+            prototypes.append(m.group(1))
+            by_id[m.group(1)]["prototype"] = True
+    unlinked = (sum(1 for a in out["assumptions"] if not (isinstance(a, str) and PROTOTYPE.match(a)
+                                                          and PROTOTYPE.match(a).group(1) in prototypes))
+                + len(out["unverified_dimensions"]))
     if out["use"] == "not declared":
         use_line = "use: not declared (_verify.promises)"
     else:
@@ -2158,6 +2176,7 @@ def finalize(args):
         parts_of = ([plural(len(out["promises"]), "promise") + ": "
                      + ", ".join(f"{tally[s]} {s}" for s in STATES if s in tally)] if out["promises"] else [])
         parts_of += [plural(len(use["errors"]), "declaration error")] if use["errors"] else []
+        parts_of += [f"delivered as a prototype: {', '.join(prototypes)}"] if prototypes else []
         parts_of += [plural(unlinked, "assumption") + " not linked to a promise"] if unlinked else []
         use_line = f"use: {out['use']} ({'; '.join(parts_of)})"
     out["summary"] = [

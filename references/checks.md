@@ -170,7 +170,7 @@ The final report of Phase 6 (`references/phase-6-deliver.md`), schema `3dprint-s
                 "rests_on": ["usb-c-plug"]}],
   "promise_counts": {"use": {"assumed": 1, "verified": 2}, "look": {"not verified": 1}},
   "dims": [{"id": "usb-c-plug", "what": "…", "source": "assumed", "params": {"plug_w": 13}, "unit": "mm", "tol": 0.5,
-            "state": "assumed"}],
+            "note": "a maker's drawing of a similar plug", "state": "assumed"}],
   "promise_errors": [],
   "test_prints": [{"name": "hinge coupon", "status": "skipped", "note": "…"}],
   "accepted": [{"check": "body P2", "reason": "…"}],
@@ -250,7 +250,8 @@ what each state asks of you, in the tier's order:
   (`references/phase-5-gate.md`, step 1, "After a rebuild, renew what went stale"); otherwise
   decide it with the user (`references/phase-4-features-joints.md`, "Leaving Phase 4"): measure
   or print a test, a prototype, or the user excludes it. A decision never makes it `assumed`.
-  At delivery it is named first.
+  At delivery it is named first. A prototype's promise carries `"prototype": true` (finalize
+  reads its `_assumptions` line) and the use summary names it ("delivered as a prototype: ...").
 - `excluded`: the user took it unproven. Repeat their reason at delivery.
 - `assumed`: a size nobody measured (`rests_on` names the dims entry): ask the user to measure
   it (`references/phase-2-printer-dimensions.md`, step 3, records it), or offer a test print, or
