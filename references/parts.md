@@ -88,18 +88,21 @@ When `strength.py` gives a short margin, or there is no proven reference to comp
 print the risky member and the part it mates with before the full part:
 
 ```bash
-python3 "$SKILL_DIR/scripts/build.py" run model.py --params .3dprint/params.json --out out/mech --only latch,keeper
+mkdir -p out/mech && python3 "$SKILL_DIR/scripts/build.py" run model.py \
+  --params .3dprint/params.json --out out/mech --only latch,keeper \
+  --printer .3dprint/printers.json > out/mech/build.json
 ```
 
 `--only` builds the named `_parts` whole, in `_parts` order, and nothing else (into its own
-`--out`, so the full build's manifests stay fresh). An empty list or an unknown name is an
-error. An object built only in part is not judged as the whole: its `objects[]` entry gets
-`partial` (`built`, `missing`, `total`), its D2 / P1 / P2 and the parts' A1 / A2 are
-UNVERIFIED unless the built parts fail on their own (a D2 FAIL, two built parts that overlap),
-its gate is INCOMPLETE, and it gets no core 3MF item (the subset would be dropped onto the
-bed where the missing parts should carry it; place the test print in the slicer). A single
-part built out of a larger object is the same: its own checks stand, its object is INCOMPLETE.
-For a Bambu project, list the same parts in the `bambu3mf.py` job.
+`--out`, so the full build's manifests stay fresh). Its saved JSON holds the sha256 of each part
+the user prints, which a test print records (`references/checks.md`, "Test prints"). An empty list
+or an unknown name is an error. An object built only in part is not judged as the whole: its
+`objects[]` entry gets `partial` (`built`, `missing`, `total`), its D2 / P1 / P2 and the parts'
+A1 / A2 are UNVERIFIED unless the built parts fail on their own (a D2 FAIL, two built parts that
+overlap), its gate is INCOMPLETE, and it gets no core 3MF item (the subset would be dropped onto
+the bed where the missing parts should carry it; place the test print in the slicer). A single
+part built out of a larger object is the same: its own checks stand, its object is INCOMPLETE. For
+a Bambu project, list the same parts in the `bambu3mf.py` job.
 
 Whole parts can still be big. For "the minimum of the mating part" (the knuckles without
 the lid, a slot without the box) add a coupon part to `_parts`, or keep a separate params
@@ -110,19 +113,20 @@ A snap is the exception to "a few grams": its click force scales with the width 
 the undercut, one coupon part per step. `fit_test.py` steps only the clearance of closed rings
 and plugs; it cannot step an undercut.
 
-A mechanism built into the walls (a box hinge, a latch formed on the lid) still gets a
-coupon: the same section cut short, not the whole box. For a hinge, `parts.hinge` with the
-real profile (`pin_d`, `knuckle_d`, `leaf_t`, `clearance`, `duty`; `clearance` is both the
-radial clearance at the pin and the axial gap between knuckles, so `strength.py hinge` gets
-it as `--gap` and `--clearance`), three knuckles of the real knuckle length b
-(`length = 3·b + 2·clearance`, `knuckles=3`) and a few mm of each leaf (`leaf_w`), built as
-its own `_parts` entry (`"hinge_coupon": {"expect": [...], "shells": 2}`) with
-`build.py run --only hinge_coupon --out out/mech`. A three-knuckle coupon has one moving
-knuckle that takes the whole pull, so it is a harder test than the full hinge (whose
-moving knuckles share it): a coupon that holds is a hinge that holds. "Cutting it out would
-be most of the part" is not a reason to skip it: a coupon is required for a `lid`-duty hinge
-on top of its SF ≥ 2 (`design.md`, "Mechanisms that carry load") and the user's result sets
-their own floors (`calibration.md`, `--kind lid_hinge`). A skipped coupon goes into
+A mechanism built into the walls (a box hinge, a latch formed on the lid) still gets a coupon: the
+same section cut short, not the whole box. For a hinge, `parts.hinge` with the real profile
+(`pin_d`, `knuckle_d`, `leaf_t`, `clearance`, `duty`; `clearance` is both the radial clearance at
+the pin and the axial gap between knuckles, so `strength.py hinge` gets it as `--gap` and
+`--clearance`), three knuckles of the real knuckle length b (`length = 3·b + 2·clearance`,
+`knuckles=3`) and a few mm of each leaf (`leaf_w`), built as its own `_parts` entry
+(`"hinge_coupon": {"expect": [...], "shells": 2}`) with
+`build.py run --only hinge_coupon --out out/mech`, its JSON saved as above. A coupon in `_parts`
+is a part like any other: every full build makes it, and it is delivered with the rest. A
+three-knuckle coupon has one moving knuckle that takes the whole pull, so it is a harder test than
+the full hinge (whose moving knuckles share it): a coupon that holds is a hinge that holds.
+"Cutting it out would be most of the part" is not a reason to skip it: a coupon is required for a
+`lid`-duty hinge on top of its SF ≥ 2 (`design.md`, "Mechanisms that carry load") and the user's
+result sets their own floors (`calibration.md`, `--kind lid_hinge`). A skipped coupon goes into
 `_assumptions`.
 
 ## `build.py` output
@@ -131,7 +135,7 @@ One JSON document, schema `3dprint-scout.build/1`, also for `record` (this one i
 with `--only`, so it shows `seconds` per part and a `partial` object):
 
 ```json
-{"schema": "3dprint-scout.build/1", "ran": true, "engine": "python", "source": "adapter.py",
+{"schema": "3dprint-scout.build/1", "ran": true, "command": "run", "engine": "python", "source": "adapter.py",
  "gate": "PASS | FAIL | INCOMPLETE", "R4": "PASS",
  "assembly_sha256": "<sha256 of the assembly inputs>",
  "parameters": {"scope": "merged", "values": {"w": 70.0, "wall": 2.0, "clearance": 0.3}},
@@ -158,6 +162,8 @@ with `--only`, so it shows `seconds` per part and a `partial` object):
   exists only for parts in a group.
 - `objects[]` lists every object; a single-part object has only `name`, `parts`, `main`
   (plus `partial` and `gate` when it is one part of a larger object built with `--only`).
+- `command` is `run` or `record` (since 0.7.0): `finalize.py --bundle` builds a `run` again and asks
+  for a `record`'s STLs to be exported again, whatever `engine` says (`record --engine blender`).
 - `params` is the params file the engine got. A `--proxy` build (`references/measure.md`) carries
   `"proxy": true` and no `threemf`.
 - `parameters` is what the parts were built with. `values` holds the params.json engine keys

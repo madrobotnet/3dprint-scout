@@ -293,9 +293,10 @@ class Finalize(Workspace):
         self.assertIn("lid: not in the delivery (deliver) as an STL or in a 3MF", out["open"])
         self.assertEqual({d["file"]: d["same_as_verified"] for d in out["delivered"]},
                          {"deliver/box.stl": True, "deliver/lid.stl": False})
-        self.assertEqual(sorted(out["bundle"]), ["deliver/source/REPRODUCE.md", "deliver/source/gen.py",
+        self.assertEqual(sorted(out["bundle"]), ["deliver/source/REPRODUCE.md", "deliver/source/deliver/box.stl",
+                                                 "deliver/source/deliver/lid.stl", "deliver/source/gen.py",
                                                  "deliver/source/params.json", "deliver/source/printers.json",
-                                                 "deliver/source/verification.json"])
+                                                 "deliver/source/verification.json"])     # the delivery as judged
         with open("deliver/source/verification.json", encoding="utf-8") as f:
             text = f.read()
         self.assertNotIn(self.tmp, text)                                       # no path of this machine
@@ -688,8 +689,8 @@ class FinalizePromises(Workspace):
             json.dump(values, f)
         validate.write_manifest("out/plug.stl", ["plug.py"], values, "python", by="run")
         with open("out/plug_build.json", "w") as f:
-            json.dump({"schema": "3dprint-scout.build/1", "ran": True, "engine": "python", "sources": ["plug.py"],
-                       "params": ".3dprint/plug.json", "proxy": True,
+            json.dump({"schema": "3dprint-scout.build/1", "ran": True, "command": "run", "engine": "python",
+                       "sources": ["plug.py"], "params": ".3dprint/plug.json", "proxy": True,
                        "parts": [{"name": "plug", "stl": "out/plug.stl",
                                   "sha256": validate.file_sha256("out/plug.stl")}]}, f)
 
@@ -748,6 +749,35 @@ class FinalizePromises(Workspace):
         fit_report("out/fit_plug.json", "out/box.stl", "out/plug.stl")        # fitted again
         out = self.run_use(self.verify([self.SEAT, self.CABLE], dims=dims), values=measured)
         self.assertEqual((out["use"], self.promise(out, "cable-out")["state"]), ("verified", "verified"))
+        # A prototype (phase 4): the _assumptions line belongs to its promise while that promise is
+        # not verified, and is not counted as an assumption on its own; a dims note is shown.
+        proto = "cable-out: delivered as a prototype, not verified"
+        noted = [dict(dims[0], note="read off the user's own plug")]
+        write_stl("out/plug.stl", box(14.5, 8, 9, 50, 0, 0))                  # the proxy changed, not fitted again
+        out = self.run_use(self.verify([self.SEAT, self.CABLE], dims=noted), values=measured,
+                           _assumptions=[proto, "the stand sits on a flat desk", "seat: no proof"])
+        cable = self.promise(out, "cable-out")
+        self.assertEqual((cable["state"], cable.get("prototype")), ("not verified", True))
+        self.assertNotIn("prototype", self.promise(out, "seat"))
+        self.assertTrue(out["summary"][0].endswith("; delivered as a prototype: cable-out; 2 assumptions not linked "
+                                                   "to a promise)"), out["summary"][0])
+        self.assertEqual(out["dims"][0]["note"], "read off the user's own plug")
+        fit_report("out/fit_plug.json", "out/box.stl", "out/plug.stl")        # verified now: the line is a plain one
+        out = self.run_use(self.verify([self.SEAT, self.CABLE], dims=noted), values=measured, _assumptions=[proto])
+        self.assertNotIn("prototype", self.promise(out, "cable-out"))
+        self.assertTrue(out["summary"][0].endswith("(2 promises: 2 verified; 1 assumption not linked to a promise)"),
+                        out["summary"][0])
+        out = self.run_use(self.verify([self.SEAT, self.CABLE], dims=noted), values=measured,
+                           _assumptions=["lid: delivered as a prototype, not verified"])     # no such promise
+        self.assertTrue(out["summary"][0].endswith("1 assumption not linked to a promise)"), out["summary"][0])
+        # The part under the proxy rebuilt, the joint not fitted again: the reason names the part's change.
+        write_stl("out/box.stl", box(61, 40, 30))
+        out = self.run_use(self.verify([self.SEAT, self.CABLE], dims=dims), values=measured)
+        cable = self.promise(out, "cable-out")
+        self.assertEqual(cable["state"], "not verified")
+        self.assertIn("joint 'plug through notch': the part it was fitted to has changed since", cable["reasons"])
+        self.assertIn("joint 'plug through notch': the part it was fitted to has changed since (neither STL the "
+                      "report measured is a part of this build now): run fit.py again", out["open"])
 
     def test_declaration_errors(self):
         """Reverse tests: a promise that is declared wrongly is an error, never verified."""
@@ -1659,6 +1689,889 @@ class FinalizePromises(Workspace):
         out = self.run_linked(v, deliver="deliver", _print={"preset": self.STANDARD})
         self.assertFalse(any("names no process preset" in o for o in out["open"]), out["open"])
         self.assertNotIn("preset", [d for d in out["delivered"] if d["kind"] == "3mf"][0])
+
+
+SKILL = os.path.normpath(os.path.join(HERE, ".."))
+
+
+def reproduce(folder):
+    """The commands of a bundle's REPRODUCE.md run as written, from the bundle (python3 is this
+    interpreter, $SKILL_DIR this skill, `> FILE` saves the output): the last one's JSON, which
+    is finalize's report."""
+    import re
+    import shlex
+    import subprocess
+    with open(os.path.join(folder, "REPRODUCE.md"), encoding="utf-8") as f:
+        blocks = re.findall(r"```bash\n(.*?)```", f.read(), flags=re.S)
+    env = dict(os.environ, PYTHONIOENCODING="utf-8", PYTHONDONTWRITEBYTECODE="1")
+    text = None
+    for line in (ln for b in blocks for ln in b.splitlines() if ln.strip()):
+        argv, target = shlex.split(line), None
+        if ">" in argv:
+            argv, target = argv[:argv.index(">")], argv[argv.index(">") + 1]
+        argv = [sys.executable if a == "python3" else a.replace("$SKILL_DIR", SKILL) for a in argv]
+        r = subprocess.run(argv, cwd=folder, capture_output=True, encoding="utf-8", env=env)
+        assert r.returncode == 0, (line, r.stdout[-2000:], r.stderr[-2000:])
+        if target:
+            with open(os.path.join(folder, target), "w", encoding="utf-8") as f:
+                f.write(r.stdout)
+        text = r.stdout
+    return json.loads(text)
+
+
+def verdict(out):
+    """What a bundle must reach again: the tiers, each promise's state and reasons, the open lines."""
+    return {"use": out["use"], "geometry": out["geometry"], "print": out["print"], "open": out["open"],
+            "promises": {p["id"]: (p["state"], p["reasons"]) for p in out["promises"]}}
+
+
+class FinalizeBundle(FinalizePromises):
+    """0.7.0 step 5: --bundle holds what it takes to reach the same verdict from the bundle alone
+    (plan, 번들): the reports _verify names and what they read by hash, the seen images, the test
+    print photos and the delivered Bambu project."""
+
+    LOOK = {"id": "flush", "kind": "look", "text": "the lid sits flush", "evidence": [{"seen": "front look"}]}
+
+    def record_proxy(self, values=None):
+        """The plug proxy recorded (build.py record of an STL made elsewhere): the bundle carries
+        it as it is, build JSON and all (a `build.py run --proxy` proxy is built again instead:
+        BundleFromTheScripts). Recorded, it ties nothing to its sizes, so the cable is assumed."""
+        values = dict(self.PLUG if values is None else values)
+        with open(".3dprint/plug.json", "w") as f:
+            json.dump(values, f)
+        code, out = run(build, "record", "out/plug.stl", "--source", "plug.py", "--params", ".3dprint/plug.json",
+                        "--out", "out", "--no-wall-check", "--no-3mf")
+        self.assertEqual(code, 0, out.get("errors"))
+        with open("out/plug_build.json", "w") as f:
+            json.dump(out, f)
+
+    def evidence_project(self):
+        """A recorded box and lid with one of each kind of evidence: the seat fit, the plug fit
+        against its proxy (built by build.py run from its own params file), the plug width read
+        from the user's file, the ribbon member linked to the build, a look the user judged on a
+        preview, a test print with the user's photo, and the delivered Bambu project. Returns
+        the params.json values and _verify."""
+        import preview
+        import validate
+        os.makedirs("ref")
+        os.makedirs("photos")
+        write_stl("ref/plug.stl", box(13, 8, 9))                             # the user's model of the plug
+        measure_report("out/m_plug.json", "info", "ref/plug.stl", "--expect", "objects[0].size_mm[0]=13", "--tol", "0.2")
+        with open("photos/lid-fit.jpg", "wb") as f:
+            f.write(b"\xff\xd8\xff\xe0 the user's photo of the printed lid")
+        code, rep = run(preview, "out/box.stl", "out/lid.stl", "-o", "out/look.png", "--size", "400x300")
+        self.assertEqual(code, 0, rep["errors"])
+        linked_report("out/strength_ribbon.json")
+        self.bambu_project()
+        head = {"id": "plug-head", "what": "plug head width, from the maker's model", "params": {"plug_w": 13},
+                "source": "user-file", "from": {"plug_w": "plug width"}, "tol": 0.05}
+        rest = dict(self.plug_dims("caliper", by="user"), id="plug-rest", params={"plug_h": 8, "plug_l": 9, "cable_d": 4.5})
+        joints = [{"name": "lid on box", "report": "out/fit_seat.json"},
+                  {"name": "plug through notch", "report": "out/fit_plug.json", "proxy": True,
+                   "dims": ["plug-head", "plug-rest"], "proxy_build": "out/plug_build.json"}]
+        printed = {"name": "lid fit", "status": "passed", "promises": ["lid-print"], "printer": "x2d",
+                   "orientation": "as built", "by": "user", "preset": self.STANDARD, "photos": ["photos/lid-fit.jpg"],
+                   "parts": {"lid": {"sha256": validate.file_sha256("out/lid.stl"), "material": "pla_basic"}}}
+        seen = {"name": "front look", "image": "out/look.png", "image_sha256": validate.file_sha256("out/look.png"),
+                "by": "user", "promises": ["flush"], "result": "passed"}
+        promises = [self.SEAT, self.CABLE, self.HOLDS, self.LOOK,
+                    dict(self.SEAT, id="lid-print", evidence=[{"test_print": "lid fit"}])]
+        verify = self.verify(promises, dims=[head, rest], joints=joints, seen=[seen], test_prints=[printed],
+                             measurements=[{"name": "plug width", "report": "out/m_plug.json"}],
+                             strength=[{"name": "ribbon", "report": "out/strength_ribbon.json"}])
+        return dict(self.PLUG, **self.RIBBON, _material="pla_basic", _print={"preset": self.STANDARD}), verify
+
+    def bundle(self, verify, values, *extra):
+        self.params(verify, **values)
+        self.record()
+        self.record_proxy()
+        return self.finalize("--deliver", "deliver", "--bundle", "deliver/source", *extra)
+
+    def export(self, folder="deliver/source"):
+        """What REPRODUCE.md asks of a recorded build: the parts exported again (the same STLs)."""
+        os.makedirs(os.path.join(folder, "out"), exist_ok=True)
+        for n in ("box", "lid"):
+            shutil.copyfile(os.path.join("out", n + ".stl"), os.path.join(folder, "out", n + ".stl"))
+
+    @unittest.skipUnless(HAS_NP, "numpy not installed")
+    def test_the_bundle_reaches_the_same_verdict(self):
+        values, verify = self.evidence_project()
+        code, out = self.bundle(verify, values)
+        self.assertEqual(code, 0, out["errors"])
+        self.assertEqual((out["use"], out["geometry"]), ("assumed", "verified"), out["open"])
+        self.assertEqual({p["id"]: p["state"] for p in out["promises"]},
+                         {"seat": "verified", "cable-out": "assumed", "holds": "verified", "flush": "verified",
+                          "lid-print": "verified"})
+        carried = {"out/fit_seat.json", "out/fit_plug.json",                   # the reports _verify names
+                   "out/strength_ribbon.json", "out/m_plug.json",
+                   "out/plug_build.json", "out/plug.stl", "out/plug.stl.manifest.json",   # the proxy and its inputs
+                   "plug.py", ".3dprint/plug.json",
+                   "ref/plug.stl",                                             # the user's file the dims rest on
+                   "out/look.png", "out/look.png.json",                        # the image the user judged
+                   "photos/lid-fit.jpg",                                       # the user's photo of the print
+                   "deliver/set.3mf", "deliver/set.3mf.manifest.json"}         # the delivered Bambu project
+        prefix = "deliver/source/"
+        bundled = {p[len(prefix):] for p in out["bundle"]}
+        self.assertEqual(carried - bundled, set())                             # reverse: nothing left out
+        self.assertEqual(bundled - carried, {"gen.py", "params.json", "printers.json", "REPRODUCE.md",
+                                             "verification.json"})             # the parts are made again, not carried
+        self.assertEqual(out["bundle_missing"], [])
+        for path in carried:                                                   # copied, never moved
+            self.assertTrue(os.path.isfile(path), path)
+            with open(path, "rb") as a, open(prefix + path, "rb") as b:
+                self.assertEqual(a.read(), b.read(), path)
+        with open(prefix + "REPRODUCE.md", encoding="utf-8") as f:
+            text = f.read()
+        self.assertIn('finalize.py" --build build.json --params params.json --printer printers.json --no-wall-check '
+                      '--deliver deliver\n', text)                            # the settings finalize was given
+        self.assertIn("`ref/plug.stl`: file read by measurement 'plug width'", text)
+        self.assertIn("record out/box.stl out/lid.stl --source gen.py", text)
+        self.assertNotIn(self.tmp, text)
+        self.export()
+        again = reproduce("deliver/source")
+        self.assertEqual(verdict(again), verdict(out))
+
+    @unittest.skipUnless(HAS_NP, "numpy not installed")
+    def test_a_file_named_but_not_found_is_listed_not_hidden(self):
+        """Reverse: a missing report or photo leaves the bundle as the verdict is (not verified),
+        names the file in REPRODUCE.md, and a re-check from the bundle says the same."""
+        values, verify = self.evidence_project()
+        verify["measurements"].append({"name": "lid gap", "report": "out/m_gap.json"})
+        verify["promises"].append({"id": "gap", "kind": "feature", "text": "a 0.3 mm gap", "success": "0.3 within 0.05",
+                                   "evidence": [{"measurement": "lid gap"}]})
+        verify["test_prints"][0]["photos"].append("photos/lid-side.jpg")
+        code, out = self.bundle(verify, values)
+        self.assertEqual(code, 0, out["errors"])
+        self.assertEqual(self.promise(out, "gap")["state"], "not verified")
+        self.assertEqual(out["bundle_missing"], ["out/m_gap.json: report of measurement 'lid gap'",
+                                                 "photos/lid-side.jpg: photo of test print 'lid fit'"])
+        with open("deliver/source/REPRODUCE.md", encoding="utf-8") as f:
+            text = f.read()
+        self.assertIn("## Not in this bundle", text)
+        self.assertIn("- `photos/lid-side.jpg`: photo of test print 'lid fit'", text)
+        self.assertTrue(os.path.isfile("deliver/source/photos/lid-fit.jpg"))   # what exists is still carried
+        self.export()
+        self.assertEqual(verdict(reproduce("deliver/source")), verdict(out))
+
+    def test_a_delivery_folder_not_found_is_named_in_reproduce(self):
+        """Reverse (Codex, PR #22): --deliver naming a missing folder, or a file, is "not found" in
+        the verdict; REPRODUCE.md keeps the --deliver, so the re-check says the same."""
+        values, verify = self.evidence_project()
+        self.params(verify, **values)
+        self.record()
+        self.record_proxy()
+        with open("notes.txt", "w") as f:
+            f.write("not a folder")
+        for n, deliver in enumerate(("deliver/never", "notes.txt")):
+            with self.subTest(deliver=deliver):
+                folder = f"bundle{n}"
+                code, out = self.finalize("--deliver", deliver, "--bundle", folder)
+                self.assertEqual(code, 0, out["errors"])
+                self.assertIn(f"delivery folder {deliver} not found", out["open"])
+                with open(os.path.join(folder, "REPRODUCE.md"), encoding="utf-8") as f:
+                    self.assertIn(f"--deliver {deliver}", f.read())
+                self.assertFalse(os.path.exists(os.path.join(folder, deliver)))   # not made: still not found there
+                self.export(folder)
+                self.assertEqual(verdict(reproduce(folder)), verdict(out))
+
+    def test_what_refuses_a_bundle(self):
+        """Reverse: a file outside the project folder, or a report that holds a path of this
+        machine, refuses the bundle and leaves no folder behind."""
+        import validate
+        outside = tempfile.mkdtemp(prefix="3dps-far-")
+        self.addCleanup(shutil.rmtree, outside, ignore_errors=True)
+        far = os.path.relpath(os.path.join(outside, "fit.json"))               # ../3dps-far-.../fit.json
+        fit_report(os.path.join(outside, "fit.json"), "out/box.stl", "out/lid.stl")
+        here = os.path.join(self.tmp, "out", "plug.stl")
+        cases = (
+            ("a report outside the project", {"joints": [{"name": "lid on box", "report": far}]},
+             "fit.json is outside the project folder"),
+            ("a photo outside the project", {"test_prints": [{"name": "lid fit", "status": "skipped",
+                                                              "photos": ["../lid.jpg"]}]},
+             "lid.jpg is outside the project folder"),
+            ("a fit report naming an STL by its absolute path", None, "out/fit_plug.json holds a path of this machine"),
+            ("a recorded proxy naming its STL by its absolute path", "proxy",
+             "out/plug_build.json holds a path of this machine"),
+            ("a sidecar naming an STL by its absolute path", "sidecar", "out/look.png.json holds a path of this machine"),
+            ("an input in the place of the rebuilt build JSON", "build.json", "build.json would take the place of a file"),
+            ("a missing report in the place of the rebuilt build JSON (Codex, PR #22)",
+             {"measurements": [{"name": "lip height", "report": "build.json"}]}, "build.json would take the place of a file"),
+            ("a missing report named REPRODUCE.md", {"strength": [{"name": "ribbon", "report": "REPRODUCE.md"}]},
+             "REPRODUCE.md would take the place of a file"),
+            ("a link inside the project to a report outside it (Codex, PR #22)", "link",
+             "out/fit_far.json is outside the project folder"))
+        for what, change, message in cases:
+            with self.subTest(what):
+                v = self.verify([self.SEAT, self.CABLE])
+                if isinstance(change, dict):
+                    v.update(change)
+                elif change is None:
+                    fit_report("out/fit_plug.json", "out/box.stl", here)
+                elif change == "proxy":
+                    with open("out/plug_build.json") as f:
+                        b = json.load(f)
+                    b["parts"][0]["stl"] = here                               # as build.py run writes it today
+                    with open("out/plug_build.json", "w") as f:
+                        json.dump(b, f)
+                elif change == "sidecar":
+                    with open("out/look.png", "wb") as f:
+                        f.write(b"\x89PNG not drawn here")
+                    with open("out/look.png.json", "w") as f:
+                        json.dump({"schema": finalize.IMAGE_SCHEMA, "image": "look.png",
+                                   "image_sha256": validate.file_sha256("out/look.png"),
+                                   "stls": [{"path": os.path.join(self.tmp, "out", "box.stl"), "sha256": "0" * 64}]}, f)
+                    v["seen"] = [{"name": "look", "image": "out/look.png", "image_sha256": "0" * 64, "by": "user",
+                                  "promises": ["seat"], "result": "passed"}]
+                elif change == "link":
+                    try:
+                        os.symlink(os.path.join(outside, "fit.json"), "out/fit_far.json")
+                    except (OSError, NotImplementedError):                 # Windows without the privilege
+                        continue
+                    v["joints"] = [dict(v["joints"][0], report="out/fit_far.json")] + v["joints"][1:]
+                else:
+                    with open("build.json", "w") as f:
+                        json.dump({"schema": "3dprint-scout.build/1"}, f)
+                    v["joints"][1]["proxy_build"] = "build.json"
+                self.params(v, **self.PLUG)
+                self.record()
+                if change != "proxy":
+                    self.record_proxy()
+                fit_report("out/fit_plug.json", "out/box.stl", here if change is None else "out/plug.stl")
+                code, out = self.finalize("--bundle", "deliver/source")
+                self.assertEqual(code, 1, out.get("bundle"))
+                self.assertIn(message, out["errors"][0])
+                self.assertNotIn(self.tmp, json.dumps(out))
+                self.assertFalse(os.path.exists("deliver/source"))
+                for path in ("build.json", "out/look.png", "out/look.png.json", "out/fit_far.json"):
+                    if os.path.lexists(path):
+                        os.remove(path)
+        code, out = self.finalize("--deliver", outside, "--bundle", "deliver/source")
+        self.assertEqual(code, 1)
+        self.assertIn("is outside the project folder", out["errors"][0])     # a delivery folder outside it too
+        # params.json and printers.json outside the project, or linked from inside it (Codex, PR #22).
+        self.params(self.verify([self.SEAT, self.CABLE]), **self.PLUG)
+        far_params = os.path.join(outside, "params.json")
+        shutil.copyfile(".3dprint/params.json", far_params)
+        code, out = self.finalize("--params", os.path.relpath(far_params), "--bundle", "deliver/source")
+        self.assertEqual(code, 1)
+        self.assertIn("params.json is outside the project folder", out["errors"][0])
+        shutil.copyfile(".3dprint/printers.json", os.path.join(outside, "printers.json"))
+        os.remove(".3dprint/printers.json")
+        try:
+            os.symlink(os.path.join(outside, "printers.json"), ".3dprint/printers.json")
+        except (OSError, NotImplementedError):                                # Windows without the privilege
+            return
+        code, out = self.finalize("--bundle", "deliver/source")
+        self.assertEqual(code, 1)
+        self.assertIn(".3dprint/printers.json is outside the project folder", out["errors"][0])
+        self.assertFalse(os.path.exists("deliver/source"))
+
+    def test_photos_are_paths_in_the_project_folder(self):
+        """A test print's photos are optional; given, they list paths in the project folder
+        (anything else is a declaration error, as for the other fields), and they are no
+        evidence: a print stands or not by its other fields."""
+        import validate
+        self.record()
+        printed = {"name": "lid fit", "status": "passed", "promises": ["seat"], "printer": "x2d",
+                   "orientation": "as built", "by": "user", "preset": self.STANDARD,
+                   "parts": {"lid": {"sha256": validate.file_sha256("out/lid.stl"), "material": "pla_basic"}}}
+        seat = dict(self.SEAT, evidence=[{"test_print": "lid fit"}])
+        contract = {"_material": "pla_basic", "_print": {"preset": self.STANDARD}}
+        for photos in (None, [], ["photos/lid.jpg", "photos\\side.jpg"]):
+            with self.subTest(photos=photos):
+                t = dict(printed, **({} if photos is None else {"photos": photos}))
+                out = self.run_use(self.verify([seat], dims=[], test_prints=[t]), **contract)
+                self.assertEqual(self.promise(out, "seat")["state"], "verified", out["open"])
+        for photos, why in (("photos/lid.jpg", "photos must list the paths"), ([""], "photos must list the paths"),
+                            ([3], "photos must list the paths"), (["/home/me/lid.jpg"], "not /home/me/lid.jpg"),
+                            (["C:\\Users\\me\\lid.jpg"], "relative to it"), (["~/lid.jpg"], "relative to it"),
+                            (["photos/../../lid.jpg"], "relative to it")):
+            with self.subTest(photos=photos):
+                out = self.run_use(self.verify([seat], dims=[], test_prints=[dict(printed, photos=photos)]), **contract)
+                self.assertEqual((out["use"], self.promise(out, "seat")["state"]), ("error", "error"))
+                self.assertTrue(any(e.startswith("test print 'lid fit': photos") and why in e
+                                    for e in out["promise_errors"]), out["promise_errors"])
+                old = {"name": "hinge coupon", "status": "passed", "photos": photos}       # no promises: still declared
+                out = self.run_use(self.verify([self.SEAT], dims=[], test_prints=[old]), **contract)
+                self.assertEqual(out["use"], "error")
+                self.assertTrue(any(e.startswith("test print 'hinge coupon': photos") for e in out["promise_errors"]))
+
+    def test_a_3mf_manifest_left_in_out_goes_beside_the_3mf(self):
+        """The core 3MF's manifest stays in out/, which the rebuild in REPRODUCE.md writes again
+        (a new 3MF, a new manifest): the bundle puts the one finalize compared beside the
+        delivered 3MF, so the delivery is judged the same from the bundle."""
+        self.params(self.full_verify())
+        code, built = run(build, "record", "out/box.stl", "out/lid.stl", "--source", "gen.py", "--params",
+                          ".3dprint/params.json", "--printer", ".3dprint/printers.json", "--out", "out", "--no-wall-check")
+        with open("out/build.json", "w") as f:
+            json.dump(built, f)
+        os.makedirs("deliver")
+        shutil.copyfile(built["threemf"], "deliver/set.3mf")                   # the manifest is left in out/
+        code, out = self.finalize("--deliver", "deliver", "--bundle", "deliver/source")
+        self.assertEqual(out["geometry"], "verified", out["open"])
+        self.assertIn("deliver/source/deliver/set.3mf.manifest.json", out["bundle"])
+        self.assertNotIn("deliver/source/" + built["threemf"] + ".manifest.json", out["bundle"])
+        with open("deliver/source/REPRODUCE.md", encoding="utf-8") as f:
+            self.assertIn(f"manifest of deliver/set.3mf, found at {built['threemf'].replace(os.sep, '/')}.manifest.json",
+                          f.read())                                    # a bundle path: / on Windows too
+        self.export()
+        self.assertEqual(verdict(reproduce("deliver/source")), verdict(out))   # a new core 3MF there or not
+
+    def test_the_manifest_the_verdict_read_is_the_one_carried(self):
+        """Reverse (Codex, PR #22): two sound manifests for one delivered 3MF, one beside it and
+        one in out/ (found later, so the verdict reads it): the bundle carries that one, beside
+        the 3MF, not the other, so the re-check judges the same filaments."""
+        self.params(self.full_verify(), _material="pla_basic")
+        self.record()
+        self.bambu_project()                                                   # beside it: PLA Basic
+        with open("deliver/set.3mf.manifest.json") as f:
+            m = json.load(f)
+        m["filaments"]["lid"]["settings"] = "Bambu PETG HF @BBL X1C"
+        with open("out/set.3mf.manifest.json", "w") as f:                       # the same 3MF, another filament
+            json.dump(m, f)
+        code, out = self.finalize("--deliver", "deliver", "--bundle", "deliver/source")
+        self.assertEqual(code, 0, out["errors"])
+        bambu = [d for d in out["delivered"] if d["kind"] == "3mf"][0]
+        self.assertEqual(bambu["filaments"]["lid"]["material"], "petg_hf")       # out/'s was read
+        with open("deliver/source/deliver/set.3mf.manifest.json") as f:
+            self.assertEqual(json.load(f)["filaments"]["lid"]["settings"], "Bambu PETG HF @BBL X1C")
+        with open("deliver/source/REPRODUCE.md", encoding="utf-8") as f:
+            self.assertIn("manifest of deliver/set.3mf, found at out/set.3mf.manifest.json", f.read())
+        self.export()
+        self.assertEqual(verdict(reproduce("deliver/source")), verdict(out))
+        os.remove("out/set.3mf.manifest.json")                                 # only the one beside it
+        shutil.rmtree("deliver/source")
+        code, out = self.finalize("--deliver", "deliver", "--bundle", "deliver/source")
+        self.assertEqual([d for d in out["delivered"] if d["kind"] == "3mf"][0]["filaments"]["lid"]["material"],
+                         "pla_basic")
+        with open("deliver/source/REPRODUCE.md", encoding="utf-8") as f:
+            text = f.read()
+        self.assertIn("- `deliver/set.3mf.manifest.json`: manifest of deliver/set.3mf\n", text)
+        self.export()
+        self.assertEqual(verdict(reproduce("deliver/source")), verdict(out))
+
+    GROUPED = {"box": {"expect": [40, 30, 20], "object": "set"},
+               "lid": {"expect": [40, 30, 3], "object": "set", "role": "free", "clearance": 0.3}}
+
+    def write_params(self, parts=None, verify=None, **extra):
+        """params.json with these _parts (the box and the lid by default) and _verify."""
+        data = {"_parts": parts or {"box": {"expect": [40, 30, 20]}, "lid": {"expect": [40, 30, 3]}},
+                "_verify": self.full_verify() if verify is None else verify, **extra}
+        with open(".3dprint/params.json", "w") as f:
+            json.dump(data, f)
+
+    def record_3mf(self, *stls, flags=()):
+        """build.py record of the box and the lid, with the core 3MF unless flags say otherwise; its
+        JSON, saved."""
+        code, built = run(build, "record", *(stls or ("out/box.stl", "out/lid.stl")), "--source", "gen.py", "--params",
+                          ".3dprint/params.json", "--printer", ".3dprint/printers.json", "--out", "out",
+                          "--no-wall-check", *flags)
+        self.assertEqual(code, 0, built["errors"])
+        with open("out/build.json", "w") as f:
+            json.dump(built, f)
+        return built
+
+    def refused(self, *flags, folder="deliver/source", why=()):
+        """finalize --bundle refuses (exit 1, finalize's JSON error, each `why` in it) and leaves no
+        folder behind. Returns the error."""
+        code, out = self.finalize(*flags, "--bundle", folder)
+        self.assertEqual(code, 1, out.get("bundle"))
+        for w in why:
+            self.assertIn(w, out["errors"][0])
+        self.assertFalse(os.path.lexists(folder))
+        return out["errors"][0]
+
+    def reproduce_text(self, folder="deliver/source"):
+        with open(os.path.join(folder, "REPRODUCE.md"), encoding="utf-8") as f:
+            return f.read()
+
+    def test_a_build_that_is_no_longer_the_projects_is_refused(self):
+        """Reverse (audit 1): REPRODUCE.md builds the parts again from the project as it is now and
+        with the build's own settings, so a reason that compares the saved build with the project
+        now (a parameter, the material, printers.json or the grouping changed since, an STL that is
+        not the build's, a part it did not make) would be gone in the bundle: not verified here,
+        verified there. So would a setting given to finalize that differs from the build's. Each
+        refuses the bundle before the folder is made."""
+        def bed():
+            printers = json.loads(json.dumps(X2D))
+            printers["printers"]["x2d"]["bed"]["height"] = 250
+            with open(".3dprint/printers.json", "w") as f:
+                json.dump(printers, f)
+        pin = {"box": {"expect": [40, 30, 20]}, "lid": {"expect": [40, 30, 3]}, "pin": {"expect": [3, 3, 9]}}
+        for what, change, why in (
+                ("a parameter changed", lambda: self.write_params(_material="pla_basic", w=41), "box R3 FAIL"),
+                ("the material changed", lambda: self.write_params(_material="petg_hf"),
+                 "box: material changed since the build (pla_basic -> petg_hf)"),
+                ("printers.json edited", bed, ".3dprint/printers.json changed since the build"),
+                ("the grouping changed", lambda: self.write_params(self.GROUPED, _material="pla_basic"),
+                 "assembly metadata changed since the build"),
+                ("an STL changed", lambda: write_stl("out/lid.stl", box(40, 30, 3.2, 0, 0, 30)),
+                 "lid: out/lid.stl is not the STL the build judged"),
+                ("a part not built", lambda: self.write_params(pin, _material="pla_basic"),
+                 "pin: in _parts but not built")):
+            with self.subTest(what):
+                write_stl("out/lid.stl", box(40, 30, 3, 0, 0, 30))
+                with open(".3dprint/printers.json", "w") as f:
+                    json.dump(X2D, f)
+                self.write_params(_material="pla_basic")
+                self.record()
+                code, out = self.finalize("--bundle", "deliver/fresh")
+                self.assertEqual(code, 0, out["errors"])                         # as built, it bundles
+                shutil.rmtree("deliver")
+                change()
+                self.refused(why=(why, "build again, save that build's JSON and bundle again"))
+        write_stl("out/lid.stl", box(40, 30, 3, 0, 0, 30))
+        with open(".3dprint/printers.json", "w") as f:
+            json.dump(X2D, f)
+        self.write_params(_material="pla_basic")
+        self.record()
+        shutil.copyfile(".3dprint/printers.json", "other.json")                 # the same bed, another file
+        for flags, why in ((("--tol", "0.05"), "tol None -> 0.05"), (("--min-wall", "2"), "min_wall None -> 2.0"),
+                           (("--printer", "other.json"), "printer .3dprint/printers.json -> other.json")):
+            with self.subTest(flags=flags):
+                self.refused(*flags, why=(why, "bundle without those options"))
+
+    def test_the_rebuild_is_made_as_the_build_was(self):
+        """Reverse (audit 3, 4): REPRODUCE.md builds again with the build's engine (a Blender
+        generator without the marker line is built with --engine blender), its core 3MF choice (the
+        same name, or --no-3mf) and its settings, every value quoted (a printer id with a space was
+        split by the shell); a build JSON that cannot tell whether a core 3MF was asked for refuses."""
+        self.write_params()
+        self.record()                                                          # --no-3mf
+        code, out = self.finalize("--bundle", "deliver/a")
+        self.assertEqual(code, 0, out["errors"])
+        self.assertIn('build.py" record out/box.stl out/lid.stl --source gen.py --params params.json --engine fusion '
+                      "--out out --no-3mf --printer printers.json --no-wall-check > build.json",
+                      self.reproduce_text("deliver/a"))
+        with open("out/build.json") as f:
+            recorded = json.load(f)
+        with open("out/build.json", "w") as f:                       # as `run gen.py --engine blender` saves it
+            json.dump(dict(recorded, command="run", engine="blender", source="gen.py"), f)
+        code, out = self.finalize("--bundle", "deliver/b")
+        self.assertEqual(code, 0, out["errors"])
+        self.assertIn('build.py" run gen.py --engine blender --params params.json --out out --no-3mf',
+                      self.reproduce_text("deliver/b"))
+        # Reverse (Codex, PR #22): `record --engine blender` (a live Blender's export) names an engine
+        # `run` knows; the build JSON's command, not the engine, says it is recorded. A JSON from
+        # before 0.7.0 has no command: a run reports its engine_info, a record none.
+        for n, b in enumerate((dict(recorded, engine="blender"), dict(recorded, engine="python", command=None),
+                               dict(recorded, engine="blender", command=None, engine_info={"blender": "4.5.14"}))):
+            with self.subTest(build={k: b.get(k) for k in ("command", "engine", "engine_info")}):
+                with open("out/build.json", "w") as f:
+                    json.dump({k: v for k, v in b.items() if v is not None}, f)
+                code, out = self.finalize("--bundle", f"deliver/r{n}")
+                self.assertEqual(code, 0, out["errors"])
+                text = self.reproduce_text(f"deliver/r{n}")
+                ran = n == 2
+                self.assertEqual(('build.py" run ' in text, "This build was recorded" in text), (ran, not ran), text)
+        with open("out/build.json", "w") as f:
+            json.dump(dict(recorded, errors=["core 3MF not written: disk full"]), f)
+        self.refused(folder="deliver/c", why=("does not tell whether one was asked for",))
+        printers = {"schema": X2D["schema"], "printers": {"Prusa MK4": X2D["printers"]["x2d"]}}
+        with open(".3dprint/printers.json", "w") as f:
+            json.dump(printers, f)
+        self.record_3mf(flags=("--printer-id", "Prusa MK4"))
+        code, out = self.finalize("--bundle", "deliver/source")
+        self.assertEqual(code, 0, out["errors"])
+        self.assertIn("--engine fusion --out out --3mf box_lid.3mf --printer printers.json --printer-id 'Prusa MK4' "
+                      "--no-wall-check > build.json", self.reproduce_text())
+        self.export()
+        self.assertEqual(verdict(reproduce("deliver/source")), verdict(out))
+
+    def test_a_missing_printers_json_is_named_not_dropped(self):
+        """Reverse (audit 8): the printers.json the build used is gone. The commands keep naming it,
+        so the re-check finds it missing too, and bundle_missing lists it; when the build judged an
+        object with it, the bundle is refused (the rebuild would judge that object without it)."""
+        self.write_params()
+        self.record()
+        os.remove(".3dprint/printers.json")
+        code, out = self.finalize("--bundle", "deliver/source")
+        self.assertEqual(code, 0, out["errors"])
+        self.assertIn(".3dprint/printers.json: the printers.json the build used", out["bundle_missing"])
+        text = self.reproduce_text()
+        self.assertIn("--no-3mf --printer .3dprint/printers.json --no-wall-check > build.json", text)
+        self.assertIn("finalize.py\" --build build.json --params params.json --printer .3dprint/printers.json", text)
+        self.export()
+        self.assertEqual(verdict(reproduce("deliver/source")), verdict(out))   # "printer file not found" there too
+        with open(".3dprint/printers.json", "w") as f:
+            json.dump(X2D, f)
+        self.write_params(self.GROUPED)
+        built = self.record()
+        os.remove(".3dprint/printers.json")
+        if any(o.get("checks") for o in built["objects"]):
+            self.refused(folder="deliver/set", why=(".3dprint/printers.json is gone since the build",))
+
+    def run_proxy(self, place):
+        """The plug proxy as `build.py run --proxy` leaves it, its build JSON saved at `place`
+        (written directly: no engine)."""
+        import validate
+        with open(".3dprint/plug.json", "w") as f:
+            json.dump(self.PLUG, f)
+        validate.write_manifest("out/plug.stl", ["plug.py"], self.PLUG, "python", by="run")
+        with open(place, "w") as f:
+            json.dump({"schema": "3dprint-scout.build/1", "ran": True, "command": "run", "engine": "python",
+                       "source": "plug.py",
+                       "sources": ["plug.py"], "params": ".3dprint/plug.json", "proxy": True,
+                       "parts": [{"name": "plug", "stl": "out/plug.stl",
+                                  "sha256": validate.file_sha256("out/plug.stl")}]}, f)
+
+    def test_a_proxy_built_again_takes_no_place_the_bundle_writes(self):
+        """Reverse (audit 2): REPRODUCE.md saves a proxy built again at its build JSON's place, after
+        the main rebuild wrote build.json: there it must not take a file the bundle writes itself,
+        nor the place of another build's output."""
+        plug = {"name": "plug through notch", "report": "out/fit_plug.json", "proxy": True, "dims": ["usb-c-plug"]}
+        for place in ("out/plug_build.json", "build.json", "Params.json"):
+            with self.subTest(place=place):
+                self.params(self.verify([self.SEAT, self.CABLE], joints=[
+                    {"name": "lid on box", "report": "out/fit_seat.json"}, dict(plug, proxy_build=place)]), **self.PLUG)
+                self.record()
+                self.run_proxy(place)
+                if place == "out/plug_build.json":
+                    code, out = self.finalize("--bundle", "deliver/source")
+                    self.assertEqual(code, 0, out["errors"])
+                    self.assertEqual(out["joints"][1]["proxy_build"], "tied")
+                    self.assertIn("--proxy plug --engine python --out out > out/plug_build.json", self.reproduce_text())
+                    shutil.rmtree("deliver")
+                else:
+                    self.refused(why=(f"is saved as or built into {place}, a file the bundle writes itself",))
+                    os.remove(place)
+        self.run_proxy("out/plug_again.json")                                  # the same proxy, saved twice
+        self.params(self.verify([self.SEAT, self.CABLE], joints=[
+            {"name": "lid on box", "report": "out/fit_seat.json"}, dict(plug, proxy_build="out/plug_build.json"),
+            dict(plug, name="plug again", proxy_build="out/plug_again.json")]), **self.PLUG)
+        self.refused(why=("is built again into out/plug.stl (the proxy of joint 'plug again')",
+                          "which another build in REPRODUCE.md writes too"))
+
+    def test_a_file_the_rebuild_writes_again_is_not_carried(self):
+        """Reverse (audit 6): the commands of REPRODUCE.md write the parts, their manifests and the
+        core 3MF again; a carried file at one of those places (a delivery into out/, a measurement of
+        the core 3MF) would be replaced by the rebuild and judged anew, so the bundle refuses it."""
+        self.write_params()
+        built = self.record_3mf()
+        self.refused("--deliver", "out", why=("out/box.stl (delivered file; REPRODUCE.md writes the part box there)",
+                                              "deliver into a folder of its own"))
+        if HAS_NP:
+            measure_report("out/m_plate.json", "info", built["threemf"], "--expect", "objects[0].size_mm[0]=40",
+                           "--tol", "0.1")
+            v = self.full_verify()
+            v["measurements"] = [{"name": "plate", "report": "out/m_plate.json"}]
+            self.write_params(verify=v)
+            self.refused(why=("out/box_lid.3mf (file read by measurement 'plate'; REPRODUCE.md writes the core 3MF "
+                              "there)",))
+
+    def test_the_delivery_folder_is_looked_for_before_the_bundle_is_made(self):
+        """Reverse (audit 7): the documented call, `--deliver deliver/<date> --bundle
+        deliver/<date>/source`, before the delivery folder is made: the bundle folder makes it, so it
+        must be looked for first; the bundle holds no empty delivery folder and the re-check from it
+        says "not found" too."""
+        self.write_params()
+        self.record()
+        code, out = self.finalize("--deliver", "deliver/2026-10-21", "--bundle", "deliver/2026-10-21/source")
+        self.assertEqual(code, 0, out["errors"])
+        self.assertIn("delivery folder deliver/2026-10-21 not found", out["open"])
+        self.assertFalse(os.path.exists("deliver/2026-10-21/source/deliver"))
+        self.export("deliver/2026-10-21/source")
+        self.assertEqual(verdict(reproduce("deliver/2026-10-21/source")), verdict(out))
+
+    def test_parts_outside_the_project_are_refused(self):
+        """Reverse (audit 9): parts built or recorded outside the project folder (../exports/box.stl)
+        are not carried (the rebuild makes them in the bundle's out/), but the reports still name
+        them where they were: the bundle is refused."""
+        far = tempfile.mkdtemp(prefix="3dps-parts-")
+        self.addCleanup(shutil.rmtree, far, ignore_errors=True)
+        for n in ("box", "lid"):
+            shutil.copyfile(os.path.join("out", n + ".stl"), os.path.join(far, n + ".stl"))
+        self.write_params()
+        self.record_3mf(*(os.path.relpath(os.path.join(far, n + ".stl")) for n in ("box", "lid")), flags=("--no-3mf",))
+        error = self.refused(why=("box.stl, lid.stl is outside the project folder",))
+        self.assertNotIn(far, error)
+
+    def test_a_machine_path_is_found_in_any_usual_encoding(self):
+        """Reverse (audit 11): a carried text file saved in Latin-1, cp1252 or UTF-16 that holds a
+        folder of this machine with a non-ASCII letter was read as UTF-8 and missed; the bytes are
+        searched in each encoding. A whole folder only: not /home/joséphine, not src/home/josé."""
+        homes = ["/home/josé", "/home/Šárka"]
+        with mock.patch.object(finalize, "machine_prefixes", return_value=homes):
+            for text, enc, found in (("x = '/home/josé/a.svg'", "utf-8", True),
+                                     ("x = '/home/josé/a.svg'", "latin-1", True),
+                                     ("x = '/home/Šárka/a.svg'", "cp1252", True),
+                                     ("x = '/home/josé/a.svg'", "utf-16-le", True),
+                                     ("x = '/HOME/josé/a.svg'", "utf-16", True),
+                                     ("x = '/home/josé/a.svg'", "utf-16-be", True),
+                                     ("-I/home/josé/inc", "latin-1", True),
+                                     ("x = '/home/joséphine/a.svg'", "latin-1", False),
+                                     ("x = 'src/home/josé/a.svg'", "latin-1", False)):
+                with self.subTest(text=text, enc=enc):
+                    with open("t.txt", "wb") as f:
+                        f.write(text.encode(enc))
+                    self.assertEqual(finalize.holds_machine_path("t.txt"), found)
+        with open("gen.py", "ab") as f:
+            f.write("# outline traced from /home/josé/outline.dxf\n".encode("latin-1"))
+        self.write_params()
+        self.record()
+        with mock.patch.object(finalize, "machine_prefixes", return_value=[os.getcwd(), "/home/josé"]):
+            self.refused(why=("gen.py holds a path of this machine",))
+
+    def test_commands_are_never_scrubbed_and_a_folder_is_taken_out_whole(self):
+        """Reverse (audit 5): with a short home folder (/root: a container, CI), REPRODUCE.md's
+        command `run src/root/gen.py` came out as `run src~/gen.py`. The commands hold relative paths
+        and are not scrubbed; elsewhere a folder is taken out only as a whole folder."""
+        with mock.patch.object(finalize, "machine_forms", return_value=[("/root", "~")]):
+            for text, want in (("src/root/gen.py", None), ("src/roots/gen.py", None), ("/rootbeer/x", None),
+                               ("/root/x", "~/x"), ("-I/root/inc", "-I~/inc"), ("file:///root/x", "file://~/x"),
+                               ('"/root"', '"~"'), ("saved in /root.", "saved in ~.")):
+                self.assertEqual(finalize.scrub(text), want or text, text)
+        os.makedirs("src/root")
+        shutil.move("gen.py", "src/root/gen.py")
+        self.write_params()
+        code, built = run(build, "record", "out/box.stl", "out/lid.stl", "--source", "src/root/gen.py", "--params",
+                          ".3dprint/params.json", "--printer", ".3dprint/printers.json", "--out", "out",
+                          "--no-wall-check", "--no-3mf")
+        with open("out/build.json", "w") as f:
+            json.dump(built, f)
+        with mock.patch.object(finalize, "machine_prefixes", return_value=[os.getcwd(), "/root"]):
+            code, out = self.finalize("--bundle", "deliver/source")
+        self.assertEqual(code, 0, out["errors"])
+        text = self.reproduce_text()
+        self.assertIn("Generator: `src/root/gen.py`", text)
+        self.assertIn("--source src/root/gen.py --params params.json", text)
+
+    def test_nothing_is_left_half_written(self):
+        """Reverse (audit 12): what can make writing fail is checked before the folder is made (a
+        source gone or a folder now, a build JSON field of another type), and a failure after it
+        takes away every folder this run made; finalize alone reports a malformed build JSON as
+        JSON, not a traceback."""
+        self.write_params()
+        with open("helper.py", "w") as f:
+            f.write("W = 2\n")
+        code, built = run(build, "record", "out/box.stl", "out/lid.stl", "--source", "gen.py", "helper.py", "--params",
+                          ".3dprint/params.json", "--printer", ".3dprint/printers.json", "--out", "out",
+                          "--no-wall-check", "--no-3mf")
+        with open("out/build.json", "w") as f:
+            json.dump(built, f)
+        os.remove("helper.py")
+        self.refused(why=("helper.py: a source the build hashed is gone or not a file",))
+        os.makedirs("helper.py")
+        self.refused(why=("helper.py: a source the build hashed is gone or not a file",))
+        os.rmdir("helper.py")
+        good = self.record()
+        for change, why in (({"source": 5}, "the build JSON's source is not as build.py writes it"),
+                            ({"engine": None}, "the build JSON's engine is"),
+                            ({"validate_settings": dict(good["validate_settings"], tol="x")}, "validate_settings.tol")):
+            with self.subTest(change=change):
+                with open("out/build.json", "w") as f:
+                    json.dump(dict(good, **change), f)
+                self.refused(why=(why,))
+        for change in ({"sources": ["gen.py", 7]}, {"parts": ["box"]}, {"validate_settings": "x"},
+                       {"validate_settings": dict(good["validate_settings"], printer=5)}):
+            with self.subTest(change=change):
+                with open("out/build.json", "w") as f:
+                    json.dump(dict(good, **change), f)
+                code, out = self.finalize()
+                self.assertEqual(code, 1)
+                self.assertIn("as build.py writes it", out["errors"][0])
+        with open("out/build.json", "w") as f:
+            json.dump(good, f)
+        real = shutil.copyfile
+
+        def full_disk(src, dst, *a, **k):                    # the second copy fails, the folder is made by then
+            calls.append(dst)
+            if len(calls) == 2:
+                raise OSError(28, "No space left on device")
+            return real(src, dst, *a, **k)
+        for parent in (False, True):
+            with self.subTest(parent_exists=parent):
+                if parent:
+                    os.makedirs("deliver")
+                calls = []
+                with mock.patch("shutil.copyfile", full_disk):
+                    code, out = self.finalize("--bundle", "deliver/new/source")
+                self.assertEqual(code, 1, out.get("bundle"))
+                self.assertIn("writing the bundle failed", out["errors"][0])
+                self.assertEqual(len(calls), 2)
+                self.assertEqual(os.path.isdir("deliver"), parent)              # only what this run made is gone
+                self.assertFalse(os.path.exists("deliver/new"))
+
+    @unittest.skipUnless(os.name == "posix", "a file name of raw bytes")
+    def test_a_name_that_is_not_utf8(self):
+        """Reverse (audit 12): a photo, or a delivered file, whose name is not UTF-8 (Latin-1 bytes from
+        a camera card): the bundle names it and refuses before the folder is made (it wrote half a
+        bundle, then a traceback), and finalize --deliver prints it as a JSON escape (a traceback)."""
+        import subprocess
+        os.makedirs("photos")
+        try:
+            with open(b"photos/caf\xe9.jpg", "wb") as f:
+                f.write(b"\xff\xd8\xff\xe0 the user's photo")
+        except OSError:
+            self.skipTest("this file system takes UTF-8 names only")
+        v = self.full_verify()
+        v["test_prints"] = [{"name": "lid fit", "status": "skipped", "photos": [os.fsdecode(b"photos/caf\xe9.jpg")]}]
+        self.write_params(verify=v)
+        self.record()
+        self.refused(why=("photos/caf\\udce9.jpg: a name the bundle would write is not UTF-8",))
+        os.makedirs("deliver")
+        shutil.copyfile("out/box.stl", b"deliver/bo\xeete.stl")
+        r = subprocess.run([sys.executable, os.path.join(SKILL, "scripts", "finalize.py"), "--build", "out/build.json",
+                            "--params", ".3dprint/params.json", "--deliver", "deliver"], capture_output=True,
+                           env=dict(os.environ, PYTHONIOENCODING="utf-8"))
+        self.assertEqual(r.returncode, 0, r.stderr[-500:])
+        out = json.loads(r.stdout.decode("utf-8"))
+        self.assertIn(os.fsdecode(b"deliver/bo\xeete.stl"), [d["file"] for d in out["delivered"]])
+
+
+for _name in [n for n in dir(FinalizePromises) if n.startswith("test_")]:
+    setattr(FinalizeBundle, _name, None)            # its helpers only: the promise tests run once, above
+
+
+@unittest.skipUnless(HAS_M3D, "manifold3d and numpy not installed")
+class BundleFromTheScripts(unittest.TestCase):
+    """A project the scripts made as the skill runs them (build.py run, a proxy by build.py run
+    --proxy from its own params file, fit.py, strength.py --from-build, measure.py of the user's
+    file, preview.py, bambu3mf.py), bundled, then rebuilt and re-checked from the bundle alone
+    with the commands of its REPRODUCE.md as written: the same verdict."""
+
+    GEN = ("import manifold3d as m3d\n"
+           "DEFAULTS = {'ribbon_t': 8.0, 'ribbon_w': 12.0, 'arm': {'len': 40.0}, 'arm_support': 'cantilever',\n"
+           "            'plug_w': 13, 'plug_h': 8, 'plug_l': 9}\n"
+           "def build(params):\n"
+           "    p = {**DEFAULTS, **params}\n"
+           "    return {'sled': m3d.Manifold.cube([p['arm']['len'], p['ribbon_w'], p['ribbon_t']])}\n")
+    PROXY = ("import manifold3d as m3d\n"
+             "def build(p):\n"
+             "    return {'plug': m3d.Manifold.cube([p['plug_w'], p['plug_h'], p['plug_l']]).translate([0, 0, 8.5])}\n")
+    PRESET = "0.20mm Standard @BBL X1C"
+    PRINTERS = {"schema": "3dprint.printers/1", "printers": {"x1c": {
+        "process": "fdm", "slicer": {"name": "bambu-studio"},
+        "bed": {"area": [[0, 0], [256, 0], [256, 256], [0, 256]], "height": 250, "exclude": [], "source": "slicer-profile"}}}}
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp(prefix="3dps-bundle-")
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.cwd = os.getcwd()
+        os.chdir(self.tmp)
+        self.addCleanup(os.chdir, self.cwd)
+        for d in (".3dprint", "out", "ref", "photos", "deliver"):
+            os.makedirs(d)
+        for path, text in (("gen.py", self.GEN), ("plug.py", self.PROXY)):
+            with open(path, "w") as f:
+                f.write(text)
+        self.write(".3dprint/printers.json", self.PRINTERS)
+        self.write(".3dprint/plug.json", {"plug_w": 13, "plug_h": 8, "plug_l": 9})        # the proxy's numbers only
+
+    @staticmethod
+    def write(path, obj):
+        with open(path, "w") as f:
+            json.dump(obj, f)
+
+    @staticmethod
+    def script(name, *argv, save=None):
+        import subprocess
+        r = subprocess.run([sys.executable, os.path.join(SKILL, "scripts", name), *argv], capture_output=True,
+                           encoding="utf-8", env=dict(os.environ, PYTHONIOENCODING="utf-8"))
+        assert r.returncode in (0, 1), (name, r.stdout[-1500:], r.stderr[-1500:])
+        if save:
+            with open(save, "w", encoding="utf-8") as f:
+                f.write(r.stdout)
+        return r.returncode, json.loads(r.stdout) if r.stdout.strip().startswith("{") else None
+
+    def params(self, verify=None):
+        self.write(".3dprint/params.json", {"_material": "pla_basic", "_print": {"preset": self.PRESET},
+                                             "_parts": {"sled": {"expect": [40, 12, 8]}},
+                                             "plug_w": 13, "plug_h": 8, "plug_l": 9, "_verify": verify or {}})
+
+    def test_the_bundle_rebuilds_and_reaches_the_same_verdict(self):
+        import validate
+        from test_bambu3mf import make_template
+        self.params()
+        code, built = self.script("build.py", "run", "gen.py", "--params", ".3dprint/params.json", "--printer",
+                                  ".3dprint/printers.json", "--out", "out", save="out/build.json")
+        self.assertEqual(built["gate"], "PASS", built["errors"])
+        self.script("build.py", "run", "plug.py", "--params", ".3dprint/plug.json", "--proxy", "plug", "--out", "out/plug",
+                    save="out/plug_build.json")
+        code, fit = self.script("fit.py", "out/sled.stl", "out/plug/plug.stl", "--play", "none", save="out/fit_plug.json")
+        self.assertEqual(fit["gate"], "PASS", fit)
+        code, member = self.script("strength.py", "beam", "--from-build", "out/build.json", "--part", "sled",
+                                   "--param", "h=ribbon_t", "--param", "b=ribbon_w", "--param", "length=arm.len",
+                                   "--param", "support=arm_support", "--load", "finger_push", save="out/strength_sled.json")
+        self.assertEqual(member["gate"], "PASS", member)
+        write_stl("ref/plug.stl", box(13.05, 8, 9))                            # the user's model of the plug
+        self.script("measure.py", "info", "ref/plug.stl", "--expect", "objects[0].size_mm[0]=13", "--tol", "0.1",
+                    save="out/m_plug.json")
+        self.script("preview.py", "out/sled.stl", "-o", "out/look.png", "--size", "400x300")
+        with open("photos/arm.jpg", "wb") as f:
+            f.write(b"\xff\xd8\xff\xe0 the user's photo of the printed arm")
+        make_template("template.3mf", filament_settings_id=["Bambu PLA Basic @BBL X1C", "Bambu PETG HF @BBL X1C"],
+                      print_settings_id=self.PRESET)
+        self.write("job.json", {"template": "template.3mf", "out": "deliver/sled_bambu.3mf",
+                                "parts": [{"name": "sled", "stl": "out/sled.stl", "filament": 1}]})
+        self.script("bambu3mf.py", "job.json")
+        sled = validate.file_sha256("out/sled.stl")
+        self.params({
+            "promises": [
+                {"id": "cable-out", "kind": "use", "text": "the plug clears the sled", "conditions": "plug at rest",
+                 "success": "no overlap", "evidence": [{"joint": "plug over sled"}]},
+                {"id": "hold-push", "kind": "use", "text": "the arm takes a finger push", "conditions": "pushed at the tip",
+                 "success": "no break", "evidence": [{"strength": "sled arm"}]},
+                {"id": "plain", "kind": "look", "text": "a plain block", "evidence": [{"seen": "iso"}]},
+                {"id": "in-hand", "kind": "use", "text": "it feels right in the hand", "conditions": "held",
+                 "success": "the user says so", "evidence": [{"test_print": "arm print"}]}],
+            "dims": [{"id": "plug-head", "what": "plug head width, from the maker's model", "params": {"plug_w": 13},
+                      "source": "user-file", "from": {"plug_w": "plug width"}, "tol": 0.1},
+                     {"id": "plug-rest", "what": "plug height and length", "params": {"plug_h": 8, "plug_l": 9},
+                      "source": "caliper", "by": "user"}],
+            "joints": [{"name": "plug over sled", "report": "out/fit_plug.json", "proxy": True,
+                        "dims": ["plug-head", "plug-rest"], "proxy_build": "out/plug_build.json"}],
+            "strength": [{"name": "sled arm", "report": "out/strength_sled.json"}],
+            "measurements": [{"name": "plug width", "report": "out/m_plug.json"}],
+            "seen": [{"name": "iso", "image": "out/look.png", "image_sha256": validate.file_sha256("out/look.png"),
+                      "by": "user", "promises": ["plain"], "result": "passed"}],
+            "test_prints": [{"name": "arm print", "status": "passed", "promises": ["in-hand"], "printer": "x1c",
+                             "orientation": "as built", "by": "user", "preset": self.PRESET, "photos": ["photos/arm.jpg"],
+                             "parts": {"sled": {"sha256": sled, "material": "pla_basic"}}}],
+            "accepted": [], "unverified": [],
+            "references": {"sled": {d: "real" for d in finalize.DIRECTIONS}}})
+        argv = ("finalize.py", "--build", "out/build.json", "--params", ".3dprint/params.json", "--deliver", "deliver")
+        code, out = self.script(*argv, "--bundle", "deliver/source")
+        self.assertEqual(code, 0, out["errors"])
+        self.assertEqual((out["use"], out["geometry"]), ("verified", "verified"), out["open"])
+        for path in ("plug.py", ".3dprint/plug.json", "ref/plug.stl", "out/fit_plug.json", "out/m_plug.json",
+                     "out/strength_sled.json", "out/look.png", "out/look.png.json", "photos/arm.jpg",
+                     "deliver/sled_bambu.3mf", "deliver/sled_bambu.3mf.manifest.json"):
+            self.assertIn("deliver/source/" + path, out["bundle"])
+        for path in ("out/sled.stl", "out/plug_build.json", "out/plug/plug.stl"):   # made again, like the parts
+            self.assertFalse(os.path.exists("deliver/source/" + path), path)
+        with open("deliver/source/REPRODUCE.md", encoding="utf-8") as f:
+            text = f.read()
+        self.assertIn('build.py" run plug.py --params .3dprint/plug.json --proxy plug --engine python --out out/plug '
+                      '> out/plug_build.json', text)                       # the engine it was built with (Codex, PR #22)
+        self.assertLess(text.index("--proxy plug"), text.index("finalize.py"))
+        self.assertIn('build.py" run gen.py --engine python --params params.json --out out --3mf gen.3mf '
+                      "--printer printers.json > build.json", text)    # its engine and its core 3MF, as built
+        self.assertNotIn(self.tmp, text)
+        again = reproduce("deliver/source")
+        self.assertEqual(verdict(again), verdict(out))
+        self.assertTrue(os.path.isfile("deliver/source/out/plug/plug.stl"))
+        # Reverse: a proxy whose params file changed since it was built would be another proxy built
+        # again; its STL is carried as it was, and its build JSON left out (and said so).
+        self.write(".3dprint/plug.json", {"plug_w": 13, "plug_h": 8, "plug_l": 9, "plug_r": 1})
+        code, out = self.script(*argv, "--bundle", "deliver/later")
+        self.assertEqual(code, 0, out["errors"])
+        self.assertEqual(out["use"], "not verified")
+        self.assertTrue(any(r.endswith("was not built from .3dprint/plug.json as it is now (or its generator changed): "
+                                       "build it again and fit again") for r in out["promises"][0]["reasons"]))
+        self.assertIn("deliver/later/out/plug/plug.stl", out["bundle"])
+        self.assertTrue(any(m.startswith("out/plug_build.json: proxy build of joint 'plug over sled', left out")
+                            for m in out["bundle_missing"]), out["bundle_missing"])
+        with open("deliver/later/REPRODUCE.md", encoding="utf-8") as f:
+            self.assertNotIn("--proxy", f.read())
+        again = reproduce("deliver/later")
+        # A known difference, accepted: the same tiers and states, but not the same reason. Here the
+        # proxy "was not built from .3dprint/plug.json as it is now"; in the bundle, whose build JSON
+        # for it is left out, "proxy build out/plug_build.json: No such file or directory". So this
+        # case compares tiers and states only, not reasons or the open lines.
+        same = ("use", "geometry", "print")
+        self.assertEqual({k: again[k] for k in same}, {k: out[k] for k in same})
+        self.assertEqual([(p["id"], p["state"]) for p in again["promises"]], [(p["id"], p["state"]) for p in out["promises"]])
 
 
 if __name__ == "__main__":

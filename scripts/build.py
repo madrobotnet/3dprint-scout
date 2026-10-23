@@ -673,10 +673,11 @@ def _pyrun(source, params_file, out_dir, parts_csv):
         out.append({"name": name, "stl": stl, "seconds": round(time.time() - t0, 2)})
     # Freshness (R3): every .py the generator imported from its own folder, plus any library it
     # imported from the skill's scripts folder (parts.py, sdf.py), is hashed into the manifest.
-    # build.py's own imports (validate, threemf) were loaded before the generator and are not
-    # part of what the generator depends on.
+    # build.py's own imports (assembly, validate, threemf) were loaded before the generator and
+    # are not part of what the generator depends on: hashing them would make every build stale
+    # when the skill is updated.
     norm = lambda p: os.path.normcase(os.path.abspath(p))     # noqa: E731 - Windows paths differ in case
-    own = {norm(os.path.join(HERE, n)) for n in ("build.py", "validate.py", "threemf.py")}
+    own = {norm(os.path.join(HERE, n)) for n in ("build.py", "assembly.py", "validate.py", "threemf.py")}
     roots = (norm(src_dir) + os.sep, norm(HERE) + os.sep)
     deps = sorted({os.path.abspath(m.__file__) for m in list(sys.modules.values())
                    if getattr(m, "__file__", None) and m.__file__.endswith(".py")
@@ -1156,7 +1157,7 @@ def cmd_run(args) -> dict:
                         "total": len(members)}
                 args.partial_objects[built[0] if len(built) == 1 else obj] = info
     os.makedirs(args.out, exist_ok=True)
-    out = {"schema": SCHEMA, "ran": True, "engine": engine, "source": source, "gate": None,
+    out = {"schema": SCHEMA, "ran": True, "command": "run", "engine": engine, "source": source, "gate": None,
            "warnings": [], "errors": []}
     try:
         if engine == "openscad":
@@ -1270,8 +1271,8 @@ def cmd_record(args) -> dict:
         raise ValueError(f"source not found: {missing}")
     specs = part_specs(params, "part")
     given = [os.path.abspath(s) for s in args.source]
-    out = {"schema": SCHEMA, "ran": True, "engine": args.engine, "source": args.source[0], "gate": None,
-           "warnings": [], "errors": []}
+    out = {"schema": SCHEMA, "ran": True, "command": "record", "engine": args.engine, "source": args.source[0],
+           "gate": None, "warnings": [], "errors": []}
     parts, extra = [], set()
     for stl in args.stl:
         name = os.path.splitext(os.path.basename(stl))[0]
