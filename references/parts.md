@@ -189,7 +189,10 @@ with `--only`, so it shows `seconds` per part and a `partial` object):
   the printer, printer id, tools and tolerances they were made with (and `printer_sha256`, the
   printers.json as it was): `finalize.py` re-checks with the same, and only trusts the object
   checks while every STL still has that hash, the settings and printers.json are unchanged,
-  and `assembly_sha256` matches the current grouping, roles and free-part clearances.
+  and `assembly_sha256` matches the current grouping, roles and free-part clearances. `run`
+  writes every part STL with its triangles in a canonical order (sorted, each keeping its
+  normal and winding), so a rebuild with nothing changed keeps the same bytes and hash;
+  `record` leaves an STL as it was exported.
 - A `_parts` grouping that cannot be read (an unknown `role`, say) is in `errors` and makes the
   gate FAIL: the parts were validated, but no object check ran.
 - `record` only: a part whose STL already has a manifest from `run` that describes this very

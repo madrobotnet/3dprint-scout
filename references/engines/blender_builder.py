@@ -1160,7 +1160,11 @@ def from_mesh(verts, faces, name="mesh", collection=None, groups=None):
         flat.update(e for f in region for e in f.edges
                     if len(e.link_faces) == 2 and all(g in region for g in e.link_faces))
     if flat:
-        bmesh.ops.dissolve_edges(bm, edges=list(flat), use_verts=False, use_face_split=False)
+        # In mesh order, never a set's: a set of BMesh elements iterates by memory address, which
+        # changes from run to run, and the dissolve order decides the merged faces and so the
+        # triangles the export writes (the same generator gave other triangles on each build).
+        bm.edges.index_update()
+        bmesh.ops.dissolve_edges(bm, edges=sorted(flat, key=lambda e: e.index), use_verts=False, use_face_split=False)
     if gl is not None:
         bm.faces.layers.int.remove(gl)
     return mesh_object(name, bm, collection)
@@ -1446,6 +1450,7 @@ def _flat_regions(bm, offsets):
     faces' winding (left of travel, seen from the normal, is inside, for the outline and for a
     hole alike). Where a round ends at a corner of a face it does not run along (its end cap),
     the check after the bevel decides."""
+    bm.faces.index_update()                 # a region's faces are walked in mesh order, never a set's
     seen, regions = set(), []
     for f0 in bm.faces:
         if f0.index in seen or not any(offsets[e.index] > 0 for e in f0.edges):
@@ -1463,7 +1468,7 @@ def _flat_regions(bm, offsets):
                     region.add(g)
                     todo.append(g)
         segs = {}
-        for f in region:
+        for f in sorted(region, key=lambda f: f.index):
             for l in f.loops:
                 e = l.edge
                 if sum(1 for g in e.link_faces if g in region) == 1:
@@ -1624,8 +1629,8 @@ def _thin_fans(bm, regions, offsets):
                     inner = _inner_edges(nxt[1], region)
                     if len(inner) > 1:
                         kill.update(inner)
-    if kill:
-        bmesh.ops.dissolve_edges(bm, edges=list(kill), use_verts=False, use_face_split=False)
+    if kill:                                                       # in mesh order, as in from_mesh
+        bmesh.ops.dissolve_edges(bm, edges=sorted(kill, key=lambda e: e.index), use_verts=False, use_face_split=False)
     return len(kill)
 
 
@@ -2195,11 +2200,12 @@ def _text_mesh(string, size, depth, fnt, resolution, align, name, spacing, colle
     # Letters that touch share outline geometry: welded together they would be an open mesh, so
     # every piece becomes its own object and the pieces are unioned (Manifold handles contact).
     objs = []
+    bm.faces.index_update()
     for i, verts in enumerate(pieces):
         part_bm = bmesh.new()
         lookup = {v.index: part_bm.verts.new(v.co) for v in verts}
         faces = {f for v in verts for f in v.link_faces}
-        for f in faces:
+        for f in sorted(faces, key=lambda f: f.index):           # in mesh order, never a set's (from_mesh)
             part_bm.faces.new([lookup[v.index] for v in f.verts])
         objs.append(mesh_object(f"{name}_glyph{i}", part_bm, collection))
     bm.free()

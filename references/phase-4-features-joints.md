@@ -218,26 +218,69 @@ dims value that differs from params.json), and any other declaration (a dims, ac
 test print entry, `_material`, `_print`), which makes the tier `error` with no promise in error. A
 `failed` promise is never accepted or excluded away: go back to the phase of the evidence that
 failed and fix it (G7). Run again the evidence a change made stale, as its reason says (the fit,
-the `strength.py --from-build` command, the measurement, a new image for the user). Name every
-other promise that is not `verified` to the user, with its reason in plain words, and decide each
-one together:
+the `strength.py --from-build` command, the measurement, a new image for the user).
+
+**A look belongs to its image.** The user's look is evidence for the `seen` entry of the image
+they looked at, and nothing more. A `look` promise added after they looked, or a `seen` entry a
+rebuild made stale, needs an image of the current build and a new look from the user ("The end
+is flatter now: does it look right to you?"). An old look is never copied onto a new image, nor
+turned into `excluded` or `accepted`. A promise whose new image the user does not judge is
+decided below like any other.
+
+Name every other promise that is not `verified` to the user, with its reason in plain words, and
+decide each one together:
 
 - **Make the evidence.** Run the check it still lacks, or the user measures the object (Phase 2,
   step 3, records it) or prints the part or the mechanism and reports back (a test print, above).
 - **Go on with it assumed**, only for a promise finalize reports `assumed` (its evidence passed
   but rests on a size nobody measured, or on a preset not recorded). It stays `assumed` and is
   named at delivery with what it rests on. No decision makes a `not verified` promise assumed.
-- **A prototype**, for a `not verified` promise: with the user's agreement it is delivered
-  unproven. Add the `_assumptions` line `"<promise id>: delivered as a prototype, not verified"`
-  (`"cable-out: delivered as a prototype, not verified"`, word for word: finalize reads it and
-  marks the promise `"prototype": true`). It stays `not verified`, and the delivery message
-  opens with it. This choice is made here, or later when finalize first reports
-  a promise not verified (Phase 5 or 6); it follows the same rule.
-- **The user excludes it**: drops it, or takes it unverified, in their own words. It stays in the
-  list as `excluded`, through an entry in `_verify.accepted`:
-  `{"promise": "cable-bend", "reason": "I'll try it with my own cable", "by": "user"}`. Only the
-  user's words make one.
+- **A prototype**, for a `not verified` promise the user agrees to take unproven, or hands back
+  to you (below): it is delivered unproven. Add the `_assumptions` line `"<promise id>: delivered
+  as a prototype, not verified"`, word for word (finalize reads it and marks the promise
+  `"prototype": true`), ending, as recommended, in a note in parentheses that says who chose it:
+  in an attended run the user's reply, word for word (`"flat-end: delivered as a prototype, not
+  verified (the user: \"I have no time for a test print now, just go on\")"`); when the user
+  handed the decision back, `(the user handed the decision to me)`; in an unattended run,
+  `(unattended run)`. It stays `not verified`, and the delivery message opens with it.
+- **The user excludes it**: drops it, or takes it unverified. It stays in the list as `excluded`,
+  through an entry in `_verify.accepted` whose `reason` is their reply, word for word:
+  `{"promise": "cable-bend", "reason": "I'll try it with my own cable", "by": "user"}`.
+
+**What counts as agreement.** Three records need it: excluding a promise (`_verify.accepted` with
+`promise`), accepting a WARN (`_verify.accepted` with `check`, Phase 5) and, in an attended run,
+delivering a `not verified` promise as a prototype (its `_assumptions` line). Agreement is the
+user's reply to a question that named that promise or warning, said in plain words what taking it
+means (the promise stays unverified, or the warning stays, and what that can cost) and offered
+the choices; the reply takes that option. Record the reply word for word: as the entry's
+`reason`, or, for a prototype, in its line's note, the one place it is kept. For `cable-bend`:
+"That the cable bends down without a kink is not checked: it may kink at the lip. Shall I make a
+test piece, or do you take it as it is, unchecked?", and the reply "I'll try it with my own
+cable". "Just go on" agrees when going on as it is was the option named: "The flat end is not
+checked since the last change. A test print would show it; without one it goes out as a
+prototype, and it may rock" → "I have no time for a test print now, just go on".
+
+None of these is agreement, and none is ever recorded as one:
+
+- **A reply that hands the decision back to you** ("I'm not sure, you decide", "I'll leave it to
+  you"). The decision is then yours, and yours cannot be the user's: a `not verified` promise
+  gets evidence you can make yourself, or goes out as a prototype, the unattended default; a WARN
+  is fixed, or left unaccepted and named at delivery (it stays in `open`). Either way an
+  `_assumptions` line says the user handed it back: the prototype line's note, `(the user handed
+  the decision to me)`, or for a WARN a line of its own (`"cap P3: the user handed the decision
+  to me; not accepted"`). Never `excluded`, never `accepted`.
+- **An approval of something else**: a look ("The shape looks good") is evidence for that image's
+  `seen` entry and nothing more; a reference or concept choice; "carry on" after a progress note.
+- **An earlier answer to another question, or silence.**
+
+**When to ask.** Whenever finalize first reports a promise not verified, in Phase 4, 5 or 6,
+including a promise added late and one a late change made stale that no new evidence renews.
+Before the delivery message, no promise goes out as a prototype, excluded or with an accepted
+WARN that the user was not asked about in a message that named it, except the defaults above
+and those of an unattended run, each with its `_assumptions` line.
 
 Run finalize again after each change. In an unattended run nobody can agree, so nothing is
-excluded: an `assumed` promise goes on assumed, and one `not verified` is delivered as a
-prototype (its `_assumptions` line as above), each said at the top of the delivery.
+excluded or accepted: an `assumed` promise goes on assumed, one `not verified` is delivered as a
+prototype (its line as above, noted `(unattended run)`) and a WARN is fixed or left in `open`;
+each decision taken alone has its `_assumptions` line and is said at the top of the delivery,
+before any result.
