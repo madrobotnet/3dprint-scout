@@ -15,6 +15,7 @@ sys.path.insert(0, os.path.join(HERE, "..", "scripts"))
 sys.path.insert(0, HERE)
 import build  # noqa: E402
 import finalize  # noqa: E402
+import finalize_common  # noqa: E402  (where the machine-path helpers live; patched there)
 from test_validate import X2D, box, write_stl  # noqa: E402
 
 HAS_M3D = find_spec("manifold3d") is not None and find_spec("numpy") is not None
@@ -523,7 +524,7 @@ class Finalize(Workspace):
                 f.write(body + "\n")
             self.assertEqual(finalize.holds_machine_path(name), leaks, body)
         win = "C:\\Users\\경우"
-        with mock.patch.object(finalize, "machine_prefixes", return_value=[win]):
+        with mock.patch.object(finalize_common, "machine_prefixes", return_value=[win]):
             for text in ("c:\\users\\경우\\x", "/c/Users/경우/x", "file:///C:/Users/경우/x", "/mnt/c/Users/경우/x",
                          json.dumps({"p": win + "\\x"}), json.dumps({"p": win + "\\x"}, ensure_ascii=False)):
                 self.assertNotIn("경우", finalize.scrub(text), text)
@@ -2327,7 +2328,7 @@ class FinalizeBundle(FinalizePromises):
         folder of this machine with a non-ASCII letter was read as UTF-8 and missed; the bytes are
         searched in each encoding. A whole folder only: not /home/joséphine, not src/home/josé."""
         homes = ["/home/josé", "/home/Šárka"]
-        with mock.patch.object(finalize, "machine_prefixes", return_value=homes):
+        with mock.patch.object(finalize_common, "machine_prefixes", return_value=homes):
             for text, enc, found in (("x = '/home/josé/a.svg'", "utf-8", True),
                                      ("x = '/home/josé/a.svg'", "latin-1", True),
                                      ("x = '/home/Šárka/a.svg'", "cp1252", True),
@@ -2345,14 +2346,14 @@ class FinalizeBundle(FinalizePromises):
             f.write("# outline traced from /home/josé/outline.dxf\n".encode("latin-1"))
         self.write_params()
         self.record()
-        with mock.patch.object(finalize, "machine_prefixes", return_value=[os.getcwd(), "/home/josé"]):
+        with mock.patch.object(finalize_common, "machine_prefixes", return_value=[os.getcwd(), "/home/josé"]):
             self.refused(why=("gen.py holds a path of this machine",))
 
     def test_commands_are_never_scrubbed_and_a_folder_is_taken_out_whole(self):
         """Reverse (audit 5): with a short home folder (/root: a container, CI), REPRODUCE.md's
         command `run src/root/gen.py` came out as `run src~/gen.py`. The commands hold relative paths
         and are not scrubbed; elsewhere a folder is taken out only as a whole folder."""
-        with mock.patch.object(finalize, "machine_forms", return_value=[("/root", "~")]):
+        with mock.patch.object(finalize_common, "machine_forms", return_value=[("/root", "~")]):
             for text, want in (("src/root/gen.py", None), ("src/roots/gen.py", None), ("/rootbeer/x", None),
                                ("/root/x", "~/x"), ("-I/root/inc", "-I~/inc"), ("file:///root/x", "file://~/x"),
                                ('"/root"', '"~"'), ("saved in /root.", "saved in ~.")):
@@ -2365,7 +2366,7 @@ class FinalizeBundle(FinalizePromises):
                           "--no-wall-check", "--no-3mf")
         with open("out/build.json", "w") as f:
             json.dump(built, f)
-        with mock.patch.object(finalize, "machine_prefixes", return_value=[os.getcwd(), "/root"]):
+        with mock.patch.object(finalize_common, "machine_prefixes", return_value=[os.getcwd(), "/root"]):
             code, out = self.finalize("--bundle", "deliver/source")
         self.assertEqual(code, 0, out["errors"])
         text = self.reproduce_text()
