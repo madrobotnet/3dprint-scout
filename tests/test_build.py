@@ -278,7 +278,7 @@ class PythonEngine(Base):
         self.assertEqual([w for w in out["warnings"] if "typo" in w],
                          ["params.json key 'walll' is not in the generator's DEFAULTS (a typo?)"])
         self.assertEqual({p["name"]: p["material"] for p in out["parts"]}, {"body": "petg_hf", "peg": "pla_basic"})
-        self.assertEqual(out["params"], os.path.relpath(prm))                  # the params path stays
+        self.assertEqual(out["params"], build._relpath(prm))                   # the params path stays (another drive on Windows: absolute)
         self.assertNotIn("parameters", out["engine_info"])
         self.assertEqual(out["parts"][0]["validate"]["files"][0]["checks"]["D1"]["state"], "PASS")
 

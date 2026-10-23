@@ -1644,6 +1644,21 @@ class FinalizePromises(Workspace):
         self.bambu_project(process=None)                                       # the template names no process
         out = self.run_linked(v, deliver="deliver")
         self.assertEqual(self.states(out), {"holds": "verified", "seat": "assumed", "stands": "assumed"})
+        # Reverse (Codex, PR #21): _print.preset does not stand in for a project that names none.
+        out = self.run_linked(v, deliver="deliver", _print={"preset": self.STANDARD})
+        self.assertEqual(self.states(out), {"holds": "verified", "seat": "assumed", "stands": "assumed"})
+        self.assertEqual(self.promise(out, "seat")["reasons"],
+                         ["test print 'lid fit': the delivered project names no process preset (deliver/set.3mf)"])
+        self.assertIn('deliver/set.3mf: the project names no process preset, so a test print cannot be compared with '
+                      'it: choose "0.20mm Standard @BBL X1C" in the slicer', out["open"])
+        self.assertIsNone([d for d in out["delivered"] if d["kind"] == "3mf"][0]["preset"])
+        self.bambu_project(filaments={}, process="")                           # a blank name is no name
+        out = self.run_linked(v, deliver="deliver", _print={"preset": self.STANDARD})
+        self.assertEqual(self.states(out)["seat"], "assumed")
+        self.bambu_project(filaments=False, process=False)                     # a core 3MF: no slicer settings at all
+        out = self.run_linked(v, deliver="deliver", _print={"preset": self.STANDARD})
+        self.assertFalse(any("names no process preset" in o for o in out["open"]), out["open"])
+        self.assertNotIn("preset", [d for d in out["delivered"] if d["kind"] == "3mf"][0])
 
 
 if __name__ == "__main__":

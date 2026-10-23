@@ -122,7 +122,7 @@ filament of another material than the part's leaves the part's material-dependen
 (strength.material_of_filament) leaves it assumed, as does a part in no Bambu project (another
 slicer: the print file's material is not checked); a process preset other than _print.preset
 keeps test prints of its parts from verifying, and without _print.preset it is the delivered
-preset they are compared with. These are open lines, not geometry reasons. --bundle DIR
+preset they are compared with; a project that names no process preset leaves them assumed. These are open lines, not geometry reasons. --bundle DIR
 writes a new folder with the generator sources (not the skill's own libraries) at their places
 relative to the folder the build ran in (lib/helper.py stays lib/helper.py, so imports, includes
 and loaded files still resolve), params.json, the printers.json the build used, this report and
@@ -1089,9 +1089,12 @@ def check_print_evidence(verify, parts, params, specs, printer_id, material_evid
             notver.append(f"printed {t['orientation']}, not as built")
         targets = [preset] if preset else []
         for n in pp:
-            targets += [p for _f, p in delivered_presets.get(n, []) if p not in targets]
+            targets += [p for _f, p in delivered_presets.get(n, []) if p is not None and p not in targets]
         if not targets or (not preset and any(n not in delivered_presets for n in pp)):
             assumed.append("the delivered preset is not recorded (_print.preset)")
+        unnamed = sorted({rel(f) for n in pp for f, p in delivered_presets.get(n, []) if p is None})
+        if unnamed:                                        # the project's own preset is unknown: _print.preset alone is no proof
+            assumed.append(f"the delivered project names no process preset ({', '.join(unnamed)})")
         for p in targets:
             if t.get("preset") != p:
                 notver.append(f"printed with preset {json.dumps(t.get('preset'))}, the delivery uses {json.dumps(p)}")
@@ -1679,6 +1682,13 @@ def check_delivered_print(projects, part_names, params, specs):
             if isinstance(declared, str) and declared.strip() and p != declared:
                 lines.append(f"{rel(path)}: its process preset is {json.dumps(p)}, not _print.preset "
                              f"{json.dumps(declared)}: a test print under one does not stand for the other")
+        elif "filaments" in m or "process" in m:           # a Bambu project that names no process preset
+            entry["preset"] = None
+            for n in entry.get("parts") or []:
+                presets.setdefault(n, []).append((path, None))
+            lines.append(f"{rel(path)}: the project names no process preset, so a test print cannot be compared "
+                         "with it" + (f": choose {json.dumps(declared)} in the slicer"
+                                      if isinstance(declared, str) and declared.strip() else ""))
     unchecked = [n for n in part_names if n not in checked]
     for n in unchecked:
         evidence.setdefault(n, {"notver": [], "assumed": []})["assumed"].append(NO_PROJECT)
