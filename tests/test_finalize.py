@@ -1999,6 +1999,39 @@ class FinalizeBundle(FinalizePromises):
         self.export()
         self.assertEqual(verdict(reproduce("deliver/source")), verdict(out))   # a new core 3MF there or not
 
+    def test_the_manifest_the_verdict_read_is_the_one_carried(self):
+        """Reverse (Codex, PR #22): two sound manifests for one delivered 3MF, one beside it and
+        one in out/ (found later, so the verdict reads it): the bundle carries that one, beside
+        the 3MF, not the other, so the re-check judges the same filaments."""
+        self.params(self.full_verify(), _material="pla_basic")
+        self.record()
+        self.bambu_project()                                                   # beside it: PLA Basic
+        with open("deliver/set.3mf.manifest.json") as f:
+            m = json.load(f)
+        m["filaments"]["lid"]["settings"] = "Bambu PETG HF @BBL X1C"
+        with open("out/set.3mf.manifest.json", "w") as f:                       # the same 3MF, another filament
+            json.dump(m, f)
+        code, out = self.finalize("--deliver", "deliver", "--bundle", "deliver/source")
+        self.assertEqual(code, 0, out["errors"])
+        bambu = [d for d in out["delivered"] if d["kind"] == "3mf"][0]
+        self.assertEqual(bambu["filaments"]["lid"]["material"], "petg_hf")       # out/'s was read
+        with open("deliver/source/deliver/set.3mf.manifest.json") as f:
+            self.assertEqual(json.load(f)["filaments"]["lid"]["settings"], "Bambu PETG HF @BBL X1C")
+        with open("deliver/source/REPRODUCE.md", encoding="utf-8") as f:
+            self.assertIn("manifest of deliver/set.3mf, found at out/set.3mf.manifest.json", f.read())
+        self.export()
+        self.assertEqual(verdict(reproduce("deliver/source")), verdict(out))
+        os.remove("out/set.3mf.manifest.json")                                 # only the one beside it
+        shutil.rmtree("deliver/source")
+        code, out = self.finalize("--deliver", "deliver", "--bundle", "deliver/source")
+        self.assertEqual([d for d in out["delivered"] if d["kind"] == "3mf"][0]["filaments"]["lid"]["material"],
+                         "pla_basic")
+        with open("deliver/source/REPRODUCE.md", encoding="utf-8") as f:
+            text = f.read()
+        self.assertIn("- `deliver/set.3mf.manifest.json`: manifest of deliver/set.3mf\n", text)
+        self.export()
+        self.assertEqual(verdict(reproduce("deliver/source")), verdict(out))
+
 
 for _name in [n for n in dir(FinalizePromises) if n.startswith("test_")]:
     setattr(FinalizeBundle, _name, None)            # its helpers only: the promise tests run once, above

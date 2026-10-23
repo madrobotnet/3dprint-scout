@@ -1589,18 +1589,22 @@ def check_references(verify, objects):
     return out, lines
 
 
-def threemf_manifests(folders):
-    """Every 3MF manifest in the folders: {artifact sha256: manifest}; a manifest whose `parts`
-    is not a map of part names to sha256 strings is {"_malformed": its file name}."""
+def threemf_manifest_files(folders):
+    """Every 3MF manifest in the folders, walked in a fixed order: {artifact sha256: (its file,
+    the manifest)}. A sound manifest found later takes the place of an earlier one for the same
+    3MF; one whose `parts` is not a map of part names to sha256 strings is {"_malformed": its
+    file name}, and never takes the place of a sound one."""
     found = {}
     for folder in folders:
         if not folder or not os.path.isdir(folder):
             continue
-        for root, _dirs, files in os.walk(folder):
-            for fn in files:
+        for root, dirs, files in os.walk(folder):
+            dirs.sort()
+            for fn in sorted(files):
                 if fn.endswith(".3mf.manifest.json"):
+                    path = os.path.join(root, fn)
                     try:
-                        with open(os.path.join(root, fn), encoding="utf-8") as f:
+                        with open(path, encoding="utf-8") as f:
                             m = json.load(f)
                     except (OSError, ValueError):
                         continue
@@ -1610,10 +1614,25 @@ def threemf_manifests(folders):
                     sha, parts = m["artifact_sha256"], m.get("parts")
                     if isinstance(parts, dict) and parts and all(isinstance(k, str) and isinstance(v, str)
                                                                  for k, v in parts.items()):
-                        found[sha] = m
+                        found[sha] = (path, m)
                     elif sha not in found:              # never in place of a sound one
-                        found[sha] = {"_malformed": fn}
+                        found[sha] = (path, {"_malformed": fn})
     return found
+
+
+def manifest_folders(deliver, build):
+    """Where a delivered 3MF's manifest is looked for, in this order: the delivery folder, then
+    the folders the build wrote its STLs and core 3MF to (sorted, so the choice is the same in
+    the report and in the bundle)."""
+    dirs = {os.path.dirname(p["stl"]) for p in build.get("parts") or []
+            if isinstance(p, dict) and isinstance(p.get("stl"), str)}
+    dirs |= {os.path.dirname(build["threemf"]) if isinstance(build.get("threemf"), str) else ""}
+    return [deliver, *sorted(dirs)]
+
+
+def threemf_manifests(folders):
+    """{artifact sha256: manifest}, as threemf_manifest_files chooses them."""
+    return {sha: m for sha, (_path, m) in threemf_manifest_files(folders).items()}
 
 
 def check_delivered(deliver, parts, build):
@@ -1628,8 +1647,7 @@ def check_delivered(deliver, parts, build):
         if p.get("sha256"):
             by_sha.setdefault(p["sha256"], []).append(p["name"])
     covered = set()
-    out_dirs = {os.path.dirname(p["stl"]) for p in parts if p.get("stl")} | {os.path.dirname(build.get("threemf") or "")}
-    manifests = threemf_manifests([deliver, *out_dirs])
+    manifests = threemf_manifests(manifest_folders(deliver, build))
     for fn in sorted(os.listdir(deliver)):
         path = os.path.join(deliver, fn)
         if not os.path.isfile(path):
@@ -1794,30 +1812,6 @@ def json_object(path):
     return data if isinstance(data, dict) else {}
 
 
-def manifests_of_3mf(folders, sha):
-    """The 3MF manifests in the folders (walked as threemf_manifests walks them) written for the
-    3MF with this sha256: [(path, sound)], sound when its parts map part names to sha256."""
-    found, seen = [], set()
-    for folder in folders:
-        if not folder or not os.path.isdir(folder):
-            continue
-        for root, dirs, names in os.walk(folder):
-            dirs.sort()
-            for fn in sorted(names):
-                path = os.path.join(root, fn)
-                key = os.path.normcase(os.path.abspath(path))
-                if not fn.endswith(".3mf.manifest.json") or key in seen:
-                    continue
-                seen.add(key)
-                m = json_object(path)
-                if m.get("schema") != MANIFEST_3MF or m.get("artifact_sha256") != sha:
-                    continue
-                parts = m.get("parts")
-                found.append((path, isinstance(parts, dict) and bool(parts)
-                              and all(isinstance(k, str) and isinstance(v, str) for k, v in parts.items())))
-    return found
-
-
 def bundle_contents(verify, build, deliver=None, joints=None):
     """What a bundle carries besides the generator, params.json and printers.json, so that the
     verdict can be reached again from the bundle alone: every report _verify names, and each
@@ -1923,10 +1917,7 @@ def bundle_contents(verify, build, deliver=None, joints=None):
     if deliver and bundle_path(deliver) is None:
         outside.append(deliver)
     elif deliver and os.path.isdir(deliver):
-        here = os.path.normcase(os.path.abspath(deliver))
-        out_dirs = sorted({os.path.dirname(p["stl"]) for p in build.get("parts") or []
-                           if isinstance(p, dict) and isinstance(p.get("stl"), str)}
-                          | {os.path.dirname(build["threemf"]) if isinstance(build.get("threemf"), str) else ""})
+        manifests = threemf_manifest_files(manifest_folders(deliver, build))
         for fn in sorted(os.listdir(deliver)):                 # the files check_delivered judges
             path = os.path.join(deliver, fn)
             if not (os.path.isfile(path) and fn.lower().endswith((".stl", ".3mf"))):
@@ -1935,19 +1926,11 @@ def bundle_contents(verify, build, deliver=None, joints=None):
             if not fn.lower().endswith(".3mf") or bundle_path(path) is None:
                 continue
             place = bundle_path(path)
-            found = manifests_of_3mf([deliver, *out_dirs], validate.file_sha256(path))
-            beside = [(m, ok) for m, ok in found if os.path.normcase(os.path.dirname(os.path.abspath(m))) == here]
-            for m, _ok in beside:
-                carry(m, f"manifest of {place}")
-            elsewhere = [(m, ok) for m, ok in found if (m, ok) not in beside]
-            pick = None if any(ok for _m, ok in beside) else next((m for m, ok in elsewhere if ok), None)
-            if pick is None and elsewhere and not beside:
-                pick = elsewhere[0][0]                          # a malformed one: the verdict names it so
-            if pick:
-                to = place + ".manifest.json"
-                if to in files:
-                    to = place[:len(place) - len(fn)] + "bundle-" + fn + ".manifest.json"
-                carry(pick, f"manifest of {place}, found at {bundle_path(pick)}", place=to)
+            chosen = manifests.get(validate.file_sha256(path))   # the one check_delivered judged it by
+            if chosen:
+                pick, mine = chosen[0], bundle_path(chosen[0])
+                carry(pick, f"manifest of {place}" + ("" if mine == place + ".manifest.json" else f", found at {mine}"),
+                      place=place + ".manifest.json")     # beside its 3MF: out/ is written again by the rebuild
     return files, missing, proxies, outside
 
 
