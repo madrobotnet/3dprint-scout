@@ -39,6 +39,8 @@ Write one generator script:
   Blender library), not files it opens, so a changed data file would not make the build stale
   and the source bundle would rebuild without it. Put those numbers in the parameter block or
   params.json; a shape from a file the user gave is measured (`measure.py`), not loaded.
+  Another maker's geometry library only with a permissive licence, its attribution and a note
+  to the user.
 - **Z-up: Z = 0 is the print bed.** Model in the orientation it will print in.
 - Each build regenerates everything from scratch in a safe order (fillets before cuts). Phases are
   review points, not build steps.
