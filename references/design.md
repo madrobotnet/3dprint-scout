@@ -7,25 +7,14 @@ printer (a 0.4 mm nozzle and PLA are assumed: SKILL.md Phase 2 defaults,
 `phase-2-printer-dimensions.md`). `scripts/parts.py` builds most of these shapes with these
 defaults.
 
-Read only when the part has one:
+Read only when the part has one (scripts and older notes still name these sections as
+`design.md`'s):
 
-- a hinge, pivot, latch, lever, clamp or other member that carries load: `design-mechanisms.md`
-  ("Print-in-place joints", "Mechanisms that carry load");
-- a snap fit, a screw, insert or thread, a keyhole, or text and logos: `design-features.md`.
-
-Contents:
-
-- [Bed edge: chamfer, never a fillet](#bed-edge-chamfer-never-a-fillet)
-- [Overhangs and self-supporting shapes](#overhangs-and-self-supporting-shapes)
-- [Walls and small features in nozzle multiples](#walls-and-small-features-in-nozzle-multiples)
-- [Orientation for strength](#orientation-for-strength)
-- [Colour and function seams: split into parts](#colour-and-function-seams-split-into-parts)
-- [Supports policy](#supports-policy)
-- The sections that moved, by name: [Snap fits (cantilever)](#snap-fits-cantilever), [Screws,
-  inserts and threads](#screws-inserts-and-threads), [Keyholes and hanging
-  slots](#keyholes-and-hanging-slots), [Print-in-place joints](#print-in-place-joints),
-  [Mechanisms that carry load](#mechanisms-that-carry-load), [Text, logos, cosmetic
-  faces](#text-logos-cosmetic-faces)
+- a hinge, pivot, latch, lever, clamp or other member that carries load: `design-mechanisms.md`,
+  "Print-in-place joints" and "Mechanisms that carry load";
+- a snap fit, a screw, insert or thread, a keyhole, or text and logos: `design-features.md`,
+  "Snap fits (cantilever)", "Screws, inserts and threads", "Keyholes and hanging slots" and
+  "Text, logos, cosmetic faces".
 
 ## Bed edge: chamfer, never a fillet
 
@@ -82,26 +71,6 @@ Contents:
 - Split a part and join with pegs or screws rather than printing a weak orientation with
   supports [1].
 
-## Snap fits (cantilever)
-
-In `design-features.md`.
-
-## Screws, inserts and threads
-
-In `design-features.md`.
-
-## Keyholes and hanging slots
-
-In `design-features.md`.
-
-## Print-in-place joints
-
-In `design-mechanisms.md`.
-
-## Mechanisms that carry load
-
-In `design-mechanisms.md`.
-
 ## Colour and function seams: split into parts
 
 - A region with its own job or a likely different colour (latches, levers, labels, signs,
@@ -119,10 +88,6 @@ In `design-mechanisms.md`.
   sides of a seam are the same material (PLA to PLA); PLA on PETG does not bond.
 - Print-in-place moving parts are separate parts with `role: free` and their clearance
   (`design-mechanisms.md`); they are never merged.
-
-## Text, logos, cosmetic faces
-
-In `design-features.md`.
 
 ## Supports policy
 
