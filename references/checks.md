@@ -8,7 +8,7 @@ with every ID, its kind and who decides it, is the table in SKILL.md.
 ## The `_verify` declarations
 
 `finalize.py` reads the evidence from `_verify` in params.json (its docstring is the authority;
-`references/phase-5-gate.md`, step 5, has the phone stand's whole block as a worked example).
+`references/outputs.md`, "A worked `_verify`", has the phone stand's whole block).
 Every key is optional, but a key left out is reported as "not declared": without `joints` or
 `strength` the geometry is not verified, and without `promises` (or with an empty list) the use
 tier is not declared. An empty list says there is nothing of that kind. Declare each report as
@@ -91,14 +91,17 @@ joints, measurements and test prints, a `look` seen images and test prints.
 **Reading the tier.** Read `use` before `geometry`. Each promise's `reasons` say what is missing;
 what each state asks of you, in the tier's order:
 
-- `error`: fix the declarations `promise_errors` names, then run finalize again.
-- `failed`: the design breaks the promise. Go back to the phase of the failed evidence and change
-  the design; no acceptance hides a failure.
+- `error`: fix the declarations `promise_errors` names, then run finalize again. Never deliver
+  on `error`.
+- `failed`: the design breaks the promise. Go back to the phase of the failed evidence (a joint,
+  a member or a measurement: Phase 4; a real-world size: Phase 2), change the design, build and
+  check again (G7); no acceptance hides a failure. If the user wants the files anyway, the
+  failure is the delivery's first line.
 - `not verified`: renew the evidence the reasons name when a change made it stale
   (`references/phase-5-gate.md`, step 1, "After a rebuild, renew what went stale"); otherwise
-  decide it with the user (`references/phase-4-features-joints.md`, "Leaving Phase 4"): measure
-  or print a test, a prototype, or the user excludes it, asked in a message that names it. A
-  decision never makes it `assumed`. At delivery it is named first. A prototype's promise
+  decide it with the user (`references/phase-4-features-joints.md`, "Leaving Phase 4", whose
+  "When to ask" holds through Phase 6): measure or print a test, a prototype, or the user
+  excludes it. A decision never makes it `assumed`. At delivery it is named first. A prototype's promise
   carries `"prototype": true` (finalize reads its `_assumptions` line, `"<id>: delivered as a
   prototype, not verified"`, and its note: phase-4, "Leaving Phase 4") and the use summary
   names it ("delivered as a prototype: ...").

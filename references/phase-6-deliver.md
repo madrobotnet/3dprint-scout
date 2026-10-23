@@ -47,19 +47,9 @@ write the Bambu project straight into the delivery folder) naming exactly the ve
 every part must be delivered in one of them. Always pass it: without it, finalize reads nothing
 of the print file, and a promise can read verified while the file prints another material.
 
-**Before the message, act on the `use` tier** (the worst state of the promises):
-
-- `error`: a declaration is wrong (in `_verify`, `_material`, `_parts.<name>.material` or
-  `_print`); `promise_errors` names it. Fix it and run finalize again. Never deliver on `error`.
-- `failed`: the design does not keep a promise. Go back to the phase of the evidence that failed
-  (a joint, a member or a measurement: Phase 4; a real-world size: Phase 2), fix it, build and
-  check again (G7). A failure is never accepted or excluded away. If the user wants these files
-  anyway, the failure is the first line of the message.
-- `not verified`: renew the evidence a change made stale (`references/phase-5-gate.md`, step 1)
-  and run finalize again. One still not verified goes out only as a prototype or excluded, decided
-  as `references/phase-4-features-joints.md`, "Leaving Phase 4", says (its "When to ask" holds
-  here too: a record made from other words comes out, and you ask now).
-- `assumed`, `excluded`, `accepted`: deliver, and say each as below.
+**Before the message, act on the `use` tier** as `references/checks.md`, "Reading the tier",
+says for each state: never deliver on `error`; a `failed` promise goes back to its phase; a
+`not verified` one goes out only as a prototype or excluded, decided as Phase 4 says.
 
 ## The print file and the bundle
 
