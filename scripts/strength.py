@@ -861,6 +861,17 @@ def utf8_stdout():
         pass
 
 
+def material_of_filament(settings_name):
+    """The MATERIALS key of a slicer filament preset name, or None: Bambu Studio names its presets
+    after the filament and the printer ("Bambu PLA Basic @BBL X1C"); the part before " @" must be a
+    material's own name exactly ("Bambu PLA Basic Gradient" is not PLA Basic). Used to compare the
+    filament a print file selects with the material a design declares (finalize.py)."""
+    if not isinstance(settings_name, str):
+        return None
+    base = settings_name.split(" @")[0].strip()
+    return next((k for k, m in MATERIALS.items() if m["name"] == base), None)
+
+
 def main(argv=None):
     utf8_stdout()
     out = {"schema": SCHEMA, "ran": False, "warnings": [], "errors": []}
