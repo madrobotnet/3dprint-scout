@@ -11,6 +11,7 @@ library only; one JSON document per call.
   python3 strength.py bearing --d 3.3 --t 8 --edge 2.2 --load finger_push --material pla_basic --orientation xy
   python3 strength.py hinge --pin-d 2.4 --knuckle-d 7.4 --knuckles 5 --length 36 --gap 0.3 --clearance 0.3 --pin integral --duty lid --load finger_pull --material pla_basic --orientation xy
   python3 strength.py snap --length 16 --h 1.6 --b 6 --undercut 0.8 --material pla_basic --orientation xy [--repeated]
+  python3 strength.py beam --from-build out/build.json --part sled --param h=ribbon_t --param b=ribbon_w --length 20 --load 70 --orientation xy
   python3 strength.py materials            # the data table with its sources
   python3 strength.py loads                # the hand-force table with its source
   python3 strength.py duties               # the P7 floors per duty (latch, lid, decorative) with their sources
@@ -107,6 +108,26 @@ Materials: Bambu Lab technical data sheets (official PDFs on store.bblcdn.com, r
 layer plane (a member lying flat, bent sideways or along its length), z when it crosses the
 layers (a pin standing up, a lever bent so its layers peel). Default z: conservative.
 
+Linking to a build: --from-build BUILD_JSON --part NAME takes the material the build.py report
+(schema 3dprint-scout.build/1) recorded for the part (_parts.<part>.material, else _material;
+--material is then an error, and a part with no material is one too), and each --param
+INPUT=PARAM (repeatable) takes the input INPUT, a name as it appears in the report's "inputs"
+(h, b, length, d, t, edge, pin_d, knuckles, orientation, support ...), from the build's
+parameters.values[PARAM] (a dotted path reaches into a nested object: plug.w). An input is
+given one way: on the command line or through --param, not both. A linked value is checked as
+its option is: a finite number (not true or false), above zero for a size, zero allowed where
+the option allows it (gap, bow, clearance, friction), a whole number for knuckles, one of the
+option's choices for orientation, shear, support, hole, pin and duty, true or false for
+repeated and load_across_layers. A build of scope "overrides" records only what params.json
+passed, not the generator's defaults: a value left to a default goes into params.json first.
+The report then carries "from_build": the build as given, the part, the part's sha256 and
+material in the build, and per linked input its param and value (finalize.py compares them
+with the current build). Every calculation report carries "inputs_from", the origin of each
+key of "inputs": param:<PARAM>; table:<key> (a hand-force key given as --load, a material key
+given as --material); build:material; default:<input> (strength.py chose it because nothing
+was given: sf, the orientation z, a pin's gap 0, a hinge's 0.3 gap and clearance, snap's q and
+angles); manual (a number or choice typed on the command line, even one equal to the default).
+
 Verdict per check: achieved safety factor = material strength / stress. PASS when it reaches
 --sf (default 2.0: the TDS specimens are 100 % infill, dried and annealed, real parts have
 walls and infill, corners and layer seams, and PLA creeps), WARN when the stress is below the
@@ -120,10 +141,12 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import os
 import re
 import sys
 
 SCHEMA = "3dprint-scout.strength/1"
+BUILD_SCHEMA = "3dprint-scout.build/1"
 RETRIEVED = "2026-10-18"
 SHEAR_RATIO = 0.58          # tau_allow = 0.58 x tensile (von Mises); not on the data sheets
 SHEAR_PEAK = 4.0 / 3.0      # transverse shear in a solid round section peaks at 4/3 of the average (neutral axis)
@@ -245,6 +268,20 @@ CASE_INPUTS = {"pin": {"d", "engagement", "support_t", "gap", "shear", "support"
                "hinge": {"pin_d", "knuckle_d", "knuckles", "length", "knuckle_len", "gap", "clearance", "hole", "pin", "duty",
                          "load_across_layers"},
                "snap": {"b", "h", "length", "undercut", "q", "repeated", "entry_angle", "retention_angle", "friction"}}
+# The choices of the categorical inputs, one copy for argparse and --param; --support by case.
+CHOICES = {"orientation": ("xy", "z"), "shear": ("single", "double"), "hole": ("teardrop", "round"),
+           "pin": ("integral", "loose"), "duty": DUTY_NAMES}
+SUPPORTS = {"pin": ("through", "stub"), "beam": ("cantilever", "simple")}
+# What a value linked with --param must be, input by input: the rules the options already follow.
+# size: a number above zero (mm); positive: above zero; non_negative: zero allowed; whole: an
+# integer; flag: true or false; choice: CHOICES / SUPPORTS; load: a force in N or a LOADS key.
+INPUT_KIND = {**dict.fromkeys(("d", "engagement", "support_t", "b", "h", "length", "t", "edge", "pin_d", "knuckle_d",
+                               "knuckle_len", "undercut"), "size"),
+              **dict.fromkeys(("sf", "q", "entry_angle", "retention_angle"), "positive"),
+              **dict.fromkeys(("gap", "bow", "clearance", "friction"), "non_negative"),
+              **dict.fromkeys(("orientation", "shear", "support", "hole", "pin", "duty"), "choice"),
+              "knuckles": "whole", "load_across_layers": "flag", "repeated": "flag", "load": "load"}
+LINK_OPTIONS = ("from_build", "part", "param")
 
 
 class StrengthError(Exception):
@@ -732,6 +769,186 @@ def hinge_minimums(duty: str, pin_d: float, wall: float, knuckle_len: float, knu
 
 
 # --------------------------------------------------------------------------- #
+# Linking to a build (--from-build, --part, --param)
+# --------------------------------------------------------------------------- #
+def linkable_inputs(case: str) -> set:
+    """The inputs --param can set for a case: the keys its report's "inputs" can hold, less the
+    material (it comes from the build's part) and, for a snap arm, the load (its own)."""
+    return ({"orientation", "sf"} | ({"load"} if case != "snap" else set()) | CASE_INPUTS[case])
+
+
+def param_value(values: dict, name: str) -> tuple:
+    """(found, value) of a build parameter: the key itself, else a dotted path into nested
+    objects ("plug.w"). The same rule as finalize.lookup."""
+    if name in values:
+        return True, values[name]
+    cur = values
+    for k in name.split("."):
+        if not (isinstance(cur, dict) and k in cur):
+            return False, None
+        cur = cur[k]
+    return True, cur
+
+
+def _leaf_names(d: dict, prefix: str = "") -> list:
+    out = []
+    for k, v in d.items():
+        if isinstance(v, dict) and v:
+            out += _leaf_names(v, f"{prefix}{k}.")
+        else:
+            out.append(f"{prefix}{k}")
+    return out
+
+
+def link_value(case: str, inp: str, param: str, raw):
+    """A build parameter's value as the input `inp` takes it, checked as its option is checked:
+    a finite number that is not a bool, above zero for a size, zero allowed where the option
+    allows it, an integer for knuckles, one of the option's choices, true or false for a flag."""
+    shown = json.dumps(raw)
+    if len(shown) > 60:
+        shown = shown[:57] + "..."
+    where = f"--param {inp}={param}: the build has {param} = {shown}; {inp} takes"
+    number = isinstance(raw, (int, float)) and not isinstance(raw, bool)
+    kind = INPUT_KIND[inp]
+    if kind in ("size", "positive", "non_negative"):
+        if not number or not math.isfinite(raw):
+            raise StrengthError(f"{where} a finite number")
+        if kind == "non_negative" and raw < 0:
+            raise StrengthError(f"{where} zero or a positive number")
+        if kind != "non_negative" and raw <= 0:
+            raise StrengthError(f"{where} a positive number" + (" (mm)" if kind == "size" else ""))
+        return float(raw)                                   # as the option's type=float gives it
+    if kind == "whole":
+        if not isinstance(raw, int) or isinstance(raw, bool):
+            raise StrengthError(f"{where} a whole number (a JSON integer)")
+        return raw
+    if kind == "flag":
+        if not isinstance(raw, bool):
+            raise StrengthError(f"{where} true or false")
+        return raw
+    if kind == "choice":
+        choices = SUPPORTS[case] if inp == "support" else CHOICES[inp]
+        if not isinstance(raw, str) or raw not in choices:
+            raise StrengthError(f"{where} one of {', '.join(choices)}")
+        return raw
+    if number and math.isfinite(raw) and raw > 0:           # load: a force in N or a hand-force key
+        return raw
+    if isinstance(raw, str) and raw.strip().lower() in LOADS:
+        return raw
+    raise StrengthError(f"{where} a positive force in N or one of {', '.join(LOADS)}")
+
+
+def read_build(path: str) -> dict:
+    if not os.path.isfile(path):
+        raise StrengthError(f"--from-build {path}: no such file (run build.py first)")
+    try:
+        with open(path, encoding="utf-8") as f:
+            build = json.load(f)
+    except (OSError, ValueError) as exc:
+        raise StrengthError(f"--from-build {path}: not a readable JSON file ({exc})")
+    schema = build.get("schema") if isinstance(build, dict) else None
+    if schema != BUILD_SCHEMA:
+        raise StrengthError(f"--from-build {path}: not a build.py report (schema {BUILD_SCHEMA}, found {json.dumps(schema)})")
+    return build
+
+
+def link_build(args) -> dict:
+    """--from-build, --part and --param: set the part's material and every linked input on
+    `args` (args.linked: {input: param}) and return the report's "from_build" block."""
+    if args.case not in CASE_INPUTS:
+        raise StrengthError(f"--from-build, --part and --param belong to the calculation cases ({', '.join(CASE_INPUTS)}), "
+                            f"not to {args.case}")
+    if args.from_build is None:
+        raise StrengthError("--part and --param need --from-build, the build.py report (out/build.json) the part and "
+                            "its parameters come from")
+    if not args.part:
+        raise StrengthError("--from-build needs --part, the part of the build this member belongs to")
+    if args.material is not None:
+        raise StrengthError("--material does not go with --from-build: the material is the one the build recorded for "
+                            "the part (_parts.<part>.material, else _material in params.json)")
+    links, known = {}, linkable_inputs(args.case)
+    for text in args.param or []:
+        inp, sep, param = text.partition("=")
+        inp, param = inp.strip(), param.strip()
+        if not sep or not inp or not param:
+            raise StrengthError(f"--param takes INPUT=PARAM (h=ribbon_t), not '{text}'")
+        if inp == "material":
+            raise StrengthError("--param material=...: the material is not a parameter; with --from-build it is the one "
+                                "the build recorded for the part (_parts.<part>.material, else _material)")
+        if inp not in known:
+            raise StrengthError(f"--param {text}: '{inp}' is not an input of the {args.case} case (its inputs: "
+                                f"{', '.join(sorted(known))})")
+        if inp in links:
+            raise StrengthError(f"--param: {inp} is linked twice ({inp}={links[inp]} and {text})")
+        if inp in args.given:
+            raise StrengthError(f"{inp} is given twice, as --{inp.replace('_', '-')} and as --param {text}: give it one way")
+        links[inp] = param
+    path = args.from_build
+    build = read_build(path)
+    parts = build.get("parts")
+    if not isinstance(parts, list):
+        raise StrengthError(f"--from-build {path}: lists no parts")
+    part = next((p for p in parts if isinstance(p, dict) and p.get("name") == args.part), None)
+    if part is None:
+        names = [p["name"] for p in parts if isinstance(p, dict) and isinstance(p.get("name"), str)]
+        raise StrengthError(f"part '{args.part}' is not in {path} (its parts: {', '.join(names) or 'none'})")
+    sha = part.get("sha256")
+    if not isinstance(sha, str) or not sha:
+        raise StrengthError(f"part '{args.part}' in {path} has no sha256: the build made no sound STL of it (fix the part "
+                            "and build again)")
+    mat = part.get("material")
+    if mat is None:
+        raise StrengthError(f"no material recorded for {args.part}: set _material or _parts.{args.part}.material and "
+                            "build again")
+    if not isinstance(mat, str) or mat not in MATERIALS:
+        raise StrengthError(f"{path} records the material {json.dumps(mat)} for {args.part}, not a strength.py material "
+                            f"key ({', '.join(MATERIALS)})")
+    args.material = mat
+    block = {"build": path, "part": args.part, "sha256": sha, "material": mat, "parameters": {}}
+    if links:
+        p = build.get("parameters")
+        if not (isinstance(p, dict) and p.get("scope") in ("merged", "overrides") and isinstance(p.get("values"), dict)):
+            raise StrengthError(f"--from-build {path}: records no parameters ({{\"scope\": \"merged\" | \"overrides\", "
+                                "\"values\": {...}}): build it again with this version of build.py")
+        values, scope = p["values"], p["scope"]
+        for inp, param in links.items():
+            found, raw = param_value(values, param)
+            if not found:
+                if scope == "overrides":
+                    raise StrengthError(f"--param {inp}={param}: '{param}' is not in the build's parameters, and this "
+                                        "build (scope overrides) records only what params.json passed, so a generator's "
+                                        "default is not recorded: put it in params.json and build again")
+                names = _leaf_names(values)
+                raise StrengthError(f"--param {inp}={param}: '{param}' is not in the build's parameters (scope merged, "
+                                    f"the generator's defaults and params.json: {', '.join(names[:30]) or 'none'}"
+                                    + (", ..." if len(names) > 30 else "") + ")")
+            setattr(args, inp, link_value(args.case, inp, param, raw))
+            block["parameters"][inp] = {"param": param, "value": raw}
+    args.linked = links
+    return block
+
+
+def input_origins(args, inputs: dict, material_key: str) -> dict:
+    """{input: origin} for every key of the report's inputs: param:<PARAM> (--param),
+    build:material, table:<key> (a hand-force or material key), manual (typed on the command
+    line) or default:<input> (strength.py chose it because nothing was given)."""
+    given, linked = getattr(args, "given", set()), getattr(args, "linked", {})
+    out = {}
+    for k, v in inputs.items():
+        if k in linked:
+            out[k] = f"param:{linked[k]}"
+        elif k == "material":
+            out[k] = "build:material" if getattr(args, "build_link", None) else f"table:{material_key}"
+        elif k == "load" and str(v).strip().lower() in LOADS:
+            out[k] = f"table:{str(v).strip().lower()}"
+        elif k in given:
+            out[k] = "manual"
+        else:
+            out[k] = f"default:{k}"
+    return out
+
+
+# --------------------------------------------------------------------------- #
 # CLI
 # --------------------------------------------------------------------------- #
 def run(args) -> dict:
@@ -746,7 +963,7 @@ def run(args) -> dict:
     mat = material(args.material)
     F, load_desc = load_value(args.load) if args.case != "snap" else (None, None)
     o = args.orientation
-    if o not in ("xy", "z"):
+    if o not in CHOICES["orientation"]:
         raise StrengthError("--orientation is xy (stress within the layer plane) or z (stress across layers)")
     if not math.isfinite(args.sf) or args.sf < 1.0:
         raise StrengthError("--sf must be a number of at least 1.0")
@@ -807,7 +1024,9 @@ def run(args) -> dict:
         assumptions[2] = (f"safety factor {args.sf} on the bending stress only; the strain check compares the strain "
                           "with the one-time design limit as it is (the limit already holds the layer-bond margin)")
     keep = {"load", "material", "orientation", "sf"} | CASE_INPUTS[args.case]
-    inputs = {k: v for k, v in vars(args).items() if k in keep and v is not None and v is not False}
+    linked = getattr(args, "linked", {})
+    # A linked flag stays in the inputs when false, so its origin (and a change of it) is recorded.
+    inputs = {k: v for k, v in vars(args).items() if k in keep and v is not None and (v is not False or k in linked)}
     next_step = {"PASS": "size holds on paper; the margin covers the usual unknowns",
                  "WARN": "short margin: thicken the member, or print the mechanism alone first (SKILL.md, Phase 4)",
                  "FAIL": "the member breaks on paper: redesign before printing"}[gate]
@@ -832,7 +1051,10 @@ def run(args) -> dict:
     elif duty == "decorative":
         next_step = ("decorative: the floors decide" + (" and are met; no calculation is needed for a hinge that carries nothing"
                                                         if gate == "PASS" else ""))
-    return {"case": args.case, "inputs": inputs, "load_N": F, "material": {k: mat[k] for k in ("key", "name", "tds", "url", "retrieved")},
+    link = getattr(args, "build_link", None)
+    return {"case": args.case, "inputs": inputs, "inputs_from": input_origins(args, inputs, mat["key"]),
+            **({"from_build": link} if link else {}),
+            "load_N": F, "material": {k: mat[k] for k in ("key", "name", "tds", "url", "retrieved")},
             "orientation": o, "checks": checks, "gate": gate,
             "worst": {"check": next(k for k, v in checks.items() if v is worst), "sf_achieved": worst["sf_achieved"]},
             "next_step": next_step, "assumptions": assumptions, **extra}
@@ -882,7 +1104,7 @@ def main(argv=None):
                                        "(not for snap: its load is its own deflection force)")
         ap.add_argument("--material", help="pla_basic, pla_matte, pla_pure, petg_basic, petg_hf, abs, asa")
         ap.add_argument("--orientation", help="xy (stress within the layer plane) or z (across layers; default)")
-        ap.add_argument("--sf", type=float, default=DEFAULT_SF, help=f"required safety factor (default {DEFAULT_SF})")
+        ap.add_argument("--sf", type=float, default=None, help=f"required safety factor (default {DEFAULT_SF})")
         ap.add_argument("--d", type=float, help="pin or hole diameter (mm)")
         ap.add_argument("--engagement", type=float,
                         help="pin: stub: length L inside the mating part (per end with --shear double); through: width b of the loaded member between the supports (mm)")
@@ -893,9 +1115,9 @@ def main(argv=None):
         ap.add_argument("--load-across-layers", action="store_true", dest="load_across_layers",
                         help="pin lying flat whose load crosses the layers: shear uses the Z strength (a hinge always does; "
                              "accepted there, no effect)")
-        ap.add_argument("--shear", default=None, choices=["single", "double"],
+        ap.add_argument("--shear", default=None, choices=list(CHOICES["shear"]),
                         help="pin: shear planes, one end held or both (default single)")
-        ap.add_argument("--support", default=None, choices=["through", "stub", "cantilever", "simple"],
+        ap.add_argument("--support", default=None, choices=list(SUPPORTS["pin"] + SUPPORTS["beam"]),
                         help="pin: stub (grows out of a part; both ends with --shear double) or through (loose pin, needs --support-t); beam: cantilever or simple")
         ap.add_argument("--b", type=float, help="section width (mm)")
         ap.add_argument("--h", type=float, help="section thickness in the bending direction (mm)")
@@ -909,11 +1131,11 @@ def main(argv=None):
         ap.add_argument("--knuckle-len", type=float, dest="knuckle_len", help="hinge: length of one knuckle (mm), instead of --length")
         ap.add_argument("--clearance", type=float, default=None,
                         help="hinge: radial clearance between pin and hole (mm, default 0.3, tolerances.md print-in-place)")
-        ap.add_argument("--hole", default=None, choices=["teardrop", "round"],
+        ap.add_argument("--hole", default=None, choices=list(CHOICES["hole"]),
                         help="hinge: hole shape; the wall is measured above a teardrop's point (default) or above a round hole")
-        ap.add_argument("--pin", default=None, choices=["integral", "loose"],
+        ap.add_argument("--pin", default=None, choices=list(CHOICES["pin"]),
                         help="hinge: the pin is part of leaf A (default, parts.hinge) or a loose pin through every knuckle")
-        ap.add_argument("--duty", default=None, choices=list(DUTY_NAMES),
+        ap.add_argument("--duty", default=None, choices=list(CHOICES["duty"]),
                         help="hinge: compare pin, wall, knuckle length (lid: and count) with this duty's P7 floors; "
                              "lid needs --sf 2 or more and a coupon print on top")
         ap.add_argument("--undercut", type=float, help="snap: the catch's undercut = the arm's deflection at full travel (mm)")
@@ -923,7 +1145,23 @@ def main(argv=None):
         ap.add_argument("--retention-angle", type=float, dest="retention_angle", default=None,
                         help="snap: retention face angle (deg, default 90: no release without a window)")
         ap.add_argument("--friction", type=float, default=None, help=f"snap: friction coefficient over the ramps (default {SNAP_FRICTION})")
+        ap.add_argument("--from-build", dest="from_build", metavar="BUILD_JSON",
+                        help="a build.py report (out/build.json): the material is the one it recorded for --part, and "
+                             "--param takes inputs from its parameters")
+        ap.add_argument("--part", help="with --from-build: the part of the build this member belongs to")
+        ap.add_argument("--param", action="append", metavar="INPUT=PARAM",
+                        help="with --from-build: take INPUT (a name in the report's inputs: h, b, length, d, pin_d, "
+                             "knuckles, orientation, support ...) from the build's parameter PARAM (a dotted path "
+                             "reaches into a nested object: plug.w); repeatable")
         args = ap.parse_args(join_negative_values(sys.argv[1:] if argv is None else argv))
+        # What the command line gave, before any link or default fills the rest (inputs_from: manual).
+        args.given = {k for k, v in vars(args).items()
+                      if k != "case" and k not in LINK_OPTIONS and v is not None and v is not False}
+        args.linked, args.build_link = {}, None
+        if args.from_build is not None or args.part is not None or args.param:
+            args.build_link = link_build(args)
+        if args.sf is None:
+            args.sf = DEFAULT_SF
         args.orientation_defaulted = args.orientation is None
         if args.orientation is None:
             args.orientation = "z"
@@ -935,11 +1173,11 @@ def main(argv=None):
             if args.case == "pin":
                 args.shear = args.shear or "single"
                 args.support = args.support or ("through" if args.shear == "double" else "stub")
-                if args.support not in ("through", "stub"):
+                if args.support not in SUPPORTS["pin"]:
                     raise StrengthError("pin: --support is through or stub")
             if args.case == "beam":
                 args.support = args.support or "cantilever"
-                if args.support not in ("cantilever", "simple"):
+                if args.support not in SUPPORTS["beam"]:
                     raise StrengthError("beam: --support is cantilever or simple")
             if args.case == "link" and args.bow is None:
                 args.bow = 0.0
