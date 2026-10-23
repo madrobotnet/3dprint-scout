@@ -89,7 +89,6 @@ A user who already chose D with a specific model needs no engine: go to Phase 1'
   stop before modeling (references and the D handoff still work).
 - Rule A: **Blender first** when it is usable, for every shape; without it, mechanical → Python or
   OpenSCAD, organic → Python; Fusion only for editable CAD. Say the cost in one line.
-- Fusion holding the user's own work: ask before the first write, prefer a new document.
 - Note the reference search tier (A marketplace tool, B web search, C neither) and whether `.3dprint/printers.json` exists.
 
 ## Phase 1 — Intent and references (STOP)
@@ -287,6 +286,7 @@ References: each phase file on entering its phase; the others when a line names 
 | Path | Read when |
 |---|---|
 | `references/engines/<engine>.md` | Phase 3, the engine in use only (`blender-live.md` for a live Blender); the builders it names |
+| `references/phase-4-mechanisms.md` | A part that moves or carries load: the sweep, strength inputs, coupons |
 | `references/design.md` | Phase 3 and 4: bed edge, overhangs, walls, orientation, part seams, supports |
 | `references/design-mechanisms.md` | A mechanism: print-in-place joints, members that carry load (P7) |
 | `references/design-features.md` | The feature in hand: snap fits, screws, inserts, threads, keyholes, text |

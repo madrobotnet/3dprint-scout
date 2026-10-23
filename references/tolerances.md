@@ -35,7 +35,7 @@ Convert per-side clearance to a diameter allowance by multiplying by two: a 10 m
 
 Apply this to every round hole that must fit, including bores. Pass `fit.py --min-clearance`
 the clearance actually modeled, including any model compensation. A delivered Bambu Studio
-project prints with the settings it carries (`phase-2-printer-dimensions.md`, step 4); a
+project prints with the settings it carries (`bambu-process.md`, "Constraints"); a
 system default says nothing about a preset the user picks for loose STLs.
 - `fit_test.py` pieces carry no model compensation; say so. A step that fits is the clearance
   as printed without it: build the part's hole the same way (that step, nothing added), or add

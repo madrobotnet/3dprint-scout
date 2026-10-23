@@ -41,7 +41,7 @@ all times; `references/outputs.md` describes `validate.py`'s JSON, `references/c
    list but is yours too, from the `preview.py` image, or from the generator and its log when
    the image cannot show the bed edge: a `bb.bevel` with `bed=False` leaves it alone, and with
    no chamfer the preset's elephant-foot compensation covers it (0.15 mm in the X2D's
-   `0.20mm Standard`, `phase-2-printer-dimensions.md`, step 4). finalize lists every soft check
+   `0.20mm Standard`, `bambu-process.md`, "Constraints"). finalize lists every soft check
    left to you as "UNVERIFIED (yours to decide)": P6, P4 (bridges) and P5 (small features),
    which no script checks, and P3 when the wall check was skipped. Decide each now, before the
    delivery, from the preview and the generator: one that holds needs nothing more; one that

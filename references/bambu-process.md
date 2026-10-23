@@ -196,11 +196,16 @@ Only change what the part needs, and give every change a reason in `reasons`.
 | Supports on a PETG part and a PLA slot is loaded (or the reverse) | `support_interface_filament: <that slot>`, `support_top_z_distance: 0`: the interface peels off cleanly because the two materials do not bond (starting point; the user set this by hand three times in the 2026-10-17 test) |
 
 Constraints:
-- Compensation lives in one place (tolerances.md). If the template's preset has
-  `enable_circle_compensation: "1"` or a nonzero `xy_hole_compensation`, `compensation.holes` is
-  `"slicer"`: holes at nominal size plus the fit clearance, no model compensation. The system
-  process presets have both off (`fdm_process_common`, 02.08.02.61) and the project carries them,
-  so a generated template means `"model"` (`phase-2-printer-dimensions.md`, step 4).
+- Compensation lives in one place (tolerances.md). A project from `bambu3mf.py` carries its
+  process settings: the template's `project_settings.config` is copied byte for byte, and Bambu
+  Studio applies a project's saved settings when it opens the file. If the template's preset (or
+  a per-object setting the skill writes) has `enable_circle_compensation: "1"` or a nonzero
+  `xy_hole_compensation`, `compensation.holes` is `"slicer"`: holes at nominal size plus the fit
+  clearance, no model compensation. The system process presets have both off (the X2D's
+  `0.20mm Standard` inherits them from `fdm_process_common`, 02.08.02.61), so a generated
+  template, or a saved one that shows both off, means `"model"`. The same system preset's
+  elephant-foot compensation is 0.15 mm (`fdm_process_dual_0.20_nozzle_0.4`): `elephant_foot`
+  is `"slicer"` there.
 - Do not give one object a different layer height on a plate that uses a prime tower
   (`enable_prime_tower: "1"`) and several filaments; as far as known the prime tower needs one layer
   height for all objects (not yet confirmed in the app).
