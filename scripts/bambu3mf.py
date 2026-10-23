@@ -39,6 +39,13 @@ main part; its plate, settings and reasons apply to the whole object, and the ot
 take the main filament unless they name their own. "params": ".3dprint/params.json" takes
 "object" and "filament" from _parts for parts that do not say.
 
+Next to the project goes `<out>.manifest.json` (threemf.write_3mf_manifest): the project's
+sha256 and each part STL's, plus what the project selects for each part, "filaments":
+{part: {"slot": filament slot, "settings": the template's filament preset name for that
+slot}}, and "process": {"settings": the template's process preset name}, null where the
+template names none. finalize.py --deliver compares them with each part's declared material
+and _print.preset.
+
 Objects are laid out on the plate's usable area. With "printer": ".3dprint/printers.json"
 (and "printer_id" when it holds several), the usable area is the intersection of every
 tool's reachable area whenever an object has several parts or the job uses several
@@ -216,6 +223,30 @@ def _slot(what: str, value) -> int:
 
 def filament_count(template_cfg: dict) -> int:
     return len(template_cfg.get("filament_settings_id") or template_cfg.get("filament_colour") or [1])
+
+
+def _preset_name(value):
+    """A preset name as the template writes it, or None when it names none (missing, empty)."""
+    return value if isinstance(value, str) and value.strip() else None
+
+
+def manifest_presets(objects: list, template_cfg: dict) -> tuple:
+    """(filaments, process) for the 3MF manifest. filaments: {part: {"slot", "settings"}}, the
+    part's filament slot (1-based, a part without its own takes its object's) and the name of
+    that slot's filament preset, filament_settings_id[slot - 1] of the template's
+    project_settings.config; process: {"settings": print_settings_id}. A name the template does
+    not give is None: no filament_settings_id (a template whose slot count comes from
+    filament_colour, or the one-slot default), a slot past the end of the list, or an empty
+    name. Saved and generated (bambu_template.py) templates both name system or user presets."""
+    names = template_cfg.get("filament_settings_id")
+    names = names if isinstance(names, list) else []
+    filaments = {}
+    for o in objects:
+        for p in o["parts"]:
+            slot = p["filament"]
+            filaments[p["name"]] = {"slot": slot,
+                                    "settings": _preset_name(names[slot - 1]) if 1 <= slot <= len(names) else None}
+    return filaments, {"settings": _preset_name(template_cfg.get("print_settings_id"))}
 
 
 def check_settings(settings: dict, template_cfg: dict) -> dict:
@@ -677,7 +708,9 @@ def build(job: dict) -> dict:
             data = files[name] if name in files else entries[name][0]
             ctype = zipfile.ZIP_STORED if name.endswith(".png") else zipfile.ZIP_DEFLATED
             z.writestr(name, data, compress_type=ctype)
-    write_3mf_manifest(out, [(p["name"], p["stl"]) for o in objects for p in o["parts"]])
+    filaments, process = manifest_presets(objects, cfg)
+    write_3mf_manifest(out, [(p["name"], p["stl"]) for o in objects for p in o["parts"]],
+                       filaments=filaments, process=process)
 
     separate = [o for o in objects if len(o["parts"]) > 1]
     if separate:
