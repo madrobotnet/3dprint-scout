@@ -100,9 +100,11 @@ validation inputs separately from the geometry hash.
 
 ## Build, preview, stop
 
-This phase: outer shell, walls, floor. No holes, no fillets yet. A generator rebuilt from
-scratch may already build them: review the shell first, or give it a parameter that leaves the
-features off for this look. Build and validate:
+This phase: outer shell, walls, floor. For a part with several bodies or a mechanism, the user
+looks at the shell alone first, before holes, fillets and joints: a generator rebuilt from
+scratch may already build them, so give it a parameter that leaves them off for this look. A
+simple part (one body, no mechanism) may be shown as built, features included. Build and
+validate:
 
 ```bash
 mkdir -p out && python3 "$SKILL_DIR/scripts/build.py" run model.scad --params .3dprint/params.json \
@@ -134,8 +136,7 @@ yourself first, **one view at a time**, never the grid as one picture: would som
 object from this view; silhouette, main volumes, thickness, edge radii. A view the references
 do not show stays unverified (say so; do not call it right), and passing sizes, mesh checks or
 a triangle count say nothing about the shape. Then report size, volume and verdicts in two or
-three lines with the image, and **stop for the user's look**. In attended runs, for
-a part with several bodies or a mechanism (lever, latch, hinge) this stop is never skipped: a
+three lines with the image, and **stop for the user's look**, in every attended run: a
 fit-test piece comes after it, not instead of it.
 In explicit unattended mode, use SKILL.md's preview-and-assumption rule; still produce and
 inspect the preview, and never describe an unreviewed shape as user-approved.
@@ -151,9 +152,10 @@ judged and the result:
 ```
 
 Only the user's look verifies; yours is `"by": "agent"` and never does, so an unattended run has
-none. An approval of the shell judges only the promises the image shows. Drawing the image
-again, or rebuilding a part it shows, makes the entry stale: show the new image at the next stop
-and record the user's new look; never copy an old judgement onto a new image.
+none. An approval of the shell judges only the promises the image shows. The entry goes stale
+when the image changes or a part it shows is rebuilt to different bytes (a rebuild that changed
+nothing keeps it; `references/outputs.md`): show the new image at the next stop and record the
+user's new look; never copy an old judgement onto a new image.
 
 - `out/` is the build's working folder: every build rewrites `out/<part>.stl`, its manifest,
   `out/<model>.3mf` with its `out/<model>.3mf.manifest.json` (the 3MF's sha256 and the sha256 of

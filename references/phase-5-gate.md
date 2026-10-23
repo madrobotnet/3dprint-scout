@@ -15,7 +15,9 @@ all times; `references/outputs.md` describes `validate.py`'s JSON, `references/c
 
    `--expect` is one part's size, so one `validate.py` call per part. `--source` must list the
    same files the build hashed (`build.py` prints them as `sources`, includes and all); R3 names
-   both lists when they differ. Editing only `_` keys in `params.json` does not make an STL stale.
+   both lists when they differ. Editing only `_` keys in `params.json` does not make an STL stale,
+   but some leave the build report old: a changed `_parts` object, role or clearance (Phase 3)
+   or `_material` (below) needs a new build.
    Pass the same `--tools` the build had (`references/phase-2-printer-dimensions.md`, step 1).
 
    **After a rebuild, renew what went stale.** Evidence is tied to the STLs, parameters and

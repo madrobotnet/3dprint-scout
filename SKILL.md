@@ -174,8 +174,8 @@ decisions. Do not ask the user to approve unchanged dimensions they already conf
 Read `references/phase-3-base-shape.md` now (required), plus `references/engines/<engine>.md`
 (only the engine in use; both for a mixed object) and `references/design.md`.
 
-Goal: one generator script, the outer shell built and validated, a preview the user looks at
-before anything else is built.
+Goal: one generator script, the base shape built and validated, a preview the user looks at
+before anything is built on it.
 
 - One script: every dimension in a `PARAMETERS` block with a source comment; Z-up, modelled in
   the print orientation; rebuilt from scratch each time; assertions on derived dimensions;
@@ -189,8 +189,9 @@ before anything else is built.
   factor other than the default) lives in params.json and the generator's `DEFAULTS` / `PARAMETERS`.
 - Build with `build.py run` (`record` for Fusion or a live Blender), always with `--printer .3dprint/printers.json`;
   preview with `preview.py`; report size, volume and verdicts with the image; **stop for the
-  user's look**. In attended runs, for a part with several bodies or a mechanism this stop is never skipped; a
-  fit-test piece comes after it, not instead of it.
+  user's look**, in every attended run; a fit-test piece comes after it, not instead of it.
+  Several bodies or a mechanism: show the outer shell alone first; a simple part may be shown
+  with its features.
 
 ## Phase 4 — Features and joints (review point)
 

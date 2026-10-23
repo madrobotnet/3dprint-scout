@@ -143,18 +143,17 @@ start from it.
 
 Write it in the user's language and in plain words, at every delivery, also after a fix: no
 script names, check ids, JSON keys or lines pasted from the report anywhere in it, the `open`
-list and `_assumptions` included. An unattended run opens, before any result, with what was
-decided alone (each stop taken alone and each default in `_assumptions`, the base-shape look
-among them) and every promise not verified, then goes on as below (item 1 then gives the other
-promises). In this order:
+list and `_assumptions` included. In this order:
 
-1. **The `use` tier, first.** One line per promise in `promises`: its `text` in the user's
+0. **Unattended runs only, before any result:** what was decided alone (each stop taken alone
+   and each default in `_assumptions`, the base-shape look among them) and every promise not
+   verified. Item 1 then gives the other promises.
+1. **The `use` tier.** One line per promise in `promises`: its `text` in the user's
    words, its state, and, when the state is not `verified`, why, from its `reasons`. When a
    promise failed (the user wants the files anyway) or goes out as a prototype
-   (`references/phase-4-features-joints.md`, "Leaving Phase 4"), the first line says so and
+   (`references/phase-4-features-joints.md`, "Leaving Phase 4"), the tier's first line says so and
    names each ("This is a prototype: the cable exit is not checked yet, because ...") and who
-   chose it, as the note of its `_assumptions` line says (`"<id>: delivered as a prototype, not
-   verified (<who chose it>)"`; the note is recommended): the user, in their words, or you when
+   chose it, as the note of its `_assumptions` line says: the user, in their words, or you when
    they handed the decision back or the run was unattended. Then, when `_assumptions` or
    `_verify.unverified` hold other lines, how many (item 2 gives them).
    finalize marks a prototype promise `"prototype": true` and names it in the use summary

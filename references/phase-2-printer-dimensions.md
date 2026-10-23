@@ -113,7 +113,10 @@ load held, never "works well":
 `fit.py` checks a placed pose and a declared turn, not a path by hand or a cable that bends.
 A use that needs one (sliding the phone in, a cable bent around a corner) needs a test print
 among its evidence, since a fit report alone does not show it: say so when you write it, so the
-user knows a print will decide it. A promise that rests on a size no evidence will name lists
+user knows a print will decide it. finalize cannot tell such a use from others and
+verifies it on its fits alone (an evidence item may name only a print already recorded), so
+until the user's print is recorded (`references/checks.md`, "Test prints"), say at delivery
+that the fit was checked and the motion was not. A promise that rests on a size no evidence will name lists
 that dims id in `assumes` (below).
 
 Unattended runs write the use list from the request alone and say in `_assumptions` that the

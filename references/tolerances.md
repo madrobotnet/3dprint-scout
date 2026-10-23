@@ -43,10 +43,13 @@ system default says nothing about a preset the user picks for loose STLs.
 - For `unknown`, explain that a tight test print may need slicer hole compensation; inspect the
   active preset before enabling it so a second correction is not added unknowingly. A hole
   that comes out tight can be drilled; one that comes out loose cannot be fixed.
-- The same holds for elephant foot: either the slicer's elephant-foot compensation or a 0.3–0.5 mm
-  chamfer on bottom edges that must stay sharp, not both shrinking the first layer. A chamfer
-  that belongs to a standard's profile (the foot of a bin that sits in a baseplate) is geometry,
-  not an elephant-foot chamfer: keep it at its size whatever the slicer does.
+- Elephant foot is corrected in one place too (`elephant_foot` in `printers.json`): the
+  slicer's elephant-foot compensation (`"slicer"`, on in Bambu's system presets) or a 0.3–0.5 mm
+  chamfer on the bottom edges (`"model"`), not both. With the slicer's on, a bottom chamfer is
+  for looks only: it is not the correction, so the edge stays sharp or takes a small chamfer
+  for its look. Never a fillet (P6). A chamfer that belongs to a standard's profile (the foot of
+  a bin that sits in a baseplate) is geometry, not an elephant-foot chamfer: keep it at its size
+  whatever the slicer does.
 
 ## Limits
 
@@ -59,7 +62,7 @@ system default says nothing about a preset the user picks for loose STLs.
 | Engraved text | 0.6 mm deep, 0.8 mm stroke | 1.0 mm deep |
 | Overhang from vertical | 45° (PLA often 50°) | Chamfer instead of a horizontal ledge |
 | Unsupported bridge | — | under 10 mm (Hubs design rules); under 5 mm it does not sag at all; ribs underneath shorten longer spans |
-| Bottom edge | 0.3–0.5 mm chamfer | Chamfer, never a fillet (P6) |
+| Bottom edge | 0.3–0.5 mm chamfer, or sharp with the slicer's compensation (one of them, above) | Never a fillet (P6) |
 
 ## Threads and fasteners
 

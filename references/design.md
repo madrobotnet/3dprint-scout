@@ -30,10 +30,9 @@ Contents:
 ## Bed edge: chamfer, never a fillet
 
 - The first layer squashes outwards (elephant foot). A fillet on the bed edge is an overhang
-  that prints rough; a 45° chamfer prints clean and hides the foot [1][2]. Leg 0.3–0.5 mm
-  (`tolerances.md`, Limits). Either this chamfer or the slicer's elephant-foot compensation,
-  not both (F1 in `tolerances.md`). `parts.chamfered_box(..., "bottom")`,
-  `parts.bottom_chamfer(part, 0.4)`.
+  that prints rough; a 45° chamfer prints clean and hides the foot [1][2]. The chamfer or the
+  slicer's elephant-foot compensation corrects the foot, one of them (`tolerances.md`).
+  `parts.chamfered_box(..., "bottom")`, `parts.bottom_chamfer(part, 0.4)`.
 - A 45° chamfer under any ledge, boss foot or lip (`parts.standoff(..., foot=1.0)`) removes
   the overhang; a fillet does not.
 - Fillets elsewhere (top edges, vertical edges, a freeform body's rim) need an engine that has

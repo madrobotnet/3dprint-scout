@@ -100,9 +100,8 @@ what each state asks of you, in the tier's order:
   or print a test, a prototype, or the user excludes it, asked in a message that names it. A
   decision never makes it `assumed`. At delivery it is named first. A prototype's promise
   carries `"prototype": true` (finalize reads its `_assumptions` line, `"<id>: delivered as a
-  prototype, not verified"`, which may end in a note in parentheses saying who chose it,
-  recommended: the user's reply word for word, `(the user handed the decision to me)` or
-  `(unattended run)`) and the use summary names it ("delivered as a prototype: ...").
+  prototype, not verified"`, and its note: phase-4, "Leaving Phase 4") and the use summary
+  names it ("delivered as a prototype: ...").
 - `excluded`: the user took it unproven. Repeat their reason at delivery.
 - `assumed`: a size nobody measured (`rests_on` names the dims entry): ask the user to measure
   it (`references/phase-2-printer-dimensions.md`, step 3, records it), or offer a test print, or

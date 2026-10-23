@@ -239,11 +239,11 @@ decide each one together:
 - **A prototype**, for a `not verified` promise the user agrees to take unproven, or hands back
   to you (below): it is delivered unproven. Add the `_assumptions` line `"<promise id>: delivered
   as a prototype, not verified"`, word for word (finalize reads it and marks the promise
-  `"prototype": true`), ending, as recommended, in a note in parentheses that says who chose it:
-  in an attended run the user's reply, word for word (`"flat-end: delivered as a prototype, not
-  verified (the user: \"I have no time for a test print now, just go on\")"`); when the user
-  handed the decision back, `(the user handed the decision to me)`; in an unattended run,
-  `(unattended run)`. It stays `not verified`, and the delivery message opens with it.
+  `"prototype": true`), ending in a note in parentheses that says who chose it. When the user
+  agreed, the note is required and holds their reply, word for word, the one place it is kept
+  (`"flat-end: delivered as a prototype, not verified (the user: \"I have no time for a test
+  print now, just go on\")"`). Otherwise it is recommended: `(the user handed the decision to
+  me)`, or `(unattended run)`. It stays `not verified`, and the delivery message opens with it.
 - **The user excludes it**: drops it, or takes it unverified. It stays in the list as `excluded`,
   through an entry in `_verify.accepted` whose `reason` is their reply, word for word:
   `{"promise": "cable-bend", "reason": "I'll try it with my own cable", "by": "user"}`.
@@ -254,7 +254,7 @@ delivering a `not verified` promise as a prototype (its `_assumptions` line). Ag
 user's reply to a question that named that promise or warning, said in plain words what taking it
 means (the promise stays unverified, or the warning stays, and what that can cost) and offered
 the choices; the reply takes that option. Record the reply word for word: as the entry's
-`reason`, or, for a prototype, in its line's note, the one place it is kept. For `cable-bend`:
+`reason`, or, for a prototype, in its line's note. For `cable-bend`:
 "That the cable bends down without a kink is not checked: it may kink at the lip. Shall I make a
 test piece, or do you take it as it is, unchecked?", and the reply "I'll try it with my own
 cable". "Just go on" agrees when going on as it is was the option named: "The flat end is not
