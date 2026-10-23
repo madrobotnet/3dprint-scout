@@ -147,6 +147,24 @@ class Preview(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("s_iso.png.json already exists", out["errors"][0])
 
+    def test_an_stl_that_changes_while_drawn_gets_no_sidecar(self):
+        """Codex review of step 3 (P2): the sidecar names the bytes read for drawing; an STL
+        rebuilt meanwhile leaves the image without a sidecar."""
+        from unittest import mock
+        png = os.path.join(self.d, "c.png")
+        real = preview.render
+
+        def rebuilt_meanwhile(*a, **k):
+            images = real(*a, **k)
+            write_stl(self.box, box(61, 40, 25))
+            return images
+
+        with mock.patch.object(preview, "render", side_effect=rebuilt_meanwhile):
+            code, out = run(self.box, "-o", png, "--views", "iso", "--size", "300x300")
+        self.assertEqual(code, 1)
+        self.assertIn("changed while the image was drawn", out["errors"][0])
+        self.assertFalse(os.path.exists(png + ".json"))
+
     def test_usage_and_file_errors_are_json(self):
         code, out = run(self.box, "-o", os.path.join(self.d, "x.png"), "--views", "diagonal")
         self.assertEqual(code, 1)

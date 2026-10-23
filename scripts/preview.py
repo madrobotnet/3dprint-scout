@@ -414,13 +414,26 @@ def sidecar_path(image):
     return image + ".json"
 
 
-def write_sidecar(image, stls, views, renderer, lang="en"):
-    """`<image>.json`: what the image shows and the very bytes it is, so a judgement of it can be
-    tied to the parts (finalize.py `_verify.seen`). Written after the image, from its bytes."""
+def stl_hashes(stls):
+    """{path: sha256} of the inputs, taken before they are read for drawing."""
     from validate import file_sha256
+    return {s: file_sha256(s) if os.path.isfile(s) else None for s in stls}   # a missing one fails when read
+
+
+def write_sidecar(image, stls, views, renderer, lang="en", hashes=None):
+    """`<image>.json`: what the image shows and the very bytes it is, so a judgement of it can be
+    tied to the parts (finalize.py `_verify.seen`). Written after the image, from its bytes;
+    `hashes` are the STLs' digests taken before drawing, and an STL that changed while it was
+    drawn (rebuilt meanwhile) leaves the image without a sidecar: the image may show the old
+    bytes, so nothing ties it to the new ones."""
+    from validate import file_sha256
+    hashes = hashes or stl_hashes(stls)
+    changed = [s for s in stls if file_sha256(s) != hashes[s]]
+    if changed:
+        raise ValueError(f"{', '.join(changed)} changed while the image was drawn; draw it again (no sidecar written)")
     data = {"schema": IMAGE_SCHEMA, "image": os.path.basename(image), "image_sha256": file_sha256(image),
             "views": list(views), "lang": lang, "renderer": renderer,
-            "stls": [{"path": s, "sha256": file_sha256(s)} for s in stls]}
+            "stls": [{"path": s, "sha256": hashes[s]} for s in stls]}
     with open(sidecar_path(image), "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
     return sidecar_path(image)
@@ -464,6 +477,7 @@ def run(args) -> dict:
         raise PreviewError("--size WIDTHxHEIGHT, e.g. 1600x1200")
     if width < 200 or height < 200 or width * height > MAX_PIXELS:
         raise PreviewError("--size between 200x200 and 4096x4096")
+    hashes = stl_hashes(args.stl)                     # before reading: the sidecar names the bytes drawn
     meshes = load_meshes(args.stl)
     stem, ext = os.path.splitext(args.out)
     if ext.lower() != ".png":
@@ -492,7 +506,7 @@ def run(args) -> dict:
         all_sane &= sane
         shown = views if view == "grid" else [view]
         files.append({"path": path, "views": shown, "sane": sane, "note": note, "bytes": os.path.getsize(path),
-                      "sidecar": write_sidecar(path, args.stl, shown, renderer)})
+                      "sidecar": write_sidecar(path, args.stl, shown, renderer, hashes=hashes)})
     return {"files": files, "parts": [{"name": m[0], "triangles": int(len(m[2])),
                                        "colour": "#%02x%02x%02x" % PALETTE[i % len(PALETTE)]} for i, m in enumerate(meshes)],
             "size_mm": size_mm, "renderer": renderer,

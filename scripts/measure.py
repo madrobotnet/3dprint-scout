@@ -663,8 +663,11 @@ def main(argv=None):
             raise MeasureError("--tol is needed with PATH=VALUE (the allowed difference, mm)")
         if args.tol is not None and not (math.isfinite(args.tol) and args.tol >= 0):
             raise MeasureError("--tol must be a number of 0 or more")
+        before = file_sha256(args.file) if os.path.isfile(args.file) else None
         out.update({"info": cmd_info, "slice": cmd_slice, "raymap": cmd_raymap}[args.cmd](args))
-        out["file_sha256"] = file_sha256(args.file)       # the very file these numbers are about (finalize.py)
+        if file_sha256(args.file) != before:              # rebuilt while it was read: the numbers may be of either
+            raise MeasureError(f"{args.file} changed while it was measured; measure it again")
+        out["file_sha256"] = before                       # the very file these numbers are about (finalize.py)
         out["query"] = {k: v for k, v in sorted(vars(args).items()) if k not in ("expect", "tol", "what", "extract")}
         if expects:
             if args.what:

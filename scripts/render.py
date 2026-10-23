@@ -110,6 +110,7 @@ def run(args) -> dict:
     if args.engine not in ENGINES:
         raise RenderError(f"--engine must be one of {', '.join(ENGINES)}")
     names = []
+    hashes = preview.stl_hashes(args.stl)              # before Blender reads them: the sidecar names the bytes drawn
     for path in args.stl:
         try:
             read_stl(path)                                       # G4 on the input, before Blender starts
@@ -148,7 +149,10 @@ def run(args) -> dict:
     if sane:
         sane, note = bb.fg_sane(rep["fg"], rep.get("fg_views"))  # a background behind it, every view drawn
     renderer = rep["renderer"] + (" (binary)" if exe else " (bpy module)")
-    sidecar = preview.write_sidecar(args.out, args.stl, views, renderer, args.lang)
+    try:
+        sidecar = preview.write_sidecar(args.out, args.stl, views, renderer, args.lang, hashes=hashes)
+    except ValueError as exc:
+        raise RenderError(str(exc))
     return {"files": [{"path": args.out, "views": views, "sane": sane, "note": note, "fg": rep["fg"],
                        "fg_views": rep.get("fg_views"), "bytes": os.path.getsize(args.out), "sidecar": sidecar}],
             "parts": rep["parts"], "size_mm": rep["size_mm"], "colour_note": rep.get("colour_note", bb.COLOUR_TABLE_NOTE),
