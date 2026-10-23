@@ -108,7 +108,7 @@ Whole parts can still be big. For "the minimum of the mating part" (the knuckles
 the lid, a slot without the box) add a coupon part to `_parts`, or keep a separate params
 file with the coupon's sizes, and build that. A few grams, printed with the final filament
 and preset; the user tries it and reports back (offer to record the result, `calibration.md`).
-A snap is the exception to "a few grams": its click force scales with the width (`design.md`,
+A snap is the exception to "a few grams": its click force scales with the width (`design-features.md`,
 "Snap fits"), so its coupons keep the full width, cut short in the other directions, and step
 the undercut, one coupon part per step. `fit_test.py` steps only the clearance of closed rings
 and plugs; it cannot step an undercut.
@@ -125,7 +125,7 @@ is a part like any other: every full build makes it, and it is delivered with th
 three-knuckle coupon has one moving knuckle that takes the whole pull, so it is a harder test than
 the full hinge (whose moving knuckles share it): a coupon that holds is a hinge that holds.
 "Cutting it out would be most of the part" is not a reason to skip it: a coupon is required for a
-`lid`-duty hinge on top of its SF ≥ 2 (`design.md`, "Mechanisms that carry load") and the user's
+`lid`-duty hinge on top of its SF ≥ 2 (`design-mechanisms.md`, "Mechanisms that carry load") and the user's
 result sets their own floors (`calibration.md`, `--kind lid_hinge`). A skipped coupon goes into
 `_assumptions`.
 

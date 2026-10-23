@@ -200,7 +200,7 @@ promises). In this order:
    per object, the parameters as custom properties on the `PARAMETERS` empty; no path of the
    machine that built it), never overwriting. In a mixed object it holds only the Blender parts;
    the CAD parts are the STLs. A `.blend` that packs a proprietary font is not delivered
-   (`design.md`, "Text, logos, cosmetic faces"). One line with it: the generator script is the
+   (`design-features.md`, "Text, logos, cosmetic faces"). One line with it: the generator script is the
    source of truth; editing the `.blend` by hand is fine, the next rebuild comes from the script.
    The delivery image may be a `render.py` image when Blender is there (`preview.py` otherwise).
 4. The parameter table and "anything to change?"

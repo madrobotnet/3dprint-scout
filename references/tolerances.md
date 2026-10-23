@@ -14,7 +14,7 @@ This file is the only place for fit clearances; `design.md` links here instead o
 | Snug, no rattle | +0.15 | +0.30 | Stacked parts, alignment lips |
 | Press fit | −0.05 to −0.10 | −0.10 to −0.20 | Pins and bosses meant to stay; test before committing |
 | Object in a pocket | +0.30 | +0.60 | A device dropped into a holder; add +1.0 per side if it must lift out easily by its sides. A thin item standing in a slot (a card, a sheet) keeps +0.30: easy removal comes from the height left exposed or a finger notch |
-| Snap-in cylinder (C-clip bore) | +0.15 | +0.30 | The snug row: the bore clearance sets only the rattle; the hold comes from the mouth undercut, sized by the strain rule (`design.md`, "Snap fits"). A start value: confirm with a test piece |
+| Snap-in cylinder (C-clip bore) | +0.15 | +0.30 | The snug row: the bore clearance sets only the rattle; the hold comes from the mouth undercut, sized by the strain rule (`design-features.md`, "Snap fits"). A start value: confirm with a test piece |
 | Print-in-place joint (hinge, pivot, captive pin) | +0.30 (0.40–0.50 on a less tuned printer) | +0.60 (0.80–1.00) | Parts printed assembled that must move afterwards; Prusa KB ≥ 0.3 mm, Fictiv 0.4 mm for pivots, Hubs 0.5 mm (design.md sources 1, 2, 6) |
 
 Material adjustments: PETG add +0.05 per side; TPU add +0.3 per side; ABS/ASA shrink about 0.5–0.7 %

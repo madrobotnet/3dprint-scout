@@ -4,8 +4,9 @@ Read this on entering Phase 4 (SKILL.md names the rules that hold at all times).
 
 Holes, bosses, slots, vents, snap fits, lips, cable paths. Fits and clearances come from
 `references/tolerances.md`, which states whether each value is radial (per side) or on the diameter;
-the shapes (teardrop holes, insert bosses, snap hooks, hinges, threads, text) from
-`references/design.md`, with `parts.py` building them in the Python engine.
+the shapes from `references/design.md` (teardrop holes), `references/design-features.md` (insert
+bosses, snap hooks, threads, text) and `references/design-mechanisms.md` (hinges and members that
+carry load), with `parts.py` building them in the Python engine.
 
 Each check below is evidence of a promise (Phase 1) once its report is saved: declare it in
 `_verify` as you save it (the format: `references/checks.md`, "The `_verify` declarations") and
@@ -73,7 +74,7 @@ building the part and the proxy again, then the fit and every other check of the
 ## Members that carry load (P7)
 
 Every pin, knuckle, lever and latch bar is checked against the floors of its **duty** (P7,
-`references/design.md`, "Mechanisms that carry load") before the fit, not after the print,
+`references/design-mechanisms.md`, "Mechanisms that carry load") before the fit, not after the print,
 and gets a hand calculation. The duty decides the rule and the load case:
 
 | Duty | What | Floors | Load case |
@@ -83,7 +84,7 @@ and gets a hand calculation. The duty decides the rule and the load case:
 | `decorative` | carries nothing | the same floors | none |
 
 Snap arms and other flexures designed by the strain formula have no duty: they are exempt from
-the floors and follow the snap-fit check (`references/design.md`, "Snap fits"). Their load case
+the floors and follow the snap-fit check (`references/design-features.md`, "Snap fits"). Their load case
 is their own deflection or release force (P there, at full undercut), not a hand-force key:
 `strength.py snap` with the arm's `length`, `h`, `b` and `undercut` (and `repeated`, true for a
 snap opened often: a params.json boolean such as `"snap_repeated": true`, linked with `--param
@@ -147,7 +148,7 @@ its coupon print is required on top of that margin, never instead of it. A mecha
 the walls (a box hinge) still gets its coupon: the same section cut short, built as its own
 `_parts` entry; "cutting it out would be most of the part" is not a reason to skip. A coupon is a
 part like any other: every full build makes it, and it is delivered with the rest (Phase 6). A
-snap's coupon keeps the full width (the click force scales with it, `references/design.md`) and
+snap's coupon keeps the full width (the click force scales with it, `references/design-features.md`) and
 steps the undercut, one coupon part per step; `fit_test.py` steps only the clearance of closed
 rings and plugs. The calculation is a sizing aid: it flagged the failed field latch's arms, not
 its pins, so for latch duty the minimums and the test print decide; for a lid hinge the

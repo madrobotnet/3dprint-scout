@@ -41,7 +41,7 @@ Paste the file above your `run()` or exec it from a file (below). It gives you:
 
 Name every body exactly like its `_parts` entry and export one STL per part; parts of one
 object are modelled in the same frame, so the STLs already hold the assembled positions.
-Pins, knuckles, levers and links that carry load follow `design.md`, "Mechanisms that carry
+Pins, knuckles, levers and links that carry load follow `design-mechanisms.md`, "Mechanisms that carry
 load" (pin ≥ 3.2 mm, 2.2 mm of wall around it, members ≥ 2.5 mm): the field-test latch
 built at the 1.2 mm printability minimum broke on first use.
 Then record and validate:

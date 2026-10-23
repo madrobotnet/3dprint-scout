@@ -264,7 +264,7 @@ happened, and an error says what did not.
 Hangul and other non-Latin glyphs come out taller (Hangul 25–33 % in a test run). Take a text
 part's `expect` from the box the `bb.text` line in `LOG` reports (the font's metrics, not a
 measured mesh), rounded to 0.1 mm (D1's tolerance), and say so in `_assumptions`. Which font,
-its licence, and what a packed `.ttc` costs: `design.md`, "Text, logos, cosmetic faces".
+its licence, and what a packed `.ttc` costs: `design-features.md`, "Text, logos, cosmetic faces".
 
 ## Live session: keep the user's file safe
 

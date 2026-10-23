@@ -1,6 +1,6 @@
 # Material data and hand forces for `strength.py`
 
-Read this when sizing a member that carries load (design.md, "Mechanisms that carry load").
+Read this when sizing a member that carries load (design-mechanisms.md, "Mechanisms that carry load").
 The numbers below are the ones `scripts/strength.py` uses; the script is the source, this
 file is the reading copy. Every value comes from an official Bambu Lab Technical Data Sheet
 (PDF on store.bblcdn.com, retrieved 2026-10-18); nothing is interpolated. Another maker's
@@ -67,8 +67,8 @@ multi-digit finger strength", *Ergonomics* 46(15), 2003, 1531–1548, Table 2
 The design value covers about 84 % of male users at a brief peak; it is a starting point,
 not a rule. A latch lever multiplies the hand force by its lever ratio: pass the amplified
 force. A lid hinge takes `finger_pull` (the open lid pulled away from the box) shared by its
-moving knuckles, no lever ratio (`design.md`, "Mechanisms that carry load"). A snap arm
-takes no hand-force key: its load is its own deflection or release force (`design.md`, "Snap
+moving knuckles, no lever ratio (`design-mechanisms.md`, "Mechanisms that carry load"). A snap arm
+takes no hand-force key: its load is its own deflection or release force (`design-features.md`, "Snap
 fits"). Whatever load is used goes into `_assumptions` with its source.
 
 ## Safety factor

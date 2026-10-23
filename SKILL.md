@@ -181,8 +181,8 @@ before anything else is built.
   the print orientation; rebuilt from scratch each time; assertions on derived dimensions;
   designed to the recommended values in `references/tolerances.md`, not the minimums.
 - Split into parts what has its own job or may get its own colour (`references/parts.md`); size
-  load-carrying members by their duty (`references/design.md`, "Mechanisms that carry load") and list
-  each in the dimension table (P7); a mechanism that would grow the object → stop and give the choices (`design.md`).
+  load-carrying members by their duty (`references/design-mechanisms.md`, "Mechanisms that carry load") and list
+  each in the dimension table (P7); a mechanism that would grow the object → stop and give the choices (`design-mechanisms.md`).
 - `.3dprint/params.json`: `_parts` with each part's `expect` from the dimension table (design
   intent, never a measured box), `object` / `role` for grouped parts, `_assumptions`.
 - Every value a check links to (a member's sizes, its orientation, support kind and duty, a safety
@@ -200,7 +200,8 @@ Goal: holes, bosses, fits, snap fits and mechanisms, each checked with numbers b
 printed.
 
 - Clearances from `references/tolerances.md` (radial or on the diameter, as marked); shapes from
-  `references/design.md`, `parts.py` in Python.
+  `references/design.md` (snaps, screws, keyholes, text: `design-features.md`; hinges and other
+  mechanisms: `design-mechanisms.md`), `parts.py` in Python.
 - Every joint from both sides with `fit.py` (F3: overlap, play, gap, contact); a moving part gets
   a sweep through the travel it needs (its joint declared `"sweep": true`); build a proxy of the
   mating part from its `dims` numbers when there is no closed mesh (`references/measure.md`).
@@ -286,7 +287,7 @@ assumption repeated.
 | P4 | Unsupported bridges | soft | not in v1 (UNVERIFIED) | user |
 | P5 | Minimum feature size | soft | not in v1 (UNVERIFIED) | user |
 | P6 | No fillet on edges that touch the bed (chamfer, or sharp with slicer elephant-foot compensation) | soft | you, from the preview image, or from the generator and its log when the image cannot show it (`bevel` with `bed=False`, the preset's elephant-foot value) | user |
-| P7 | Load-carrying mechanism members meet the floors of their duty in `design.md` (latch: anything a hand pushes, pulls, pinches or snaps, or a lever amplifies, such as latches, catches, levers, clamps and a hinge leaf used as a lever: pin ≥ 3.2, pin wall ≥ 2.2, member ≥ 2.5 mm thick and ≥ 4 mm wide, knuckle ≥ 4 mm; snap arms and other flexures designed by the strain formula are exempt from these floors and follow the snap-fit check in `design.md`, loaded by their own deflection or release force, not a hand-force key; lid: a lid, door or flap hinge with no lever between hand and pin: what prints, 3 or more knuckles (odd recommended), sized by `strength.py hinge` at SF ≥ 2 under `finger_pull` shared by the moving knuckles, no lever ratio, WARN → grow it, plus a coupon print on top that never replaces the margin, and "don't force the lid past fully open" in `_assumptions` and at delivery), stand in the dimension table (a box hinge with its knuckle Ø and proud height beside the box's depth), are compared with a proven reference when one is at hand, and reach the safety factor in `strength.py`; a wall-built mechanism's coupon is the same section cut short, never skipped as "most of the part" | soft | you, from the dimension table and strength.py | user: redesign, or print the member first |
+| P7 | Load-carrying mechanism members meet the floors of their duty in `design-mechanisms.md` (latch: anything a hand pushes, pulls, pinches or snaps, or a lever amplifies, such as latches, catches, levers, clamps and a hinge leaf used as a lever: pin ≥ 3.2, pin wall ≥ 2.2, member ≥ 2.5 mm thick and ≥ 4 mm wide, knuckle ≥ 4 mm; snap arms and other flexures designed by the strain formula are exempt from these floors and follow the snap-fit check in `design.md`, loaded by their own deflection or release force, not a hand-force key; lid: a lid, door or flap hinge with no lever between hand and pin: what prints, 3 or more knuckles (odd recommended), sized by `strength.py hinge` at SF ≥ 2 under `finger_pull` shared by the moving knuckles, no lever ratio, WARN → grow it, plus a coupon print on top that never replaces the margin, and "don't force the lid past fully open" in `_assumptions` and at delivery), stand in the dimension table (a box hinge with its knuckle Ø and proud height beside the box's depth), are compared with a proven reference when one is at hand, and reach the safety factor in `strength.py`; a wall-built mechanism's coupon is the same section cut short, never skipped as "most of the part" | soft | you, from the dimension table and strength.py | user: redesign, or print the member first |
 | F1 | Hole compensation applied in exactly one place | hard | you | Phase 4 |
 | F2 | Each fit has the clearance for its kind | hard | you | Phase 4 |
 | F3 | Every joint checked from both sides: no overlap, the play of the fit kind | hard | fit.py | Phase 4 |
@@ -353,7 +354,9 @@ References, read when the line says so (phase files on entering the phase):
 | `references/phase-5-gate.md` | Phase 5: re-validation, `not_covered`, FAIL and WARN handling, print settings, the `_verify` declarations |
 | `references/phase-6-deliver.md` | Phase 6: `finalize.py` and the use tier, the print file check, files per slicer, the delivery message, the bundle, the calibration offer |
 | `references/engines/fusion.md`, `references/engines/openscad.md`, `references/engines/python.md`, `references/engines/blender.md` | Phase 3, the engine in use only: its rules and pitfalls; `references/engines/fusion_builder.py` is the Builder to paste into Fusion scripts, `references/engines/blender_builder.py` the helper a Blender generator imports (binary, `bpy` module or a live Blender, and `render.py`'s renderer) |
-| `references/design.md` | Phase 3 and 4: design for FDM (chamfers, overhangs, walls, orientation, snap fits, screws and inserts, mechanisms that carry load, part seams, print-in-place, text), with sources |
+| `references/design.md` | Phase 3 and 4: design for FDM (chamfers, overhangs, walls, orientation, part seams, supports), with sources |
+| `references/design-mechanisms.md` | Only for a mechanism: print-in-place joints and members that carry load (duties, floors, the field comparison) |
+| `references/design-features.md` | Only for the feature in hand: snap fits, screws, inserts and threads, keyholes, text and logos |
 | `references/tolerances.md` | Phase 2 to 4: fits and clearances, each marked radial or diameter |
 | `references/parts.md` | A design with several bodies in one object: `_parts` schema (object, role), the object checks, printing the mechanism first, build.py's JSON, how Bambu Studio treats touching parts |
 | `references/measure.md` | Phase 2 and 4: measuring a supplied file (numbers only), `--expect` reports kept as evidence, building a proxy of the mating part |
