@@ -114,7 +114,9 @@ that says the build differs from the project (an STL or a source changed since, 
 grouping or material changed since, a part not built, or finalize run with other settings than
 the build) is refused: build again (`build.py run`, with `--printer`), re-check, then bundle.
 It also refuses a carried file that the rebuild writes again (a core 3MF a measurement read,
-for example) or a file at a name the bundle writes itself (`build.json`, `REPRODUCE.md`, ...).
+or a delivery made into `out/`: deliver into a folder of its own) or a file at a name the
+bundle writes itself (`build.json`, `REPRODUCE.md`, ...), and a printers.json the build used
+that is gone when the build judged an object of several parts with it.
 A generator that reads a data file of its own (not a Python import, an OpenSCAD include or a
 Blender library) is rebuilt without it: neither the freshness check nor the bundle tracks such a
 file, so keep those numbers in DEFAULTS / PARAMETERS or params.json (Phase 3).
