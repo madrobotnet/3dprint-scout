@@ -235,11 +235,14 @@ decide each one together:
 - **Go on with it assumed**, only for a promise finalize reports `assumed` (its evidence passed
   but rests on a size nobody measured, or on a preset not recorded). It stays `assumed` and is
   named at delivery with what it rests on. No decision makes a `not verified` promise assumed.
-- **A prototype**, for a `not verified` promise the user agrees to take unproven, or leaves to
-  you (below): it is delivered unproven. Add the `_assumptions` line `"<promise id>: delivered as
-  a prototype, not verified"` (`"cable-out: delivered as a prototype, not verified"`, word for
-  word: finalize reads it and marks the promise `"prototype": true`). It stays `not verified`,
-  and the delivery message opens with it.
+- **A prototype**, for a `not verified` promise the user agrees to take unproven, or hands back
+  to you (below): it is delivered unproven. Add the `_assumptions` line `"<promise id>: delivered
+  as a prototype, not verified"`, word for word (finalize reads it and marks the promise
+  `"prototype": true`), ending, as recommended, in a note in parentheses that says who chose it:
+  in an attended run the user's reply, word for word (`"flat-end: delivered as a prototype, not
+  verified (the user: \"I have no time for a test print now, just go on\")"`); when the user
+  handed the decision back, `(the user handed the decision to me)`; in an unattended run,
+  `(unattended run)`. It stays `not verified`, and the delivery message opens with it.
 - **The user excludes it**: drops it, or takes it unverified. It stays in the list as `excluded`,
   through an entry in `_verify.accepted` whose `reason` is their reply, word for word:
   `{"promise": "cable-bend", "reason": "I'll try it with my own cable", "by": "user"}`.
@@ -249,21 +252,23 @@ decide each one together:
 delivering a `not verified` promise as a prototype (its `_assumptions` line). Agreement is the
 user's reply to a question that named that promise or warning, said in plain words what taking it
 means (the promise stays unverified, or the warning stays, and what that can cost) and offered
-the choices; the reply takes that option. Record the reply word for word as the entry's
-`reason`. For `cable-bend`: "That the cable bends down without a kink is not checked: it may kink
-at the lip. Shall I make a test piece, or do you take it as it is, unchecked?", and the reply
-"I'll try it with my own cable". "Just go on" agrees when going on as it is was the option named:
-"The flat end is not checked since the last change. A test print would show it; without one it
-goes out as a prototype, and it may rock" → "I have no time for a test print now, just go on".
+the choices; the reply takes that option. Record the reply word for word: as the entry's
+`reason`, or, for a prototype, in its line's note, the one place it is kept. For `cable-bend`:
+"That the cable bends down without a kink is not checked: it may kink at the lip. Shall I make a
+test piece, or do you take it as it is, unchecked?", and the reply "I'll try it with my own
+cable". "Just go on" agrees when going on as it is was the option named: "The flat end is not
+checked since the last change. A test print would show it; without one it goes out as a
+prototype, and it may rock" → "I have no time for a test print now, just go on".
 
 None of these is agreement, and none is ever recorded as one:
 
-- **A reply that leaves the decision to you** ("I'm not sure, you decide", "I'll leave it to
+- **A reply that hands the decision back to you** ("I'm not sure, you decide", "I'll leave it to
   you"). The decision is then yours, and yours cannot be the user's: a `not verified` promise
   gets evidence you can make yourself, or goes out as a prototype, the unattended default; a WARN
   is fixed, or left unaccepted and named at delivery (it stays in `open`). Either way an
-  `_assumptions` line says the user left it to you (`"flat-end: the user left the decision to
-  me"`, beside its prototype line). Never `excluded`, never `accepted`.
+  `_assumptions` line says the user handed it back: the prototype line's note, `(the user handed
+  the decision to me)`, or for a WARN a line of its own (`"cap P3: the user handed the decision
+  to me; not accepted"`). Never `excluded`, never `accepted`.
 - **An approval of something else**: a look ("The shape looks good") is evidence for that image's
   `seen` entry and nothing more; a reference or concept choice; "carry on" after a progress note.
 - **An earlier answer to another question, or silence.**
@@ -276,5 +281,6 @@ and those of an unattended run, each with its `_assumptions` line.
 
 Run finalize again after each change. In an unattended run nobody can agree, so nothing is
 excluded or accepted: an `assumed` promise goes on assumed, one `not verified` is delivered as a
-prototype (its `_assumptions` line as above) and a WARN is fixed or left in `open`; each decision
-taken alone has its `_assumptions` line and is said at the top of the delivery, before any result.
+prototype (its line as above, noted `(unattended run)`) and a WARN is fixed or left in `open`;
+each decision taken alone has its `_assumptions` line and is said at the top of the delivery,
+before any result.

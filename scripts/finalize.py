@@ -104,9 +104,10 @@ verified (no evidence, stale evidence, evidence on a part whose checks FAIL, a p
 other values, a member's inputs typed in, a material changed since the build or another in the
 delivered print file), assumed (it passed on an unmeasured size, or on a print file whose
 material cannot be read), accepted (it passed with a WARN the user accepted) or verified.
-A not verified promise the user agreed to deliver unproven has the _assumptions line
-"<id>: delivered as a prototype, not verified": it is marked "prototype": true, named in the
-use summary and not counted as an assumption on its own.
+A not verified promise delivered unproven has the _assumptions line "<id>: delivered as a
+prototype, not verified", optionally ending in a note in parentheses that says who chose it
+(the user's reply, or "(unattended run)"): it is marked "prototype": true, named in the use
+summary and not counted as an assumption on its own.
 
 The report has five tiers and never folds them into one PASS:
   use       the worst state of its promises (error, failed, not verified, excluded, assumed,
@@ -292,7 +293,7 @@ def norm(text):
     return " ".join(str(text).split()).lower()
 
 
-PROTOTYPE = re.compile(r"^\s*(\S+): delivered as a prototype, not verified\s*$")
+PROTOTYPE = re.compile(r"^\s*(\S+): delivered as a prototype, not verified(?:\s+\(.*\))?\s*$")
 
 
 def plural(n, word):
@@ -2436,9 +2437,10 @@ def finalize(args):
                    + material_lines + delivery_lines + to_decide + print_lines + shape_lines
                    + [f"unverified: {u}" for u in out["unverified_dimensions"]]
                    + [f"assumption: {a}" for a in out["assumptions"]])
-    # A promise the user agreed to deliver unproven (phase 4, "Leaving Phase 4") is recorded as the
-    # _assumptions line "<id>: delivered as a prototype, not verified": it belongs to that promise
-    # while the promise is not verified, so it is not counted as an assumption on its own.
+    # A promise delivered unproven (phase 4, "Leaving Phase 4") is recorded as the _assumptions
+    # line "<id>: delivered as a prototype, not verified", with an optional note in parentheses
+    # saying who chose it: it belongs to that promise while the promise is not verified, so it is
+    # not counted as an assumption on its own.
     by_id = {p["id"]: p for p in out["promises"] if isinstance(p.get("id"), str)}
     prototypes = []
     for a in out["assumptions"]:

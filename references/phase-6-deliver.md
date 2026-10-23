@@ -62,9 +62,9 @@ of the print file, and a promise can read verified while the file prints another
 
 Before the message, no promise goes out as a prototype or excluded, and no WARN accepted, that
 the user was not asked about in a message that named it (`references/phase-4-features-joints.md`,
-"What counts as agreement"), except the defaults when the user left the decision to you and
-those of an unattended run, each with its `_assumptions` line. A record made from other words (a
-look, a "you decide", an earlier answer) comes out: ask now.
+"What counts as agreement"), except the defaults when the user handed the decision back to you
+and those of an unattended run, each with its `_assumptions` line. A record made from other
+words (a look, a "you decide", an earlier answer) comes out: ask now.
 
 ## The print file (`--deliver`)
 
@@ -153,8 +153,10 @@ promises). In this order:
    promise failed (the user wants the files anyway) or goes out as a prototype
    (`references/phase-4-features-joints.md`, "Leaving Phase 4"), the first line says so and
    names each ("This is a prototype: the cable exit is not checked yet, because ...") and who
-   chose it: the user, or you when they left it to you or the run was unattended. Then, when
-   `_assumptions` or `_verify.unverified` hold other lines, how many (item 2 gives them).
+   chose it, as the note of its `_assumptions` line says (`"<id>: delivered as a prototype, not
+   verified (<who chose it>)"`; the note is recommended): the user, in their words, or you when
+   they handed the decision back or the run was unattended. Then, when `_assumptions` or
+   `_verify.unverified` hold other lines, how many (item 2 gives them).
    finalize marks a prototype promise `"prototype": true` and names it in the use summary
    ("delivered as a prototype: cable-out"), so its line is not counted among those.
 
@@ -173,7 +175,7 @@ promises). In this order:
    when it is verified, one line saying they all passed), which sides of the shape a reference
    showed, that nothing was sliced here, the test prints and their results; then what `open`
    holds beyond the promises already named, in plain words: what the user must know or do (a
-   warning they accepted or must decide, one they left to you that stays, a size still
+   warning they accepted or must decide, one they handed back to you that stays, a size still
    estimated, each `_assumptions` line that changes how they print or use the part). Never
    paste a line as finalize wrote it ("sled P6 UNVERIFIED (yours to decide)"): the soft checks
    left to you were decided before delivery (Phase 5, step 2), and only what the user must act

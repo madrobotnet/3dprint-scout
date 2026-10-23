@@ -779,6 +779,42 @@ class FinalizePromises(Workspace):
         self.assertIn("joint 'plug through notch': the part it was fitted to has changed since (neither STL the "
                       "report measured is a part of this build now): run fit.py again", out["open"])
 
+    BEND = {"id": "cable-bend", "kind": "use", "text": "the cable bends down without a kink",
+            "conditions": "the user's own cable", "success": "no sharp bend at the lip", "evidence": []}
+
+    def run_prototype(self, line):
+        """The seat verified, the cable bend with no evidence yet, and one _assumptions line."""
+        out = self.run_use(self.verify([self.SEAT, self.BEND]), _assumptions=[line])
+        self.assertEqual(self.promise(out, "cable-bend")["state"], "not verified")
+        self.assertEqual(out["assumptions"], [line])                          # echoed as written
+        return out
+
+    def test_a_prototype_line_with_a_note_marks_the_promise(self):
+        """The line may end with a note in parentheses saying who chose the prototype (phase 4)."""
+        for note in ('(the user: "I have no time for a test print now, just go on")',
+                     "(the user handed the decision to me)", "(unattended run)"):
+            out = self.run_prototype(f"cable-bend: delivered as a prototype, not verified {note}")
+            self.assertTrue(self.promise(out, "cable-bend").get("prototype"), note)
+            self.assertEqual(out["summary"][0], "use: not verified (2 promises: 1 not verified, 1 verified; "
+                                                "delivered as a prototype: cable-bend)", note)
+
+    def test_a_prototype_line_without_a_note_still_marks_it(self):
+        out = self.run_prototype("cable-bend: delivered as a prototype, not verified")
+        self.assertTrue(self.promise(out, "cable-bend").get("prototype"))
+        self.assertEqual(out["summary"][0], "use: not verified (2 promises: 1 not verified, 1 verified; "
+                                            "delivered as a prototype: cable-bend)")
+
+    def test_other_text_after_not_verified_is_no_prototype_line(self):
+        """Only a parenthesised note may follow: anything else is a plain assumption."""
+        for line in ("cable-bend: delivered as a prototype, not verified yet",
+                     "cable-bend: delivered as a prototype, not verified, not verified yet",
+                     "cable-bend: delivered as a prototype, not verified (",
+                     "cable-bend: delivered as a prototype, not verified (the user) and more"):
+            out = self.run_prototype(line)
+            self.assertNotIn("prototype", self.promise(out, "cable-bend"), line)
+            self.assertEqual(out["summary"][0], "use: not verified (2 promises: 1 not verified, 1 verified; "
+                                                "1 assumption not linked to a promise)", line)
+
     def test_declaration_errors(self):
         """Reverse tests: a promise that is declared wrongly is an error, never verified."""
         seat, cable = self.SEAT, self.CABLE

@@ -219,12 +219,12 @@ printed.
   `error`). Decide each promise not verified with the user ("Leaving Phase 4"), here and whenever
   finalize first reports one later (a promise added late, or one a late change made stale): an
   `assumed` one may go on assumed; a `not verified` one gets its evidence, or the user, asked in a
-  message that names it, takes it as a prototype or excludes it (their reply, word for word, as
-  the reason). Left to you, it gets evidence you can make or goes out as a prototype, with an
-  `_assumptions` line saying so; never excluded. A look belongs to its image: a stale one needs a
-  new image and a new look. A `failed` promise is never excluded or accepted away: go back to the
-  phase of the evidence that failed (G7); if the user wants the files anyway, the failure is the
-  delivery's first line.
+  message that names it, takes it as a prototype or excludes it (their reply, word for word, in
+  the reason or the prototype line's note). Handed back to you, it gets evidence you can make or
+  goes out as a prototype, its line noting that; never excluded. A look belongs to its image: a
+  stale one needs a new image and a new look. A `failed` promise is never excluded or accepted
+  away: go back to the phase of the evidence that failed (G7); if the user wants the files
+  anyway, the failure is the delivery's first line.
 
 ## Phase 5 — Gate and process tuning (review point)
 
@@ -312,10 +312,10 @@ verdicts in the next message), and record every assumption and every stop taken 
 `_assumptions` in `params.json`, the Phase 3 look included ("base shape: not looked at by the
 user, unattended run"). The delivery message opens with them and with every promise not verified,
 before any result. Never exclude a promise or accept a WARN (nobody can agree): a `not verified`
-promise goes out as a prototype. If the printer and slicer are unknown, deliver STL per part plus
-a core 3MF, mark D2 UNVERIFIED, and say at the top that the printer was not confirmed. A skipped
-fit test or mechanism-first print goes into `_assumptions` like any other stop; `calibration.py add`
-is never run, nobody said yes. G9 still applies: the updates go into the progress notes. Two exceptions: if a size the part must fit has no source for the user's own object (a typical
+promise goes out as a prototype, noted "(unattended run)". If the printer and slicer are unknown,
+deliver STL per part plus a core 3MF, mark D2 UNVERIFIED, and say at the top that the printer was
+not confirmed. A skipped fit test or mechanism-first print goes into `_assumptions` like any other
+stop; `calibration.py add` is never run, nobody said yes. G9 still applies: the updates go into the progress notes. Two exceptions: if a size the part must fit has no source for the user's own object (a typical
 size of another product is no source), stop rather than guess; and never overwrite a user original or delivered version. Updating the current
 project's working state remains allowed under the file-protection rule above.
 

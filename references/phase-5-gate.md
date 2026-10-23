@@ -50,9 +50,10 @@ all times; `references/checks.md` describes `validate.py`'s JSON and the `_verif
    supports, a redesign, or keeping it as it is). Accept it only on their agreement
    (`references/phase-4-features-joints.md`, "What counts as agreement"): a question that names
    the warning, says that it stays and what that can cost, and offers the choices, and a reply
-   that takes keeping it, recorded word for word as the `reason`. A reply that leaves it to you
-   ("I'm not sure, you decide") accepts nothing: fix it, or leave it unaccepted (it stays in
-   `open` and is named at delivery), with an `_assumptions` line saying the user left it to you.
+   that takes keeping it, recorded word for word as the `reason`. A reply that hands the decision
+   back to you ("I'm not sure, you decide") accepts nothing: fix it, or leave it unaccepted (it
+   stays in `open` and is named at delivery), with an `_assumptions` line saying so (`"cap P3:
+   the user handed the decision to me; not accepted"`).
    Never model support structures into the part: overhangs get the slicer's supports (set per
    object in step 4) or a redesign such as a chamfer or teardrop.
 4. **Print settings.** Keep the user's slicer preset as the baseline and change only what this
