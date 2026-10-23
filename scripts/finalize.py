@@ -36,7 +36,8 @@ is missing is reported as "not declared", which keeps its tier from being verifi
     "test_prints": [{"name": "hinge coupon", "status": "skipped", "note": "user had no time"},
                     {"name": "lid fit", "status": "passed", "promises": ["lid-fits"], "printer": "x2d",
                      "orientation": "as built", "by": "user", "preset": "0.20mm Standard",
-                     "parts": {"lid": {"sha256": "...", "material": "pla_basic"}}}],
+                     "parts": {"lid": {"sha256": "...", "material": "pla_basic"}},
+                     "photos": ["photos/lid-fit.jpg"]}],
     "accepted": [{"check": "body P2", "reason": "the user wants supports there"},
                  {"check": "object box P2", "reason": "..."},
                  {"check": "joint lid on box F3", "reason": "a snug lid"},
@@ -62,8 +63,10 @@ typed on the command line (origin `manual`; every input of a report made without
 is a number from the dimension table, not read from the model, so the report says to keep them
 equal. The build records each part's material: one that differs from params.json now is open
 ("<part>: material changed since the build"). test_prints: coupons and mechanism-first
-prints (status passed, failed, skipped, offered or pending). accepted: WARNs the user accepted,
-named "<part> <check>" or "object <name> <check>", with their reason; any other WARN is open
+prints (status passed, failed, skipped, offered or pending; photos, optional: the user's photos
+of a print, paths in the project folder, which the bundle carries; they are no evidence).
+accepted: WARNs the user accepted, named "<part> <check>" or "object <name> <check>", with their
+reason; any other WARN is open
 ("<part> D1" also accepts a D1 whose expect was copied from the model, when no intended size
 exists); and promises the user takes without verifying them ("by": "user"). unverified:
 dimensions taken without a measurement. references: for each object, which directions a
@@ -123,12 +126,24 @@ filament of another material than the part's leaves the part's material-dependen
 slicer: the print file's material is not checked); a process preset other than _print.preset
 keeps test prints of its parts from verifying, and without _print.preset it is the delivered
 preset they are compared with; a project that names no process preset leaves them assumed. These are open lines, not geometry reasons. --bundle DIR
-writes a new folder with the generator sources (not the skill's own libraries) at their places
-relative to the folder the build ran in (lib/helper.py stays lib/helper.py, so imports, includes
-and loaded files still resolve), params.json, the printers.json the build used, this report and
-REPRODUCE.md (the commands that rebuild and re-check the parts); it refuses an existing folder,
-a source outside the project folder, and a source or params file that holds a path of this
-machine. Exit 0 when it ran (read "use" and "geometry"), 1 on a usage or file error.
+writes a new folder that holds what it takes to reach this verdict again from it alone: the
+generator sources (not the skill's own libraries) at their places relative to the folder the
+build ran in (lib/helper.py stays lib/helper.py, so imports, includes and loaded files still
+resolve), params.json, the printers.json the build used, this report, REPRODUCE.md (the
+commands that rebuild the parts and each proxy `build.py run --proxy` made, then re-check),
+and the evidence: every report _verify names (fit, strength, measurement) with each file it
+read that is not a part (a measured user file); a proxy's generator and params file (a
+recorded proxy also with its build JSON, STLs and build manifests: it cannot be built again);
+each seen image and its sidecar; the test print photos; and with --deliver the delivered STLs
+and 3MFs, each 3MF with its manifest beside it (REPRODUCE.md re-checks them with --deliver).
+Every file keeps its path relative to the project folder, so the commands run as written
+inside the bundle; the parts and the proxies built by `run` are built again there, not copied
+(their build JSON records paths of this machine; a proxy no longer built from its params file
+is carried as it was, its build JSON listed as left out). A file that is named but not found is
+listed in REPRODUCE.md and in bundle_missing (a missing report is missing in the verdict too).
+It refuses an existing folder, a file outside the project folder, and a source, params file or
+report that holds a path of this machine (the scripts record the paths they are given: give
+them relative ones). Exit 0 when it ran (read "use" and "geometry"), 1 on a usage or file error.
 """
 from __future__ import annotations
 
@@ -136,7 +151,9 @@ import argparse
 import json
 import math
 import os
+import posixpath
 import re
+import shlex
 import shutil
 import sys
 from types import SimpleNamespace
@@ -1026,6 +1043,19 @@ def current_printer(settings):
         return None
 
 
+def photos_problem(photos):
+    """Why a test print's photos are not a list of the photos' paths in the project folder
+    (relative to it, as every path in params.json), or None. Photos are no evidence: the bundle
+    carries them."""
+    if not (isinstance(photos, list) and all(isinstance(p, str) and p.strip() for p in photos)):
+        return "photos must list the paths of the user's photos of the print"
+    far = [p for p in photos if os.path.isabs(p) or re.match(r"^([A-Za-z]:|[\\/~])", p)
+           or ".." in re.split(r"[\\/]", p)]
+    if far:
+        return f"photos must be paths in the project folder, relative to it (not {', '.join(far)})"
+    return None
+
+
 def check_print_evidence(verify, parts, params, specs, printer_id, material_evidence=None, delivered_presets=None):
     """The test prints that list promises, as their evidence: {name: info}, declaration errors.
     A print stands for a promise only when it printed the parts as they are now (each part's
@@ -1035,7 +1065,8 @@ def check_print_evidence(verify, parts, params, specs, printer_id, material_evid
     Bambu project a printed part is delivered in (delivered_presets: {part: [(file, preset)]});
     with neither, the print is assumed. material_evidence ({part: {notver, assumed}}) adds what
     is known of each printed part's material since the build and in the delivered print file.
-    A 0.6 entry (no promises) is left to the print tier."""
+    A 0.6 entry (no promises) is left to the print tier; photos, on any entry, must be paths in
+    the project folder (photos_problem)."""
     import strength
     mats = sorted(strength.MATERIALS)
     by_name = {p.get("name"): p.get("sha256") for p in parts}
@@ -1046,7 +1077,10 @@ def check_print_evidence(verify, parts, params, specs, printer_id, material_evid
     out, errors = {}, []
     for t in verify.get("test_prints") or []:
         name = t.get("name")
+        photos = photos_problem(t["photos"]) if "photos" in t else None
         if "promises" not in t:
+            if photos:                                     # no evidence, but declared wrongly all the same
+                errors.append(f"test print '{name}': {photos}")
             continue
         label = f"test print '{name}'"
         errs = []
@@ -1060,6 +1094,8 @@ def check_print_evidence(verify, parts, params, specs, printer_id, material_evid
         errs += [f"{label}: needs {k}" for k in ("printer", "orientation", "by") if not text_field(t, k)]
         if "preset" in t and not text_field(t, "preset"):
             errs.append(f"{label}: preset must be the slicer's process preset name")
+        if photos:
+            errs.append(f"{label}: {photos}")
         info = {"name": name, "promises": pr if isinstance(pr, list) else [], "status": str(t.get("status", "")).lower(),
                 "_raw": t}
         out.setdefault(name, []).append(info)
@@ -1715,7 +1751,10 @@ def holds_machine_path(path):
     return any(re.search(re.escape(form) + r"(?![\w-])", text, flags=re.IGNORECASE) for form, _ in machine_forms())
 
 
-BUNDLE_OWN = ("params.json", "printers.json", "REPRODUCE.md", "verification.json")
+BUNDLE_OWN = ("params.json", "printers.json", "REPRODUCE.md", "verification.json", "build.json")   # build.json: rebuilt
+RUN_ENGINES = ("openscad", "python", "blender")                  # what `build.py run` builds again
+NOT_TEXT = (".png", ".jpg", ".jpeg", ".gif", ".webp", ".heic", ".heif", ".tif", ".tiff", ".bmp", ".mp4", ".mov",
+            ".3mf")                                              # pictures and zips: no path a script reads is in them
 
 
 def bundle_path(src):
@@ -1728,7 +1767,181 @@ def bundle_path(src):
     return None if r == ".." or r.startswith(".." + os.sep) else r.replace(os.sep, "/")
 
 
-def write_bundle(folder, build, params_path, settings, report):
+def json_object(path):
+    """A JSON object from a file, or {}: a missing or malformed report is the verdict's to judge."""
+    try:
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, ValueError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def manifests_of_3mf(folders, sha):
+    """The 3MF manifests in the folders (walked as threemf_manifests walks them) written for the
+    3MF with this sha256: [(path, sound)], sound when its parts map part names to sha256."""
+    found, seen = [], set()
+    for folder in folders:
+        if not folder or not os.path.isdir(folder):
+            continue
+        for root, dirs, names in os.walk(folder):
+            dirs.sort()
+            for fn in sorted(names):
+                path = os.path.join(root, fn)
+                key = os.path.normcase(os.path.abspath(path))
+                if not fn.endswith(".3mf.manifest.json") or key in seen:
+                    continue
+                seen.add(key)
+                m = json_object(path)
+                if m.get("schema") != MANIFEST_3MF or m.get("artifact_sha256") != sha:
+                    continue
+                parts = m.get("parts")
+                found.append((path, isinstance(parts, dict) and bool(parts)
+                              and all(isinstance(k, str) and isinstance(v, str) for k, v in parts.items())))
+    return found
+
+
+def bundle_contents(verify, build, deliver=None, joints=None):
+    """What a bundle carries besides the generator, params.json and printers.json, so that the
+    verdict can be reached again from the bundle alone: every report _verify names, and each
+    file a report read by its sha256 that REPRODUCE.md does not build again (a measured user
+    file, a recorded proxy's STL with its build manifest; never a part); a proxy's generator and
+    params file (a `build.py run --proxy` proxy tied to them, joints[i].proxy_build "tied" in the
+    report, is built again; a recorded one is carried with its build JSON); each seen image and
+    its sidecar; the test print photos; and with --deliver
+    every delivered STL and 3MF with the manifest finalize compares it with. Returns (files:
+    {place: (path, what)}, missing: {place: what}, proxies: {build JSON place: the `build.py run
+    --proxy` command that builds it again}, outside: the paths outside the project folder). A
+    place is the path relative to the project folder; a 3MF's manifest found only elsewhere
+    (out/, which a rebuild rewrites) goes beside the 3MF."""
+    built = {os.path.normcase(os.path.abspath(p["stl"])) for p in build.get("parts") or []
+             if isinstance(p, dict) and isinstance(p.get("stl"), str)}
+    files, missing, proxies, outside = {}, {}, {}, []
+
+    def carry(path, what, place=None):
+        """Carry the file at its place (True), or note it missing or outside (False)."""
+        if not (isinstance(path, str) and path.strip()):
+            return False
+        own = bundle_path(path)
+        if own is None:
+            if path not in outside:
+                outside.append(path)
+            return False
+        place = place or own
+        if not os.path.isfile(path):
+            missing.setdefault(place, what)
+            return False
+        files.setdefault(place, (path, what))
+        return True
+
+    def hashed(path, what):
+        """A file a report read by its sha256: a part of this build is rebuilt; any other file is
+        carried, with its build manifest when it has one (fit.py and the proxy check read it)."""
+        if not isinstance(path, str) or os.path.normcase(os.path.abspath(path)) in built:
+            return
+        if carry(path, what) and os.path.isfile(validate.manifest_path(path)):
+            carry(validate.manifest_path(path), f"build manifest of {bundle_path(path)}")
+
+    def proxy(path, joint, tied):
+        """A proxy's build: one `build.py run --proxy` made is made again by REPRODUCE.md, as the
+        parts are (its build JSON records paths of this machine, as the main one does): its
+        generator and params file are carried, its STLs, manifests and JSON are not. Any other
+        (a recorded proxy) is carried as it is, with its inputs."""
+        b = json_object(path) if isinstance(path, str) and os.path.isfile(path) else {}
+        if b.get("schema") != "3dprint-scout.build/1":
+            carry(path, f"proxy build of {joint}")               # missing or malformed: as the verdict sees it
+            return
+        srcs = [s for s in b["sources"] if isinstance(s, str)] if isinstance(b.get("sources"), list) else []
+        for s in own_sources({"sources": srcs}):
+            carry(s, f"proxy generator of {joint}")
+        carry(b.get("params"), f"params file of the proxy of {joint}")
+        stls = ([p for p in b["parts"] if isinstance(p, dict) and isinstance(p.get("stl"), str)]
+                if isinstance(b.get("parts"), list) else [])
+        src, prm, place = b.get("source"), b.get("params"), bundle_path(path)
+        out = bundle_path(os.path.dirname(stls[0]["stl"]) or ".") if stls else None
+        if not (b.get("proxy") is True and b.get("engine") in RUN_ENGINES and isinstance(src, str) and bundle_path(src)
+                and isinstance(prm, str) and bundle_path(prm) and out and place):
+            carry(path, f"proxy build of {joint}")
+            for p in stls:
+                hashed(p["stl"], f"proxy STL of {joint}")
+        elif tied:
+            proxies.setdefault(place, (
+                f'python3 "$SKILL_DIR/scripts/build.py" run {shlex.quote(bundle_path(src))} --params '
+                f"{shlex.quote(bundle_path(prm))} --proxy {shlex.quote(','.join(str(p.get('name')) for p in stls))} "
+                f"--out {shlex.quote(out)} > {shlex.quote(place)}"))
+            built.update(os.path.normcase(os.path.abspath(p["stl"])) for p in stls)
+        else:                                                    # built again it would be another proxy
+            for p in stls:
+                hashed(p["stl"], f"proxy STL of {joint}")
+            missing.setdefault(place, f"proxy build of {joint}, left out: a build.py run JSON is made again, not "
+                                      "carried, and this proxy was not built from its params file as it is now (build "
+                                      "the proxy and fit it again)")
+
+    states = [e.get("proxy_build") for e in joints or []]
+    for i, j in enumerate(verify.get("joints") or []):       # the proxies first: an STL rebuilt is not carried
+        if j.get("proxy") and isinstance(j.get("proxy_build"), str):
+            proxy(j["proxy_build"], f"joint '{j.get('name') or j.get('report')}'",
+                  i < len(states) and states[i] == "tied")
+    for j in verify.get("joints") or []:
+        joint = f"joint '{j.get('name') or j.get('report')}'"
+        if carry(j.get("report"), f"fit report of {joint}"):
+            sides = json_object(j["report"]).get("parts")
+            for k in ("a", "b"):
+                side = sides.get(k) if isinstance(sides, dict) else None
+                if isinstance(side, dict):
+                    hashed(side.get("path"), f"STL fitted in {joint}")
+    for s in verify.get("strength") or []:
+        carry(s.get("report"), f"strength report of member '{s.get('name') or s.get('report')}'")
+    for m in verify.get("measurements") or []:
+        what = f"measurement '{m.get('name') or m.get('report')}'"
+        if carry(m.get("report"), f"report of {what}"):
+            hashed(json_object(m["report"]).get("file"), f"file read by {what}")
+    for e in verify.get("seen") or []:
+        what = f"seen '{e.get('name') or e.get('image')}'"
+        if carry(e.get("image"), f"image of {what}"):
+            carry(e["image"] + ".json", f"sidecar of the image of {what}")
+    for t in verify.get("test_prints") or []:
+        for p in t["photos"] if isinstance(t.get("photos"), list) else []:
+            carry(p, f"photo of test print '{t.get('name')}'")
+    if deliver and bundle_path(deliver) is None:
+        outside.append(deliver)
+    elif deliver and os.path.isdir(deliver):
+        here = os.path.normcase(os.path.abspath(deliver))
+        out_dirs = sorted({os.path.dirname(p["stl"]) for p in build.get("parts") or []
+                           if isinstance(p, dict) and isinstance(p.get("stl"), str)}
+                          | {os.path.dirname(build["threemf"]) if isinstance(build.get("threemf"), str) else ""})
+        for fn in sorted(os.listdir(deliver)):                 # the files check_delivered judges
+            path = os.path.join(deliver, fn)
+            if not (os.path.isfile(path) and fn.lower().endswith((".stl", ".3mf"))):
+                continue
+            carry(path, "delivered file")
+            if not fn.lower().endswith(".3mf") or bundle_path(path) is None:
+                continue
+            place = bundle_path(path)
+            found = manifests_of_3mf([deliver, *out_dirs], validate.file_sha256(path))
+            beside = [(m, ok) for m, ok in found if os.path.normcase(os.path.dirname(os.path.abspath(m))) == here]
+            for m, _ok in beside:
+                carry(m, f"manifest of {place}")
+            elsewhere = [(m, ok) for m, ok in found if (m, ok) not in beside]
+            pick = None if any(ok for _m, ok in beside) else next((m for m, ok in elsewhere if ok), None)
+            if pick is None and elsewhere and not beside:
+                pick = elsewhere[0][0]                          # a malformed one: the verdict names it so
+            if pick:
+                to = place + ".manifest.json"
+                if to in files:
+                    to = place[:len(place) - len(fn)] + "bundle-" + fn + ".manifest.json"
+                carry(pick, f"manifest of {place}, found at {bundle_path(pick)}", place=to)
+    return files, missing, proxies, outside
+
+
+def same_file(a, b):
+    try:
+        return bool(a and b) and os.path.samefile(a, b)
+    except OSError:
+        return False
+
+
+def write_bundle(folder, build, params_path, settings, report, verify=None, deliver=None):
     if os.path.exists(folder):
         raise FinalizeError(f"{folder} exists; the bundle goes into a new folder (never overwrites)")
     srcs = own_sources(build)
@@ -1744,9 +1957,27 @@ def write_bundle(folder, build, params_path, settings, report):
         raise FinalizeError(f"{', '.join(outside)} is outside the folder the build ran in; the bundle keeps every "
                             "source at its place relative to that folder (imports, includes and loaded files depend "
                             "on it): move it into the project folder and build again")
-    clash = [place for place in places.values() if place.lower() in {n.lower() for n in BUNDLE_OWN}]
+    reserved = {n.lower() for n in BUNDLE_OWN}
+    clash = [place for place in places.values() if place.lower() in reserved]
     if clash:
         raise FinalizeError(f"{', '.join(clash)} would take the place of a file the bundle writes itself; rename it")
+    inputs, missing, proxies, far = bundle_contents(verify or {}, build, deliver, report.get("joints"))
+    if far:
+        raise FinalizeError(f"{', '.join(rel(p) for p in far)} is outside the project folder (the folder the build ran "
+                            "in); the bundle keeps every file at its place relative to that folder, so that "
+                            "REPRODUCE.md runs as written inside it: move it into the project folder and name it there")
+    for place, (src, _what) in list(inputs.items()):
+        if place in places.values() or (place.lower() in reserved and (same_file(src, params_path)
+                                                                     or same_file(src, printers))):
+            del inputs[place]                                    # already in the bundle (a source, params.json)
+        elif place.lower() in reserved:
+            raise FinalizeError(f"{place} would take the place of a file the bundle writes itself; rename it")
+    leaking = [place for place, (src, _what) in inputs.items()
+               if not src.lower().endswith(NOT_TEXT) and holds_machine_path(src)]
+    if leaking:
+        raise FinalizeError(f"{', '.join(leaking)} holds a path of this machine: write it again with paths relative "
+                            "to the project folder (fit.py, measure.py, strength.py --from-build, preview.py and "
+                            "render.py record the paths they are given) before bundling")
     os.makedirs(folder)
     written = []
     for src in srcs:
@@ -1759,9 +1990,21 @@ def write_bundle(folder, build, params_path, settings, report):
     if printers:
         shutil.copyfile(printers, os.path.join(folder, "printers.json"))
         written.append(rel(os.path.join(folder, "printers.json")))
+    for place in sorted(inputs):                                  # copied, never moved
+        dst = os.path.join(folder, *place.split("/"))
+        os.makedirs(os.path.dirname(dst), exist_ok=True)
+        shutil.copyfile(inputs[place][0], dst)
+        written.append(rel(dst))
+    delivered = bundle_path(deliver) if deliver and os.path.isdir(deliver) else None
+    for place in [delivered] + [posixpath.dirname(p) for p in proxies]:      # where REPRODUCE.md writes and reads
+        if place:
+            os.makedirs(os.path.join(folder, *place.split("/")), exist_ok=True)
     main_src = build.get("source") or (srcs[0] if srcs else None)
     main = (bundle_path(main_src) or os.path.basename(main_src)) if main_src else "model"
     engine = build.get("engine") or "?"
+    stls = [p["stl"] for p in build.get("parts") or [] if isinstance(p, dict) and isinstance(p.get("stl"), str)]
+    dirs = {bundle_path(os.path.dirname(s) or ".") for s in stls}
+    out = dirs.pop() if len(dirs) == 1 and None not in dirs else "out"       # where the reports find the parts
     flags = []
     if printers:
         flags.append("--printer printers.json")
@@ -1774,23 +2017,43 @@ def write_bundle(folder, build, params_path, settings, report):
     lines = ["# Reproduce", "",
              f"Engine: {engine}. Generator: `{main}`. Parameters: `params.json`. Run from this folder, with "
              "`SKILL_DIR` the 3dprint-scout skill folder.", ""]
-    if engine in ("openscad", "python", "blender"):
-        lines += ["```bash", f'python3 "$SKILL_DIR/scripts/build.py" run {main} --params params.json --out out{flag_text} > build.json',
-                  "```", ""]
+    if engine in RUN_ENGINES:
+        lines += ["```bash", f'python3 "$SKILL_DIR/scripts/build.py" run {shlex.quote(main)} --params params.json '
+                             f"--out {shlex.quote(out)}{flag_text} > build.json", "```", ""]
     else:
+        recorded = [bundle_path(s) for s in stls]
         lines += [f"This build was recorded (`build.py record`, engine {engine}): run the generator in {engine}, export "
-                  "one STL per part named after the part into `out/`, then:", "", "```bash",
-                  f'python3 "$SKILL_DIR/scripts/build.py" record out/<part>.stl ... --source '
-                  f'{" ".join(places[s] for s in srcs) or main} --params params.json --engine {engine} '
-                  f"--out out{flag_text} > build.json", "```", ""]
-    lines += ["Then re-check:", "", "```bash",
-              'python3 "$SKILL_DIR/scripts/finalize.py" --build build.json --params params.json', "```", "",
+                  f"one STL per part named after the part into `{out}/`, then:", "", "```bash",
+                  'python3 "$SKILL_DIR/scripts/build.py" record '
+                  + (" ".join(shlex.quote(r) for r in recorded) if recorded and None not in recorded
+                     else f"{shlex.quote(out)}/<part>.stl ...")
+                  + f' --source {" ".join(shlex.quote(places[s]) for s in srcs) or shlex.quote(main)} --params params.json '
+                  f"--engine {engine} --out {shlex.quote(out)}{flag_text} > build.json", "```", ""]
+    if proxies:
+        lines += ["Then the proxies the fit reports measured, built again from their own generators and params "
+                  "files as the parts are (a fit report holds while each STL is the one it measured):", "", "```bash",
+                  *proxies.values(), "```", ""]
+    lines += ["Then re-check" + (f", with the delivered files in `{delivered}`" if delivered else "") + ":", "",
+              "```bash", 'python3 "$SKILL_DIR/scripts/finalize.py" --build build.json --params params.json'
+              + (f" --deliver {shlex.quote(delivered)}" if delivered else ""), "```", "",
               "`verification.json` is the report this delivery was made with: what was verified, and what was not.", ""]
+    if inputs:
+        lines += ["## The evidence", "",
+                  "Besides the generator, `params.json` and `printers.json`, the files the verdict reads, each at its "
+                  "place in the project folder. The parts, and the proxies built again, are not here: the commands "
+                  "above make them, and a report holds while each STL it read is the same (sha256).", ""]
+        lines += [f"- `{place}`: {inputs[place][1]}" for place in sorted(inputs)] + [""]
+    if missing:
+        lines += ["## Not in this bundle", "",
+                  "Named, but not here: not there when the bundle was made, unless the line says why. A re-check "
+                  "here finds them missing:", ""]
+        lines += [f"- `{place}`: {missing[place]}" for place in sorted(missing)] + [""]
     with open(os.path.join(folder, "REPRODUCE.md"), "w", encoding="utf-8") as f:
-        f.write("\n".join(lines))
+        f.write(scrub("\n".join(lines)))
     written.append(rel(os.path.join(folder, "REPRODUCE.md")))
     written.append(rel(os.path.join(folder, "verification.json")))
     report["bundle"] = written
+    report["bundle_missing"] = [f"{place}: {missing[place]}" for place in sorted(missing)]
     with open(os.path.join(folder, "verification.json"), "w", encoding="utf-8") as f:
         f.write(scrub(json.dumps(report, indent=2, ensure_ascii=False)))
     return written
@@ -1906,7 +2169,7 @@ def finalize(args):
         "slicing: unverified (not sliced here)",
         "print: " + out["print"]]
     if args.bundle:
-        write_bundle(args.bundle, build, args.params, settings, out)
+        write_bundle(args.bundle, build, args.params, settings, out, verify, args.deliver)
     return json.loads(scrub(json.dumps(out, ensure_ascii=False)))
 
 
