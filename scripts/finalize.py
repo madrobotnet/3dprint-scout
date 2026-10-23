@@ -1835,6 +1835,16 @@ def holds_machine_path(path):
 
 BUNDLE_OWN = ("params.json", "printers.json", "REPRODUCE.md", "verification.json", "build.json")   # build.json: rebuilt
 RUN_ENGINES = ("openscad", "python", "blender")                  # what `build.py run` builds again
+
+
+def made_by_run(b):
+    """Whether a build JSON is a `build.py run` (built again by REPRODUCE.md) rather than a
+    `record` (whose STLs came from Fusion or a live Blender, which a script cannot run). Since
+    0.7.0 the JSON says so in `command`; `record --engine blender` names an engine `run` knows,
+    so the engine alone cannot tell. An older JSON: a run reports its engine_info, a record none."""
+    if b.get("command") in ("run", "record"):
+        return b["command"] == "run" and b.get("engine") in RUN_ENGINES
+    return b.get("engine") in RUN_ENGINES and isinstance(b.get("engine_info"), dict)
 NOT_TEXT = (".png", ".jpg", ".jpeg", ".gif", ".webp", ".heic", ".heif", ".tif", ".tiff", ".bmp", ".mp4", ".mov",
             ".3mf")                                              # pictures and zips: no path a script reads is in them
 
@@ -1927,7 +1937,7 @@ def bundle_contents(verify, build, deliver=None, joints=None):
                 if isinstance(b.get("parts"), list) else [])
         src, prm, place = b.get("source"), b.get("params"), bundle_path(path)
         out = bundle_path(os.path.dirname(stls[0]["stl"]) or ".") if stls else None
-        if not (b.get("proxy") is True and b.get("engine") in RUN_ENGINES and isinstance(src, str) and bundle_path(src)
+        if not (b.get("proxy") is True and made_by_run(b) and isinstance(src, str) and bundle_path(src)
                 and isinstance(prm, str) and bundle_path(prm) and out and place):
             carry(path, f"proxy build of {joint}")
             for p in stls:
@@ -2146,6 +2156,7 @@ def write_bundle(folder, build, params_path, settings, report, verify=None, deli
 
     # The rebuild, as the build was made: its engine, its core 3MF (or none), its own settings.
     engine = build["engine"]
+    by_run = made_by_run(build)                           # built again by REPRODUCE.md, or recorded STLs exported again
     main_src = build.get("source") or (srcs[0] if srcs else None)
     main = (bundle_path(main_src) or os.path.basename(main_src)) if main_src else "model"
     part_places = [bundle_path(p["stl"]) for p in parts]
@@ -2153,7 +2164,7 @@ def write_bundle(folder, build, params_path, settings, report, verify=None, deli
     tm_place = bundle_path(threemf) if threemf else None
     if tm_place:
         out = posixpath.dirname(tm_place) or "."         # the core 3MF is written in --out
-        if engine in RUN_ENGINES and dirs and dirs != {out}:
+        if by_run and dirs and dirs != {out}:
             raise FinalizeError(f"the core 3MF {tm_place} is not in the folder the build wrote its parts to, so "
                                 "REPRODUCE.md cannot write it again where it was: build again and save that "
                                 "build's JSON")
@@ -2251,7 +2262,7 @@ def write_bundle(folder, build, params_path, settings, report, verify=None, deli
     lines = [("# Reproduce", False), ("", False),
              (f"Engine: {engine}. Generator: `{main}`. Parameters: `params.json`. Run from this folder, with "
               "`SKILL_DIR` the 3dprint-scout skill folder.", False), ("", False)]
-    if engine in RUN_ENGINES:
+    if by_run:
         lines += [("```bash", False),
                   (f'python3 "$SKILL_DIR/scripts/build.py" run {q(main)} --engine {q(engine)} --params params.json '
                    f"--out {q(out)} {tail} > build.json", True), ("```", False), ("", False)]

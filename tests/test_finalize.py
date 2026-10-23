@@ -689,8 +689,8 @@ class FinalizePromises(Workspace):
             json.dump(values, f)
         validate.write_manifest("out/plug.stl", ["plug.py"], values, "python", by="run")
         with open("out/plug_build.json", "w") as f:
-            json.dump({"schema": "3dprint-scout.build/1", "ran": True, "engine": "python", "sources": ["plug.py"],
-                       "params": ".3dprint/plug.json", "proxy": True,
+            json.dump({"schema": "3dprint-scout.build/1", "ran": True, "command": "run", "engine": "python",
+                       "sources": ["plug.py"], "params": ".3dprint/plug.json", "proxy": True,
                        "parts": [{"name": "plug", "stl": "out/plug.stl",
                                   "sha256": validate.file_sha256("out/plug.stl")}]}, f)
 
@@ -2146,11 +2146,24 @@ class FinalizeBundle(FinalizePromises):
         with open("out/build.json") as f:
             recorded = json.load(f)
         with open("out/build.json", "w") as f:                       # as `run gen.py --engine blender` saves it
-            json.dump(dict(recorded, engine="blender", source="gen.py"), f)
+            json.dump(dict(recorded, command="run", engine="blender", source="gen.py"), f)
         code, out = self.finalize("--bundle", "deliver/b")
         self.assertEqual(code, 0, out["errors"])
         self.assertIn('build.py" run gen.py --engine blender --params params.json --out out --no-3mf',
                       self.reproduce_text("deliver/b"))
+        # Reverse (Codex, PR #22): `record --engine blender` (a live Blender's export) names an engine
+        # `run` knows; the build JSON's command, not the engine, says it is recorded. A JSON from
+        # before 0.7.0 has no command: a run reports its engine_info, a record none.
+        for n, b in enumerate((dict(recorded, engine="blender"), dict(recorded, engine="python", command=None),
+                               dict(recorded, engine="blender", command=None, engine_info={"blender": "4.5.14"}))):
+            with self.subTest(build={k: b.get(k) for k in ("command", "engine", "engine_info")}):
+                with open("out/build.json", "w") as f:
+                    json.dump({k: v for k, v in b.items() if v is not None}, f)
+                code, out = self.finalize("--bundle", f"deliver/r{n}")
+                self.assertEqual(code, 0, out["errors"])
+                text = self.reproduce_text(f"deliver/r{n}")
+                ran = n == 2
+                self.assertEqual(('build.py" run ' in text, "This build was recorded" in text), (ran, not ran), text)
         with open("out/build.json", "w") as f:
             json.dump(dict(recorded, errors=["core 3MF not written: disk full"]), f)
         self.refused(folder="deliver/c", why=("does not tell whether one was asked for",))
@@ -2196,7 +2209,8 @@ class FinalizeBundle(FinalizePromises):
             json.dump(self.PLUG, f)
         validate.write_manifest("out/plug.stl", ["plug.py"], self.PLUG, "python", by="run")
         with open(place, "w") as f:
-            json.dump({"schema": "3dprint-scout.build/1", "ran": True, "engine": "python", "source": "plug.py",
+            json.dump({"schema": "3dprint-scout.build/1", "ran": True, "command": "run", "engine": "python",
+                       "source": "plug.py",
                        "sources": ["plug.py"], "params": ".3dprint/plug.json", "proxy": True,
                        "parts": [{"name": "plug", "stl": "out/plug.stl",
                                   "sha256": validate.file_sha256("out/plug.stl")}]}, f)
