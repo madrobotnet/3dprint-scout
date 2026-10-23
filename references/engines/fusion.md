@@ -60,7 +60,7 @@ When your shell is a VM or a cloud container linked to the user's computer, `B.e
 on their machine, where `build.py` cannot see it. Export into a folder the user connected (or
 bring the files over with the host's file tools), print each STL's md5 on their side (in the
 script, `hashlib.md5(open(p, "rb").read()).hexdigest()`) and check it on yours before `record`,
-as for a live Blender (`blender.md`, "Three ways it runs").
+as for a live Blender (`blender-live.md`).
 
 The Builder is derived from the one that ran end to end in the 2026-10-17 field test; this
 cleaned version (expressions on features, sketch dimensions, real arcs, the join/cut guards)

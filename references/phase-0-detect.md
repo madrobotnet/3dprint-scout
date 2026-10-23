@@ -37,7 +37,7 @@ Find what works:
   through a folder the user connected. A timeout or an error: retry once, then treat it as
   unavailable and say why. Never install add-ons or change preferences there without asking;
   the build adds a `3dprint-scout` scene next to theirs and writes only into its output folder
-  (`references/engines/blender.md`, "Live session").
+  (`references/engines/blender-live.md`).
 - **None** — in a disposable sandbox (a cloud code-execution container, not the user's own
   machine) `pip install manifold3d numpy rtree matplotlib` is fine: say so in one line and do
   it; `pip install bpy` too when the shape wants Blender (a few hundred MB; the Python version
