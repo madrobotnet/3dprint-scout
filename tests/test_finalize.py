@@ -1333,10 +1333,15 @@ class FinalizePromises(Workspace):
         leave the field out, as a build JSON from before 0.7.0."""
         with open("out/build.json") as f:
             b = json.load(f)
-        if built is not False:
+        if built is False:
+            b.pop("parameters", None)                                          # build.py records it now
+        else:
             b["parameters"] = {"scope": "overrides", "values": built}
-        for p in b["parts"] if materials is not False else ():
-            p["material"] = (materials or {}).get(p["name"], "pla_basic")
+        for p in b["parts"]:
+            if materials is False:
+                p.pop("material", None)
+            else:
+                p["material"] = (materials or {}).get(p["name"], "pla_basic")
         with open("out/build.json", "w") as f:
             json.dump(b, f)
 
