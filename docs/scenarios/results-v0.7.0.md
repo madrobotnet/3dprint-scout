@@ -5,6 +5,9 @@ each run with Claude and with Codex from the same prompts, as `README.md` in thi
 describes. One row per run; the columns are the fields of its "Recording a run". The full
 transcript of each run, with its checklist marked, is in `runs/<agent>/<id>.md`
 (`runs/claude/a2-unmeasured.md`, `runs/codex/a2-unmeasured.md`); a row only summarises it.
+For Claude, the rows of given-answers, holes-unknown, bambu-template, change-request and
+unattended are the re-runs at e2f7953; the other four are the first pass at 1a9acb8 ("First pass
+and re-run", below).
 
 - **Prompt**: the scenario file and the commit it was taken from (`a2-unmeasured.md @ abc1234`):
   its opening message and scripted replies are the exact text given.
@@ -16,17 +19,17 @@ transcript of each run, with its checklist marked, is in `runs/<agent>/<id>.md`
 
 | Scenario | Prompt | Agent and model | Skill commit | Asked | Did | Claimed | finalize | Result |
 |---|---|---|---|---|---|---|---|---|
-| given-answers | `given-answers.md` @ 8a663aa | Claude Code-based harness subagent, claude-opus-5-5 | 1a9acb8 | Concept pick (3 variants); Phase 2: clearance 1.3 mm a side?, sizes taken at the widest point? ("Asks again" row), print profile?, mouth chamfer? (fallback); base-shape look and a test piece offer; a second look after the rounds | Showed the 4-model table without an A–D stop; wrote `printers.json` (MK4, 250 × 210 × 220, PrusaSlicer, holes `unknown`) from the message; dims both remotes caliper/user; Blender holder; proxy fits with play and lift-out, four measurements; pocket radius 3 → 1 mm after the table, told afterwards; STL + core 3MF + bundle in `deliver/2026-10-23`; finalize `--deliver` | "처음 약속드린 다섯 가지는 모두 모델에서 확인했습니다. 다만 실제로 출력해서 꽂아 본 것은 아니에요." Each promise "확인됨" with its evidence; the remotes' fit not test-printed | `use` verified, `geometry` verified; remotes-in, third-deep, side-by-side, wide-foot, mouth-chamfer verified | Matches. Should missed: the given sizes re-confirmed at Phase 2 (widest point) |
+| given-answers | `given-answers.md` @ b6134c8 | Claude Code-based harness subagent, claude-opus-5-5 | e2f7953 (v070-rerun; content of main ecc5036 + kit b6134c8) | Concept pick (3 variants); Phase 2: the sizes taken at the widest point of the lower third? ("Asks again" row), clearance 1.3 mm a side?; base-shape look (pockets, mouth rounds and top chamfer already built) and "keep the P3 warning or add a 1 mm band?" (fallback) | Reference table without an A–D stop; `printers.json` (MK4, 250 × 210 × 220, PrusaSlicer, holes `unknown`) from the message; dims both remotes caliper/user; Blender holder; proxy fits with 1.3 mm play and lift-out, two measurements; the P3 warning left unaccepted, "the user handed the decision to me; not accepted"; no Phase 5 rebuild; STL + core 3MF + bundle in `deliver/2026-10-23`; finalize `--deliver` | "처음에 약속한 6가지: 모두 확인됨", one line each (the two looks share one); `stable` "계산했어요 … 약 17.7°"; the warning "열린 항목으로 남겨 두었어요 … '완전 확인'으로 표시되지 않아요"; not sliced or printed | `use` verified, `geometry` not verified (P3 open); insert-remotes, dip-third, wide-foot, stable, side-by-side, mouth-round verified | Differs: the base-shape look came after the mouth rounds and chamfer were built (skill); `geometry` not verified, the P3 warning the user handed back left open (the skill's path, against the kit's `geometry` must); Korean throughout (harness-only: English "Status:" blocks in every hand-back). Should missed: the widest-point question. Agreement holds |
 | given-answers | | Codex | | | | | | |
 | choice-d | `choice-d.md` @ 8a663aa | Claude Code-based harness subagent, claude-opus-5-5 | 1a9acb8 | A–D after four MakerWorld models, plus optional desk thickness and cable type (fallback) | Wrote nothing (only `build.py detect`); handoff of model 1 (GH05TU, CC BY-NC-SA) with URL, licence terms and download steps | "아직 확인되지 않은 것": desk fit, 3 vs 5 cables on the page, size and bed fit ("프린터도 확인하지 않았어요"), "슬라이싱 결과와 출력 품질: 아무것도 검증하지 않았어요"; page facts "만든 사람의 설명이고, 제가 확인한 건 아니에요" | n/a (choice D) | Matches |
 | choice-d | | Codex | | | | | | |
-| holes-unknown | `holes-unknown.md` @ 8a663aa | Claude Code-based harness subagent, claude-opus-5-5 | 1a9acb8 | A–D, plus how many rods and how long (fallback); concept pick (with the table for concept 2); base-shape look and three fit-test rings | `printers.json` holes `unknown`; socket 12.4 mm, fit `--min-clearance 0.2`; rings 12.2/12.4/12.6 delivered apart; a look promise added in Phase 4, a Blender rebuild made the look stale, then `_verify.accepted` on "모양 좋아요. 계속해 주세요."; rod-in-out and no-tip made prototypes without the Phase 4 question; STL + core 3MF + bundle; finalize `--deliver` | "시험 출력을 하지 않아서 아직 시제품입니다." rod-in-out, no-tip "확인 안 됨(시제품)"; rod-upright "모델에서 확인됨"; the look "그대로 받으신 걸로 기록했어요"; socket may be tight or loose; ends with an English "(Coordinator note, not for the user: …)" | `use` not verified, `geometry` verified; rod-in-out not verified (prototype), rod-upright verified, no-tip not verified (prototype), flat-disk-look excluded | Differs: Korean throughout (English coordinator notes in three messages, the delivery included); the look promise excluded on a look approval, not the user's agreement; no-tip a prototype the user did not agree to |
+| holes-unknown | `holes-unknown.md` @ b6134c8 | Claude Code-based harness subagent, claude-opus-5-5 | e2f7953 (v070-rerun; content of main ecc5036 + kit b6134c8) | A–D, plus the rod length and what goes on top, optional (fallback); concept pick; use list and table, plus the preset name, optional; base-shape look; leaving Phase 4: test rings first or straight on, and measure the rod length or keep it assumed | `printers.json` holes `unknown`; socket 12.4 mm, fit `--min-clearance 0.2`; rings 0.3 / 0.4 / 0.5 in `fit-test/`; rod length 40 cm assumed after the fallback, recorded as decided for the user; the printed fit taken as a prototype on the user's reply, kept as a plain `_assumptions` line; rebuild byte-identical; STL + core 3MF + bundle; finalize `--deliver` | "먼저, 시제품이라는 점부터" (the printed fit, with the user's words); rod-in-out "모델로는 확인됐습니다 … (시제품)"; rod-upright "가정에 기댑니다"; lead-in, disc-collar "확인됐습니다"; the socket may print tight or loose | `use` assumed, `geometry` verified; rod-in-out verified, rod-upright assumed, lead-in verified, disc-collar verified | Differs, harness-only: Korean throughout (an English preface and "Background for the caller" in every hand-back). The row and the agreement hold |
 | holes-unknown | | Codex | | | | | | |
-| bambu-template | `bambu-template.md` @ 8a663aa | Claude Code-based harness subagent, claude-opus-5-5 | 1a9acb8 | A–D, plus rod length and a stop lip (fallback); concept pick; use list and table; base-shape look; test print offer, a look at the redrawn image and "얇은 벽 알림을 그대로 둘까요?" (fallback) | `printers.json` holes `model` (Bambu's public profiles fetched with curl); a three-arm spring cup gripping by 0.15 mm modelled interference, +0.15 mm radial model compensation on the grip circle, fit `--max-interference 2.5 --min-clearance 0`; `_verify.accepted` "cap P3" on the fallback; flat-end a prototype after rebuilds staled both looks; made its Blender export deterministic; deleted the offered test-print project; `bambu3mf.py` project + STL + bundle; finalize `--deliver` | "시험 출력을 하지 않고 진행하기로 하셔서 시제품으로 드려요"; on-off-by-hand, stays-on, flat-end "확인 안 됨(시제품)"; spring-arms "가정이 맞으면 성립"; "얇은 벽 알림은 맡겨 주셔서 그대로 뒀어요"; slicing and print not done | `use` not verified, `geometry` verified; on-off-by-hand, stays-on, flat-end not verified (prototype), spring-arms assumed; 3MF names PLA Basic and 0.20mm Standard | Differs: the fallback recorded as the user's acceptance of the thin-wall warning; flat-end a prototype the user did not agree to. The socket-size item is n/a for this interference grip (the compensation was added) |
+| bambu-template | `bambu-template.md` @ b6134c8 | Claude Code-based harness subagent, claude-opus-5-5 | e2f7953 (v070-rerun; content of main ecc5036 + kit b6134c8) | A–D; concept pick; Phase 2: the free rod length to the bracket (fallback), use list and table, a three-step test print, the Bambu Studio version (optional); base-shape look, and a prototype question naming on-off and stays-on with the cost and three choices | `printers.json` holes `model` (Bambu public profiles v02.08.02.61); six ribs, tip circle 22.0 = 22.0 − 0.30 + 0.30, bore 22.7; fit `--min-clearance 0`; free length assumed 20 mm, recorded as handed back; prototype lines with the user's reply word for word; `bambu3mf.py` project + STL + bundle; finalize `--deliver`; template unchanged | "다만 이 마개는 시제품이에요" with the user's reply; on-off, stays-on "확인 안 됨"; inner-ribs, lead-in, flat-top "확인했어요"; not sliced or printed; "구멍 보정 … 켜지 마세요" | `use` not verified, `geometry` verified; on-off, stays-on not verified (prototype); inner-ribs, lead-in, flat-top verified; the 3MF names PLA Basic and 0.20mm Standard | Matches |
 | bambu-template | | Codex | | | | | | |
-| change-request | `change-request.md` @ 8a663aa | Claude Code-based harness subagent, claude-opus-5-5 | 1a9acb8 | Nothing | Read development.md's scenario rows first; `back_h` 90 and `expect` [49, 19, 90]; rebuilt (Python engine); fit, member and lip renewed with the same links; new `deliver/2026-10-23` (`bambu3mf.py` project + STL + bundle); 2026-10-20 delivery and unrelated files byte-identical; `out/bambu_job.json` rewritten; no look stop | Three promises "확인했어요", each with what showed it; "새 폴더에 넣었고, 10월 20일 버전은 그대로 두었어요" | `use` verified, `geometry` verified; seat, cable-out, holds verified | Matches. Should missed: no look at the taller holder. Confounded: the agent read this row in development.md |
+| change-request | `change-request.md` @ b6134c8 | Claude Code-based harness subagent, claude-opus-5-5 | e2f7953 (v070-rerun; content of main ecc5036 + kit b6134c8) | A look at the taller holder (after the rebuild and the renewed checks) | `back_h` 90 (params.json and the generator's default), `expect` [49, 19, 90]; rebuilt (Python); fit, member and lip renewed with the same links; finalize; after the look a new `deliver/2026-10-23` (`bambu3mf.py` project with a 5 mm brim override, STL, bundle); the 2026-10-20 delivery and unrelated files byte-identical | In English: "The new version … is in a new folder, `deliver/2026-10-23`. I left the 2026-10-20 files as they were."; three promises "checked again", each with what was not covered; the brim, why and how to remove it | `use` verified, `geometry` verified; seat, cable-out, holds verified | Differs, harness-only: Korean throughout (the delivery in English after the reply arrived labelled as a coordinator message). Every row item holds |
 | change-request | | Codex | | | | | | |
-| unattended | `unattended.md` @ 8a663aa | Claude Code-based harness subagent, claude-opus-5-5 | 1a9acb8 | Once: the case's model or caliper size (with a cover? an optional cable hole) | References, concepts and table alone; `printers.json` MK4/PrusaSlicer; `petg_basic`; dims caliper/user 62 × 28 × 48; Blender stand, proxy fits seated and lifting out, two measurements, renewed after a rebuild changed the STL; 17 `_assumptions` lines, none for the base-shape look taken alone; STL + core 3MF + bundle; finalize `--deliver` | Opens "재 주신 크기 …로 거치대를 완성했어요 … 모델 검사는 모두 통과했습니다"; both promises "모델에서 확인됨"; what it decided alone comes third; "아직 직접 보신 적은 없어요" | `use` verified, `geometry` verified; case-stand, finger-notch verified | Differs: `_assumptions` does not record the base-shape look taken alone; the last message does not open with what was decided alone |
+| unattended | `unattended.md` @ b6134c8 | Claude Code-based harness subagent, claude-opus-5-5 | e2f7953 (v070-rerun; content of main ecc5036 + kit b6134c8) | Once: the case's model or caliper size (plus a cable path and V2/V3, optional) | References, concepts and use list alone; `printers.json` MK4/PrusaSlicer; `petg_basic`; dims caliper/user 62 × 28 × 48; Blender stand, proxy fit seated with 0.35 mm play, two measurements; rebuild gave the same STL; 21 `_assumptions` lines, the base-shape look taken alone among them; STL + core 3MF + bundle; finalize `--deliver` | Opens "… 끝까지 만들었어요. 약속한 세 가지가 모두 확인됐고 …", then "묻지 않고 제가 정한 것" (the skipped look among them) and "확인이 안 된 채 나가는 약속은 없어요"; three "확인됨" | `use` verified, `geometry` verified; stand-upright, take-out, finger-notch verified | Differs: the delivery opens with a result before what was decided alone (skill). The first pass's other miss, the base-shape look not recorded, is fixed |
 | unattended | | Codex | | | | | | |
 | A (a-kept-broken) | `a-kept-broken.md` @ 8a663aa | Claude Code-based harness subagent, claude-opus-5-5 | 1a9acb8 | Nothing | Read the failing fit report (no finalize on the found state); gap derived from the plug, 13.4 + 2 × 0.3 = 14.0 mm, `expect` [50, 19, 70]; rebuilt; fit at the new placement, member and lip renewed; finalize verified before any delivery file; `bambu3mf.py` project (brim, 4 walls) + STL + bundle | "어제 재 주신 플러그가 13.4 mm로, 두 받침 사이 틈(13.0 mm)보다 넓어서 들어가지 않는 상태였습니다. 그래서 틈을 … 14.0 mm로 넓혔습니다"; three "확인됨" lines with what showed each; the tape not checked | `use` verified, `geometry` verified; seat, cable-out, holds verified | Matches. Should missed: the wider holder not shown before delivering |
 | A (a-kept-broken) | | Codex | | | | | | |
@@ -35,29 +38,90 @@ transcript of each run, with its checklist marked, is in `runs/<agent>/<id>.md`
 | C (c-param-changed) | `c-param-changed.md` @ 8a663aa | Claude Code-based harness subagent, claude-opus-5-5 | 1a9acb8 | Nothing | `base_t` 6.5 (params.json and the generator's default); rebuilt; fit at z −15.5, `strength.py --from-build` with the same links (SF 9.1, every input linked), lip ≥ 12.0; delivered, deleted that unshown delivery and delivered again with a brim | "6 mm 때 확인한 결과는 쓰지 않았습니다"; three "확인됨"; prong "약 9.1배 … 6 mm일 때는 7.75배였습니다", plus its own estimate that default infill still leaves enough | `use` verified, `geometry` verified; seat, cable-out, holds verified; member `h` base_t 6.5 | Matches |
 | C (c-param-changed) | | Codex | | | | | | |
 
+## First pass and re-run
+
+The first Claude pass ran all nine scenarios with the skill at 1a9acb8 and the kit at 8a663aa.
+Its records are kept as `runs/claude/<id>-1a9acb8.md` for the five scenarios run again; the rows
+of choice-d, A, A2 and C above are still that pass. What differed in the first pass, and why the
+five were run again:
+
+- **Blender STLs were not byte-deterministic** at 1a9acb8: a rebuild changed the triangle order,
+  so looks and other evidence went stale. In holes-unknown and bambu-template that led to the
+  exclusion and the prototypes graded there. #23 fixed the Blender STL export.
+- **Agreement was read into replies that were not agreement**: a look approval recorded as the
+  exclusion of a look promise (holes-unknown), the fallback recorded as the acceptance of a
+  thin-wall warning (bambu-template), and promises delivered as prototypes without a question that
+  named them. #24 wrote the agreement rules into the skill (what counts as agreement, what a
+  reply that hands the decision back leads to, the prototype line's note), and every attended
+  checklist gained the same agreement item (b6134c8).
+- **The scenario table shipped with the skill** in `references/development.md`, and the
+  change-request agent read its row before acting. b6134c8 moved the table to
+  `docs/scenarios/conversation-checks.md`, which is not installed.
+- The checklists also got the first grader's fixes (b6134c8), and the re-runs were graded against
+  them.
+
+The re-runs used e2f7953 (`v070-rerun`: the content of main ecc5036, that is 1a9acb8 with #23 and
+#24, plus the kit commit b6134c8). Result per scenario, first pass → re-run:
+
+- given-answers: matches → differs: the base-shape look came after the features; `geometry` not
+  verified because the P3 warning the user handed back stays open; English caller blocks
+  (harness-only).
+- holes-unknown: differs → differs, harness-only (English caller blocks); the two agreement
+  failures did not recur.
+- bambu-template: differs → matches; the fallback is no longer an acceptance, and the prototypes
+  rest on the user's reply to a question that named them.
+- change-request: matches → differs, harness-only (the delivery in English after a reply labelled
+  as from a coordinator); the look at the taller holder now happens, and the agent read no
+  scenario row.
+- unattended: differs → differs on one item: the delivery still opens with a result before what
+  was decided alone; the base-shape look taken alone is now recorded.
+
+The agreement item holds in all four attended re-runs: no `accepted` entry, no exclusion, the
+prototypes (bambu-template) and the prototype claim (holes-unknown) on replies to questions that
+named them, and each fallback (holes-unknown, bambu-template, given-answers) recorded as handed
+back, never as agreement.
+
 ## Claude runs: setting and confounds
 
-The nine Claude runs (2026-10-23) used the skill at 1a9acb8 (main, installed in the release
-layout) and the kit at 8a663aa; each scenario was run by a separate Claude Code-based harness
-subagent (claude-opus-5-5) on Linux with Python 3.13 and bpy 5.2.2, web search on; the session
-lead played the user from the scripts, and a separate agent graded the runs. In that harness the
-user saw only the last message of each turn: notes the agents wrote between tool calls (English
-in seven runs) were not shown and are not graded; the English "(Coordinator note …)" blocks in
-holes-unknown were inside messages the user saw and are graded. Their cause: the lead relayed the
-scripted replies as a coordinator. Later runs played by an agent follow README's rules for that
-("A run played by another agent").
+The first pass (2026-10-23) ran all nine scenarios with the skill at 1a9acb8 (main, installed in
+the release layout) and the kit at 8a663aa. The re-runs (2026-10-23) ran five of them with the
+skill at e2f7953, installed the same way without `docs/`, and the kit at b6134c8 (unchanged at
+91473b5). In both, each scenario was run by a separate Claude Code-based harness subagent
+(claude-opus-5-5) on Linux with Python 3.13 and bpy 5.2.2, web search on; the session lead played
+the user from the scripts, and a separate agent, which took no part in the runs, graded them.
 
-Known confounds, found during the runs (facts, not excuses for a result):
+How the harness worked, and what it does to the marks:
+
+- The lead sent each scripted reply word for word with a messaging tool. The run agents received
+  each reply labelled as a message from a coordinator ("The coordinator sent a message while you
+  were working: …"); the change-request agent of the re-run says so in its own record. The
+  re-run's brief named no coordinator and told each agent that the whole last message of a turn
+  is shown to the user, as README's "A run played by another agent" asks; the label came from the
+  messaging tool.
+- A run agent returns each turn's message through a hand-back that is also a report to its
+  caller. That hand-back is the last message of the turn, what the user saw, and it is graded
+  whole. Notes written between tool calls were not shown and are not graded.
+- Several agents wrote for the caller inside that message. In the first pass, holes-unknown ended
+  three messages with English "(Coordinator note …)" blocks. In the re-runs, holes-unknown and
+  given-answers wrapped every message in English ("Background for the caller", "Status:",
+  "Message for the user (Korean, verbatim):"), and change-request switched to English after the
+  first reply and delivered in English. These fail "In Korean throughout"; each Result names them
+  as harness-only, apart from what the skill's own behaviour did.
+
+Known confounds (facts, not excuses for a result):
 
 - The run agents had the skill owner's account memory in their context; it names a Bambu Lab
-  X2D and Bambu Studio. Codex runs will not.
-- `references/development.md`, which ships with the skill, holds the scenario rows. The
-  change-request agent read them (lines 110–140) before acting and cited "the change-request
-  scenario expects a new delivery"; the other eight did not read the file. The table has since
-  moved to `docs/scenarios/conversation-checks.md`, which is not shipped with the skill.
-- Blender-built STLs were not byte-deterministic at this commit (the triangle order changed
+  X2D and Bambu Studio. Every run used the printer of its folder or its opening message; in the
+  re-runs, holes-unknown and given-answers mentioned the X2D in their caller blocks. Codex runs
+  will not have that memory.
+- First pass only: `references/development.md`, which shipped with the skill, held the scenario
+  rows, and the change-request agent read them (lines 110–140) and cited "the change-request
+  scenario expects a new delivery"; the other eight did not read the file. In the re-runs the
+  table is in `docs/scenarios/conversation-checks.md`, not installed; the change-request agent's
+  searches found only pointers.
+- First pass only: Blender-built STLs were not byte-deterministic (the triangle order changed
   between identical builds), so a rebuild made `seen` entries and other evidence stale.
   given-answers, holes-unknown, bambu-template and unattended built with Blender; in
   holes-unknown and bambu-template the stale looks led to the exclusion and the prototype graded
-  there. This is being fixed separately.
-
+  there. #23 fixed it: in the re-runs, the rebuilds in holes-unknown and unattended gave the same
+  STL, and no look went stale.

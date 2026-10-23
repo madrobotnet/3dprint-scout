@@ -1,335 +1,550 @@
 # holes-unknown, Claude
 
-- Agent and model: Claude Code-based harness subagent, model claude-opus-5-5 (one subagent per
-  scenario; the session lead played the user and relayed the scripted replies)
-- Skill commit: 1a9acb8 (main, installed in the release layout, without `docs/`)
-- Kit: the scenario file at 8a663aa (`v070-scenarios`)
-- Date, OS, Python: 2026-10-23, Linux, Python 3.13 with bpy 5.2.2 (manifold3d, numpy)
-- Web search: on; denied approvals: none
-- setup.py output: empty folder (`setup.py holes-unknown`, no files written)
-- Engine: Blender (bpy) for the stand, the Python engine for the concepts and the rod proxy
+- Agent and model: Claude Code-based harness subagent (run agent a68cf3a95666c0c5d), model
+  claude-opus-5-5; one run agent per scenario, the session lead played the user
+- Skill commit: e2f7953 (v070-rerun; content of main ecc5036 + kit b6134c8), installed in the
+  release layout, without `docs/`
+- Kit: the scenario file at b6134c8 (`v070-scenarios`; unchanged at 91473b5)
+- Date, OS, Python: 2026-10-23, Linux, Python 3.13.16 with bpy 5.2.2 (manifold3d, numpy)
+- Web search: on; denied approvals: none recorded
+- setup.py output: empty folder (`runs071/log/setup_holes-unknown.json`, no files written)
+- Engine: Blender (bpy) for the stand; manifold3d scripts for the concepts and the rod proxy
+
+This is the re-run. The first pass, at skill 1a9acb8, is
+[`holes-unknown-1a9acb8.md`](holes-unknown-1a9acb8.md).
+
+How this harness worked (facts that bear on the marks below):
+
+- The lead started the run agent with the run brief (`runs071/run-brief.txt`): the skill's
+  folder, the working folder, and "The last message of each of your turns is shown to the user
+  exactly as you write it, all of it. Write nothing in it for anyone but the user." The brief
+  names no coordinator or lead.
+- The run agent returns each turn through a hand-back to its caller (`SubagentHandback`), which
+  is also a report to that caller. The hand-back is the last message of the turn: under the
+  brief it is what the user saw, and it is graded whole. Where an agent ended a turn with plain
+  text instead, the harness made it hand back ("[handback-send-enforce]"); the hand-back is what
+  is quoted.
+- The lead sent each scripted reply word for word with a messaging tool; the agent received it
+  labelled "The coordinator sent a message while you were working: …".
+- After the run ended, the lead asked for an English record of the run; that request and the
+  reply are not part of the conversation and were used here only to cross-check.
+- Graded by a separate agent that took no part in the runs, from the transcript, the project
+  folder as the run left it, `runs071/log/` (the lead's replies and notes) and finalize run
+  afterwards.
 
 Confounds of this run (facts; none of them changes a mark below):
 
 - The run agent had the skill owner's account memory in its context (it names a Bambu Lab X2D
-  and Bambu Studio). This run used the printer and slicer of the opening message. Codex runs
-  will not have that memory.
-- `references/development.md`, shipped with the skill, holds the scenario rows. This agent did
-  not read it (its record lists it as not read).
-- Blender-built STLs were not byte-deterministic at this commit (the triangle order changed
-  between identical builds), so any rebuild made `seen` entries and other evidence stale. This
-  run built with Blender: after the user's look it added a parameter (`rod_len`, no change of
-  shape), rebuilt, and the STL's hash changed; the user's look then no longer matched the image,
-  which led to the `accepted` entry graded below. The agent found the nondeterminism itself.
-
-How this harness worked: the agent got a run brief (the skill's folder, its working folder,
-"talk to the user only through the final message of each of your turns", "to show an image, put
-its path in your message") followed by the opening message; the lead relayed each reply word for
-word from the scenario's table. Text the agent wrote between tool calls was not shown to the user;
-only the last message of each turn was. After the run ended, the lead asked for an English record
-of the run; it is not part of the conversation and was used here only to cross-check. Graded by a
-separate agent that took no part in the runs, from the transcript, the project folder as the run
-left it and finalize run afterwards.
+  and Bambu Studio). This run used the printer and slicer of the opening message; the delivery's
+  caller block says "in this project the user stated a Prusa MK4 with PrusaSlicer, which differs
+  from the Bambu X2D in their saved notes". Codex runs will not have that memory.
+- Harness: every hand-back, the delivery included, wraps the Korean message for the user in
+  English written for the caller: a preface ("I stopped at the skill's Phase 1 point, …",
+  "Message for the user, as I wrote it (Korean):") and a "Background for the caller:" block. The
+  user saw them, so they are graded; under Result they count as harness-only.
+- The Blender STL is now deterministic (#23): the Phase 5 rebuild gave a byte-identical STL, and
+  the user's look stayed fresh.
 
 ## Conversation
 
-Tool calls are summarised in order: reads, web searches and script help grouped; "(scratchpad)" is the agent's scratch folder, outside the project folder. The agent's messages are quoted whole.
+Tool calls and notes are listed in order between the messages. Absolute paths are shortened in
+the whole section, the agent's messages included: `$PROJECT` is the run's project folder
+(`…/scratchpad/runs071/claude/holes-unknown`), `$SKILL_DIR` the installed skill, `$SCRATCH` the
+session's scratchpad, outside the project folder. Otherwise the agent's messages are quoted whole.
 
 **User:** 지름 12.0 mm 나무 막대를 세워서 꽂아 두는 받침대를 만들어 주세요. 막대 지름은 캘리퍼로 쟀어요. 막대는 손으로 꽂았다 뺐다 할 수 있어야 해요. 프린터는 프루사 MK4(베드 250 × 210 mm, 높이 220 mm)이고, 프루사슬라이서로 출력해요. 슬라이서 설정은 잘 몰라요.
 
 *(opening message)*
 
-Tool calls:
+Tool calls and notes, in order:
 
-- read SKILL.md, references/phase-0-detect.md
-- `build.py detect`
-- read references/phase-1-references.md, references/phase-2-printer-dimensions.md, references/tolerances.md
-- web search (6): printables 12mm dowel stand holder; thingiverse wooden dowel rod stand base 12mm; "dowel" stand base 3d print vertical holder printables OR makerworld OR thingiverse; flag pole stand base 12mm dowel 3d model; thingiverse "dowel stand"; printables "dowel base" OR "dowel stand" OR "rod stand" desk flag 12 mm hole
-- fetch (2): https://makerworld.com/en/models/233902, https://www.printables.com/model/1274031-flag-pole-base-remix
-- web search (8): printables desk flag stand stick holder; makerworld dowel stand round base hole parametric; thingiverse desk flag holder base stick flag; printables "dowel holder" stand table vertical; "desk flag stand" OR "table flag stand" printables.com model; thingiverse customizable dowel base stand multiple holes; printables doll stand base dowel rod hole; makerworld "dowel" "stand" base weighted coin hole wooden stick upright
-- fetch (2): https://makerworld.com/en/models/150025, https://makerworld.com/en/models/1044570
-- web search (1): printables.com model "stick stand" OR "pole stand" OR "dowel stand" base
-- fetch (1): https://www.printables.com/model/287856-stick-clip-stand-for-painting
+- `cat $SKILL_DIR/SKILL.md; ls -R $SKILL_DIR; ls -la $PROJECT`
+- read (tool output file) bpsjhk60n.txt
+- `cat $SKILL_DIR/references/phase-0-detect.md`
+- `cat $SKILL_DIR/references/phase-1-references.md`
+- `timeout 300 python3 "$SKILL_DIR/scripts/build.py" detect`
+- note between tool calls (not shown to the user): Blender(bpy) 사용 가능, 웹 검색으로 기존 모델을 찾겠습니다.
+- web search: 12mm dowel stand holder printables
+- web search: dowel rod base stand 3d print thingiverse 12mm
+- web search: makerworld dowel stand base round rod holder
+- web search: printables "dowel stand" OR "dowel base" OR "rod base" 3d model
+- web search: flag stick stand base 3d print printables thingiverse desk flag holder
+- fetch: https://3dgo.app/models/makerworld/2975124
+- fetch: https://3dgo.app/models/printables/1360643
+- fetch: https://makerworld.com/en/models/233902
+- web search: printables.com model "flag stand" base dowel hole
+- web search: thingiverse "dowel stand" thing
+- fetch: https://www.printables.com/model/1274031-flag-pole-base-remix
+- fetch: https://3dgo.app/models/makerworld/1132093
+- fetch: https://www.printables.com/model/1197770-dark-tower-game-flag-basetop-for-tower
+- `cat $SKILL_DIR/references/phase-2-printer-dimensions.md`
+- `cat $SKILL_DIR/references/tolerances.md`
 
-**Agent:**
+**Agent** (the hand-back message, shown to the user whole):
 
-> 작업 환경: Blender(bpy 5.2.2)로 모델링합니다. 기존 모델은 웹 검색으로 찾았고, 미리보기는 Blender 렌더로 보여 드립니다. Blender로 만들면 편집 가능한 .blend 파일이 남습니다. CAD 프로그램 같은 작업 이력은 없지만, 모든 치수는 스크립트 안의 숫자로 남아 있어서 나중에 바꿀 수 있어요.
+> I stopped at the skill's Phase 1 point, where the user picks how to proceed. Nothing has been modeled and no files are written yet. The project folder is still empty: $PROJECT
 >
-> **요청 정리:** 지름 12.0 mm(캘리퍼 측정) 나무 막대를 세워 꽂아 두는 받침대입니다. 막대는 손으로 꽂았다 뺐다 할 수 있어야 하고, 프루사 MK4에서 프루사슬라이서로 출력합니다.
+> Message for the user, as I wrote it (Korean):
 >
-> ## 비슷한 기존 모델 4개
+> ---
+> Blender(bpy 5.2.2)로 모델링하고, 참고 모델은 웹 검색으로 찾았습니다.
 >
-> | # | 이름 | 사이트 | 라이선스 | 참고할 점 |
-> |---|---|---|---|---|
-> | 1 | [Dowel Filament Racks](https://makerworld.com/en/models/233902) | MakerWorld | CC BY-NC-SA 4.0 | 막대 굵기에 따라 구멍을 1 mm 단위로 나눠 둠(½인치≈12.7 mm 막대에 13 mm 구멍). 디자이너가 "선반 없이 단독으로 세우면 튼튼하지 않다"고 적어 둠. 그래서 바닥을 넓게 해야 한다는 걸 알 수 있음 |
-> | 2 | [Doll Head and Wig Stand – 15 cm Base](https://makerworld.com/en/models/150025) | MakerWorld | CC BY-NC-SA 4.0 | 지름 15 cm 받침으로 60~80 cm 막대를 세움. 무게를 늘리려고 벽과 채움을 많이 넣은 출력 설정. 구멍이 헐거우면 막대에 테이프를 감으라는 조언 |
-> | 3 | [Flag For Painting](https://makerworld.com/en/models/1044570) | MakerWorld | Standard Digital File License(공유·판매 금지) | 넓은 원형 받침과 무게를 더하는 링. 막대·받침·깃발을 따로 출력해 색을 다르게 할 수 있게 나눔 |
-> | 4 | [Stick Clip Stand for Painting](https://www.printables.com/model/287856-stick-clip-stand-for-painting) | Printables | 페이지 글에는 표시 안 됨(모델 페이지의 License 칸에서 확인 가능) | 막대 여러 개를 꽂는 구멍 배열. 구멍마다 여유를 줘서 출력 오차가 있어도 꽂히게 함(2 mm 막대용이라 크기는 다름) |
+> **요청 정리**
+> 지름 12.0 mm(캘리퍼 실측) 나무 막대 하나를 세워서 꽂아 두는 받침대입니다. 막대는 손으로 꽂고 뺄 수 있어야 하고, 프루사 MK4에서 프루사슬라이서로 출력합니다.
 >
-> 그대로 쓸 만한 모델은 없었습니다. 1번은 구멍 크기는 맞지만 선반에 끼우는 필라멘트 거치대용이고, 단독으로 세우면 불안정하다고 디자이너가 직접 적었습니다. 나머지는 막대 굵기가 다르거나 굵기가 나와 있지 않습니다. 기존 모델에서는 아이디어만 가져오고 형태는 따라 하지 않을 생각이라 NC(비상업) 라이선스 문제는 없습니다.
+> **찾아본 기존 모델 4개**
 >
-> ## 고르실 것
+> | # | 이름 | 사이트 | 링크 | 라이선스 | 가져올 만한 점 |
+> |---|---|---|---|---|---|
+> | 1 | Dowel Filament Racks | MakerWorld | [makerworld.com/en/models/233902](https://makerworld.com/en/models/233902) | CC BY-NC-SA 4.0 | 막대를 꽂는 소켓형 받침입니다. 구멍 크기별 버전이 따로 있습니다(10~26 mm, ½인치 막대용 13 mm). |
+> | 2 | Dowel Rod Plant Holder | Printables | [printables.com/model/1360643](https://www.printables.com/model/1360643) | CC BY | 막대를 세워 꽂는 받침입니다. 제작자는 바닥을 넓히고 다리를 달았더니 흔들림이 줄었다고 합니다. 다만 막대를 접착제로 고정하는 방식이라 그 부분은 맞지 않습니다. |
+> | 3 | Flag Pole Base remix | Printables | [printables.com/model/1274031](https://www.printables.com/model/1274031-flag-pole-base-remix) | 표시 안 됨 | 원본보다 바닥을 키워 안정성을 높였고, 깃대가 잘 들어가도록 구멍을 조금 넓혔습니다. 구멍 여유가 중요하다는 걸 보여 줍니다. |
+> | 4 | Dark Tower game flag base | Printables | [printables.com/model/1197770](https://www.printables.com/model/1197770-dark-tower-game-flag-basetop-for-tower) | 표시 안 됨 | 깃대를 마찰로만 잡고, 빼도 상하지 않는다고 합니다. 한계도 있습니다. 받침이 가벼워서 깃대를 뽑을 때마다 받침이 같이 빠진다고 하네요. 받침에 무게나 손으로 누를 자리가 필요하다는 교훈입니다. |
 >
-> - **A. 하나를 참고:** 예를 들어 2번처럼 넓고 묵직한 원형 받침
-> - **B. 여러 개 섞기 (추천):** 2번의 넓은 받침, 4번처럼 구멍에 여유를 주는 방식, 3번처럼 색을 바꿀 수 있게 나눈 부품
-> - **C. 처음부터 새로**
-> - **D. 기존 모델 그대로 쓰기:** 이번에는 맞는 게 없어서 추천하지 않습니다
-> - 다른 모델 **4개 더 보기**도 할 수 있어요.
+> 3번과 4번은 제가 읽은 페이지에 라이선스가 나오지 않았습니다. Printables 모델 페이지의 License 칸에서 확인하실 수 있습니다. 1번은 비상업(NC) 라이선스라서, 그대로 참고해 비슷하게 만들면 판매 같은 상업적 용도에는 쓸 수 없습니다.
 >
-> B나 C를 고르시면 생김새가 다른 시안 2~3개를 그림으로 먼저 보여 드리겠습니다.
+> 12 mm 막대 하나를 손으로 꽂았다 뺐다 하는 독립형 받침대로 그대로 쓸 만한 모델은 찾지 못했습니다. 모양이 단순해서 **C(새로 설계)**를 추천합니다.
 >
-> ## 같이 알려 주시면 좋은 것 (설계가 달라져요)
+> **어떻게 할까요?**
+> - **A.** 하나를 참고해서 만들기 (어느 모델의 어떤 점을 쓸지 말씀해 주세요)
+> - **B.** 여러 모델의 아이디어를 섞기
+> - **C.** 처음부터 새로 설계하기
+> - **D.** 기존 모델을 그대로 쓰기
+> - 다른 모델 4개 더 보기
 >
-> 1. **막대를 몇 개 꽂나요?** 1개인지, 여러 개라면 몇 개인지 알려 주세요.
-> 2. **막대 길이는 대략 얼마인가요?** 막대가 길수록 넘어지지 않게 바닥을 넓히거나 무겁게 해야 합니다.
+> B나 C를 고르시면 콘셉트 2~3개를 그림으로 보여 드리고, 그중 하나를 고르시면 됩니다.
 >
-> 슬라이서 설정은 몰라도 괜찮습니다. 출력 설정은 제가 정해서 쉽게 설명해 드릴게요.
+> **추가로 알려 주시면 좋은 것 (모르시면 넘어가셔도 됩니다)**
+> - 막대 길이가 대략 얼마인가요? 막대가 길수록 받침이 넓고 무거워야 넘어지지 않습니다.
+> - 막대 위에 뭔가를 올리거나 걸어 두나요? 아니면 막대만 세워 두나요?
+>
+> 참고로 Blender로 만들면 수정 가능한 `.blend` 파일이 남습니다. Fusion 같은 CAD처럼 작업 기록이 남지는 않지만, 모든 치수는 생성 스크립트에 숫자로 들어가 있어서 나중에 바꿀 수 있습니다.
+> ---
+>
+> Background for the caller:
+> - **Engines found:** Blender through the bpy module (5.2.2, with manifold3d), Python with manifold3d, and OpenSCAD 2021.01 (the slow CGAL-only build). The skill's engine rule picks Blender. Reference search is web search only (no marketplace tool), and there is no `.3dprint/printers.json` yet.
+> - **Reference research:** I used the skill's cap of six page fetches. The Printables plant holder (#2) was read through its 3dgo.app mirror, so its link is inferred from that page's address.
+> - **Hole size:** For hand removal the skill's tolerance table gives a sliding fit of +0.40 mm on the diameter, so a 12.40 mm modeled hole. The user doesn't know their PrusaSlicer settings, so hole compensation counts as unknown: the hole gets the fit clearance only, and a fit-test print should be offered in Phase 4.
+> - **Printer:** Prusa MK4 with a 250 × 210 mm bed and 220 mm height, as the user gave it. It still needs to be saved to printers.json in Phase 2, with material defaulting to PLA.
+> - **Next step:** wait for the user's A–D choice. If they pick B or C, build 2–3 low-detail concepts with previews and stop again for their pick.
 
 **User:** 기존 모델 말고 새로 만들어 주세요. 잘 모르겠어요. 알아서 정해 주세요.
 
-*(rows: "Shows existing models and asks which way to go (A–D)" + the fallback (how many rods, rod length))*
+*(rows: "Shows existing models and asks which way to go (A–D)" + the fallback, once (the optional rod length and what goes on top); delivered to the agent as "The coordinator sent a message while you were working: …")*
 
-Tool calls:
+Tool calls and notes, in order:
 
-- read references/phase-3-base-shape.md, references/design.md, references/engines/blender.md, references/checks.md
-- (probes: render.py --help)
-- `(shell) mkdir -p out/concepts`
-- `(shell) wrote out/concepts/make_concepts.py`
-- `render.py out/concepts/$v.stl -o out/concepts/$v.png --views iso,front,top --lang ko --color "$v=#c8a165" --overwrite`
-- read out/concepts/v1_disk.png, out/concepts/v2_cone.png, out/concepts/v3_three.png
-- web search (2): Original Prusa MK4 build volume 250 × 210 × 220 mm specifications prusa3d.com; Original Prusa MK4 build volume
-- fetch (1): https://www.prusa3d.com/product/original-prusa-mk4-4/
-- `validate.py build.py finalize.py`
-- `(shell) mkdir -p .3dprint`
-- `(shell) wrote .3dprint/printers.json`
+- note between tool calls (not shown to the user): 기존 모델 대신 새로 설계(C)로 진행합니다. 막대 길이와 용도는 기본값으로 정하고, 콘셉트 시안을 빠르게 만들어 보겠습니다.
+- `python3 "$SKILL_DIR/scripts/render.py" --help; python3 "$SKILL_DIR/scripts/preview.py" --help | head -40; sed -n 1,80p "$SKILL_DIR/scripts/parts.py"`
+- `mkdir -p $PROJECT/out/concepts && cat > $PROJECT/out/concepts/concepts.py <<'EOF' ; cd $PROJECT && python3 out/concepts/concepts.py out/concepts`
+- `for v in v1_disc v2_cone v3_tripod; do python3 "$SKILL_DIR/scripts/render.py" out/concepts/$v.stl -o out/concepts/$v.png --views iso,front,top --lang ko --overwrite 2>&1 | tail -15; done`
+- read $PROJECT/out/concepts/v1_disc.png
+- read $PROJECT/out/concepts/v2_cone.png
+- read $PROJECT/out/concepts/v3_tripod.png
+- `cd $PROJECT/out/concepts && python3 - <<'EOF' ; ls`
 
-**Agent:**
+**Agent** (the hand-back message, shown to the user whole):
 
-> 처음부터 새로 만드는 쪽(C)으로 진행할게요. 막대 개수와 길이는 맡겨 주셔서 이렇게 정했습니다.
-> - **막대 1개용**으로 만듭니다. 나중에 구멍 수만 바꾸면 여러 개용으로도 다시 만들 수 있어요.
-> - **길이 60 cm쯤 되는 막대까지** 넘어지지 않게 하는 걸 기준으로 삼았습니다.
->
-> ## 시안 3개 (대략적인 모양)
->
-> 세 가지 모두 서포트 없이 출력돼요.
->
-> **1번 — 납작한 원판형** (100 × 100 × 33 mm)
-> out/concepts/v1_disk.png
-> 재료가 가장 적게 들어요(모델 부피 56 cm³). 대신 가벼워서 30 cm 정도까지의 짧은 막대에 맞습니다.
->
-> **2번 — 원뿔(화산)형** (110 × 110 × 33 mm) ← 추천
-> out/concepts/v2_cone.png
-> 바닥이 가장 넓고 묵직해서 길이를 모르는 막대에 가장 안전합니다. 재료는 1번의 약 2.6배(148 cm³) 들어가요. 비스듬한 면에 층 자국이 계단처럼 살짝 보입니다.
->
-> **3번 — 막대 3개용 긴 판** (150 × 64 × 33 mm)
-> out/concepts/v3_three.png
-> 막대 여러 개를 나란히 꽂을 때 쓰는 모양이에요. 앞뒤 폭이 좁아서 그 방향으로는 덜 안정합니다.
->
-> ## 2번으로 만들면 이렇게 쓸 수 있어요
->
-> 1. **막대를 손으로 꽂고 뺄 수 있습니다.** 구멍을 막대보다 0.4 mm 크게(한쪽 0.2 mm 여유) 만듭니다. 다만 프린터는 구멍을 조금 작게 뽑는 경우가 많아요. 그래서 실제로 맞는지는 작은 시험 조각으로 확인하는 게 좋습니다. 시험 조각은 나중에 같이 드릴게요.
-> 2. **막대가 거의 똑바로 섭니다.** 구멍 깊이가 30 mm라서 막대가 기울 수 있는 각도는 1도 이하예요. 60 cm 막대라면 끝이 8 mm쯤 흔들리는 정도입니다.
-> 3. **막대를 꽂은 채 책상에 두어도 넘어지지 않습니다.** 평평한 책상에 60 cm 막대까지가 기준인데, 이 길이는 제가 정한 가정이에요. 실제로 넘어지지 않는지는 출력해서 세워 봐야 확실합니다.
->
-> ## 치수표 (2번 기준)
->
-> | 항목 | 값 | 출처 |
-> |---|---|---|
-> | 막대 지름 | 12.0 mm | 직접 재신 값(캘리퍼) |
-> | 구멍 지름 | 12.4 mm | 막대 지름에 손으로 빼는 여유 0.4 mm를 더한 값. 슬라이서 설정을 모르셔서 프린터 보정은 넣지 않았고, 시험 조각으로 확인 권장 |
-> | 구멍 깊이 | 30 mm | 제가 정함(기울기 1도 이하) |
-> | 구멍 아래 바닥 두께 | 3 mm | 제가 정함 |
-> | 구멍 입구 모따기 | 1 mm | 제가 정함(꽂기 쉽게) |
-> | 구멍 개수 | 1개 | 맡기셔서 제가 정함 |
-> | 버틸 막대 길이 | 60 cm까지 | 맡기셔서 제가 정함(가정) |
-> | 바닥 지름 | 110 mm | 제가 정함 |
-> | 꼭대기 지름 | 26 mm | 구멍 둘레 벽 두께 6.8 mm |
-> | 전체 높이 | 33 mm | 바닥 3 mm + 구멍 30 mm |
-> | 바닥 테두리 모따기 | 0.4 mm | 첫 층이 옆으로 퍼지는 것 방지 |
-> | 재료 | PLA | 말씀이 없어서 가정 |
-> | 노즐 | 0.4 mm | MK4 기본 |
-> | 프린터 | 250 × 210 × 220 mm | 말씀하신 값, [프루사 제품 페이지](https://www.prusa3d.com/product/original-prusa-mk4-4/)와 같음 |
-> | 베드 여유 | 가로 140 mm · 세로 100 mm · 높이 187 mm 남음 | 계산 |
->
-> **2번으로 이대로 진행할까요?** "추천대로"라고만 하셔도 됩니다. 다른 시안이 좋거나 막대가 실제로 여러 개, 또는 60 cm보다 길면 알려 주세요. 진행하시면 바탕 모양을 만들어 그림으로 다시 보여 드릴게요.
+> I built three concept sketches and stopped for the user's pick. The user chose C (original design) and said "알아서 정해 주세요". I set the open questions to defaults and recorded each as an assumption. "You decide" doesn't count as approving a concept, so the concept stop still needs their reply. The user's message is below.
 >
 > ---
-> (Coordinator note: in this turn I did not build a final model. I recorded the user's choice C. I decided the unknown hole count (1) and rod length (≤ 60 cm) myself and marked them as assumptions, because the user delegated them. I built and rendered 3 ungated concept variants (out/concepts/*.stl, *.png, *.params.json with promises) and wrote .3dprint/printers.json for the Prusa MK4 with PrusaSlicer, hole compensation "unknown". I stopped at the skill's concept review point, and the use list and parameter table go with that stop. Files are in ..)
+> 새로 설계하는 쪽(C)으로 진행합니다. 막대 길이와 용도는 정해 주신 대로 제가 정했습니다. 아래 가정이 틀리면 알려 주세요.
+> - 막대 길이는 40 cm 이하이고, 위에 아무것도 올리거나 걸지 않는다고 봤습니다.
+> - 평평한 책상이나 선반 위에 둡니다.
+> - 재료는 PLA로 정했습니다.
+>
+> **세 시안에 똑같이 들어가는 것**
+> - **구멍 지름 12.4 mm:** 막대(12.0 mm)보다 0.4 mm 크게, 손으로 꽂았다 뺐다 하기 알맞은 여유입니다.
+> - **꽂히는 깊이 30 mm:** 막대가 1° 넘게 기울지 않습니다.
+> - **입구 모따기:** 막대가 쉽게 들어가도록 구멍 입구를 비스듬히 깎습니다.
+> - 모두 지금 모양 그대로 서포트 없이 출력됩니다.
+>
+> **시안 3가지** (대략적인 모양이고, 정확한 치수는 고르신 다음에 맞춥니다)
+>
+> 1. **원판 + 기둥:** 지름 90 mm 원판 위에 높이 36 mm 기둥이 있습니다. 가장 흔한 모양입니다. 막대를 꽂은 채로 약 27°까지 기울여도 넘어지지 않습니다. 필라멘트는 보통입니다.
+>    $PROJECT/out/concepts/v1_disc.png
+>
+> 2. **낮은 원뿔(산 모양):** 바닥 지름 90 mm에서 꼭대기 26 mm로 좁아집니다. 가장 무겁고 튼튼합니다. 약 34°까지 기울여도 넘어지지 않고, 기둥 뿌리처럼 부러질 곳이 없습니다. 대신 필라멘트가 1번의 약 2배 들고 출력도 더 오래 걸립니다.
+>    $PROJECT/out/concepts/v2_cone.png
+>
+> 3. **다리 3개:** 가운데 기둥에서 다리 3개가 뻗습니다(폭 약 110 mm). 필라멘트가 가장 적게 들고(1번의 약 절반) 바닥이 울퉁불퉁해도 덜 흔들립니다. 대신 약 15°만 기울어도 넘어져서 셋 중 가장 쉽게 넘어지고, 다리가 걸리기 쉽습니다.
+>    $PROJECT/out/concepts/v3_tripod.png
+>
+> 넘어지지 않는 각도는 받침이 내부 15% 정도로 채워지고 막대가 40 cm라고 보고 대략 계산한 값입니다.
+>
+> **추천은 2번(낮은 원뿔)입니다.** 막대 길이를 모르는 상태에서는 가장 안정적이고 튼튼해서 실패할 일이 가장 적습니다. "2번"이라고만 답해 주셔도 됩니다. 다른 번호를 고르시거나 "1번인데 더 낮게"처럼 바꿔 말씀하셔도 됩니다.
+> ---
+>
+> Background for the caller:
+> - **Defaults taken** for "알아서": rod length 40 cm or less, nothing on top, a flat surface, and PLA (`pla_basic`). They go into `_assumptions` once a concept is picked.
+> - **Hole size:** The modeled hole is 12.4 mm, the sliding/removable fit (+0.40 on the diameter). The user's PrusaSlicer settings are unknown, so the hole gets the fit clearance only, with no extra compensation. A 3-step fit test should be offered in Phase 4.
+> - **Tip-over angles** in the message are my own rough hand estimates, not script output.
+> - **Next steps** after the pick:
+>   - Phase 2: create `.3dprint/printers.json` for the Prusa MK4 (250 × 210 × 220 mm, PrusaSlicer, hole compensation unknown).
+>   - Phase 2: show the use list and the parameter table, and stop.
+>   - Phase 3: write a Blender generator.
+>
+> Files are in $PROJECT/out/concepts:
+> - concepts.py
+> - v1_disc.stl, v2_cone.stl, v3_tripod.stl
+> - v1_disc.png, v2_cone.png, v3_tripod.png (Blender renders, each with a .png.json sidecar)
+> - v1_disc.params.json, v2_cone.params.json, v3_tripod.params.json (each concept's promises)
 
 **User:** 첫 번째 안으로 할게요.
 
-*(row: "Shows concept variants and asks which one" (the message also showed the use list and table for concept 2 and asked to go on with it))*
+*(row: "Shows concept variants and asks which one"; delivered to the agent as "The coordinator sent a message while you were working: …")*
 
-Tool calls:
+Tool calls and notes, in order:
 
-- read references/parts.md, references/phase-4-features-joints.md
-- (probes: finalize.py --help, measure.py --help)
-- `(python) edited .3dprint/params.json (promises, dims, _assumptions)`
-- `(shell) wrote stand_blender.py`
-- `(shell) mkdir -p out`
-- `build.py run stand_blender.py --params .3dprint/params.json --out out --printer .3dprint/printers.json > out/build.json`
-- `render.py out/stand.stl -o out/preview.png --lang ko --overwrite`
-- `render.py out/stand.stl -o out/look_$v.png --views $v --lang ko --overwrite`
-- read out/look_iso.png, out/look_front.png, out/look_top.png
-- (probes: fit_test.py --help)
-- `fit_test.py --profile circle --size 12.0 --mode ring --clearance 0.2 --step 0.1 --steps 3 --out out/fit --name rod_hole`
+- note between tool calls (not shown to the user): 1번(원판 + 기둥)으로 진행합니다. 프린터 정보부터 확인하겠습니다.
+- web search: Original Prusa MK4 technical specifications build volume 25×21×22 cm
+- web search: prusa3d.com Original Prusa MK4 printer build volume specifications
+- fetch: https://www.prusa3d.com/product/original-prusa-mk4-9/
+- `cd $SKILL_DIR && grep -n "elephant" -r scripts/*.py | head -30; grep -n "elephant\|P6" references/design.md | head -30`
+- `cd $SKILL_DIR && sed -n 1,80p references/design.md`
+- `cd $SKILL_DIR && cat references/phase-3-base-shape.md`
+- `mkdir -p $PROJECT/.3dprint && cd $PROJECT && python3 - <<'EOF'`
+- `cd $SKILL_DIR && grep -n "\"nozzle\"\|'nozzle'\|compensation\|unknown key\|not allowed" scripts/validate.py scripts/build.py | head -20`
+- `cd $SKILL_DIR && grep -n "def load_printer\|printers\[\|\.get(\"bed\"\|\"tools\"\|def _printer" scripts/*.py | head -20`
 
-**Agent:**
+**Agent** (the hand-back message, shown to the user whole):
 
-> 1번(납작한 원판형)으로 바탕 모양을 만들었습니다. 구멍까지 이미 들어가 있어요.
+> The user picked concept 1 (disc + collar), so I moved into Phase 2. I wrote the printer and project settings and stopped for the user to confirm the use list and dimensions, as Phase 2 requires. Nothing has been modeled yet. Their message is below.
 >
-> out/preview.png
+> ---
+> 1번(원판 + 기둥)으로 진행합니다. 만들기 전에 받침대로 할 수 있어야 하는 일과 치수를 한 번 보여 드릴게요.
 >
-> - **크기:** 100 × 100 × 33 mm. 모델 부피는 55 cm³입니다.
-> - **자동 검사:** 프린터에 들어가는지, 모양에 구멍·깨진 면은 없는지, 허공에 뜬 부분(서포트가 필요한 곳)이 없는지(0%)를 봤고 모두 통과했습니다. 가장 얇은 벽도 5.8 mm로 충분합니다.
-> - **모서리 처리:** 원판 윗모서리, 기둥 밑동, 기둥 윗모서리는 2 mm로 둥글렸습니다. 바닥 테두리는 첫 층이 옆으로 퍼지지 않게 0.4 mm 비스듬히 깎았어요. 구멍 입구도 1 mm 깎아서 막대가 쉽게 들어갑니다.
+> **받침대로 할 수 있어야 하는 일**
+> 1. **막대 꽂고 빼기:** 12.0 mm 나무 막대를 한 손으로 받침을 잡고 공구 없이 꽂았다 뺐다 할 수 있습니다. 구멍을 막대보다 0.4 mm 크게 만듭니다. 손으로 잘 들어가고 빠지는지는 실제로 출력해 봐야 확실해서, 다음 단계에서 구멍 크기 3가지를 시험해 볼 작은 조각(몇 g)도 같이 드릴게요.
+> 2. **똑바로 서 있기:** 막대가 30 mm 깊이로 꽂혀서 1° 넘게 기울지 않고, 꽂은 채로 넘어지지 않습니다. 이건 막대 길이 40 cm 이하라는 가정에 기댑니다.
+> 3. **입구 모따기:** 구멍 입구를 비스듬히 깎아 막대가 쉽게 들어갑니다.
+> 4. **모양:** 넓은 원판 위에 짧은 원기둥이 서 있습니다.
 >
-> ## 치수표 (1번 기준)
+> **치수**
 >
-> | 항목 | 값 | 출처 |
+> | 항목 | 값 | 근거 |
 > |---|---|---|
 > | 막대 지름 | 12.0 mm | 직접 재신 값(캘리퍼) |
-> | 구멍 지름 | 12.4 mm | 막대 지름에 손으로 빼는 여유 0.4 mm를 더한 값. 프린터 보정은 넣지 않음(슬라이서 설정을 모르셔서) |
-> | 구멍 깊이 / 아래 바닥 | 30 mm / 3 mm | 제가 정함(막대 기울기 0.76도) |
-> | 원판 지름 / 두께 | 100 mm / 6 mm | 고르신 1번 시안 |
-> | 기둥 지름 | 24 mm | 1번 시안(구멍 둘레 벽 5.8 mm) |
-> | 구멍 개수 | 1개 | 맡기셔서 제가 정함 |
-> | 버틸 막대 길이 | 30 cm 정도까지 | 1번은 가벼워서 기준을 30 cm로 낮춤(가정) |
-> | 재료 / 노즐 | PLA / 0.4 mm | 말씀이 없어서 가정 |
-> | 베드 여유 | 가로 150 mm · 세로 110 mm · 높이 187 mm 남음 | 계산 |
->
-> ## 구멍 시험 조각 (먼저 뽑아 보시길 권해요)
->
-> 프린터마다 구멍이 조금 작거나 크게 나옵니다. 그래서 받침대 전체를 뽑기 전에 작은 고리 3개로 맞는 크기를 먼저 확인하면 실패가 없어요. 고리는 각각 1 g이 안 되고 높이는 3 mm라 금방 뽑힙니다.
->
-> - out/fit/rod_hole_1.stl — 구멍 12.2 mm (손잡이에 작은 구멍 1개)
-> - out/fit/rod_hole_2.stl — 구멍 12.4 mm (구멍 2개, 지금 받침대와 같은 크기)
-> - out/fit/rod_hole_3.stl — 구멍 12.6 mm (구멍 3개)
->
-> 뽑는 방법: 프루사슬라이서에서 세 파일을 한꺼번에 열고, 평소 쓰시는 그대로(PLA, 기본 설정) 출력하세요. 받침대도 나중에 같은 설정으로 뽑아야 결과가 맞습니다. 출력한 뒤 막대를 하나씩 끼워 보고, 힘주지 않고 손으로 들어가면서 덜그럭거리지 않는 고리의 구멍 개수(1·2·3)를 알려 주세요.
->
-> **두 가지만 답해 주세요.**
-> 1. 모양은 이대로 괜찮으세요?
-> 2. 시험 조각을 먼저 뽑아 보실 수 있나요? 지금 어렵다면 가운데 크기(12.4 mm)로 진행하겠습니다. 그 경우 구멍이 맞는지는 시험 출력으로 확인되지 않은 상태로 남는다고 알려 드릴게요.
->
-> ---
-> (Coordinator note: Phase 3 is done and this is the base-shape review stop. The generator is stand_blender.py (Blender via bpy plus a manifold3d revolve), with params in .3dprint/params.json and the build in out/build.json (gate PASS; P4 and P5 UNVERIFIED by design). P6 is decided from the generator: a 0.4 mm bed chamfer and no bed fillet. I generated fit-test rings in out/fit/. Phases 4–6 still to do: a rod proxy plus fit.py, measure.py --expect for hole diameter, depth and base diameter, then finalize. The no-tip promise (≤ 30 cm rod) can only be verified by a test print. All in ..)
-
-**User:** 모양 좋아요. 계속해 주세요. 지금은 시험 출력할 시간이 없어요. 그냥 진행해 주세요.
-
-*(rows: "Shows the base shape (a preview) and asks for a look" + "Offers a fit test or a test print before the final part")*
-
-Tool calls:
-
-- read references/measure.md
-- read references/engines/python.md (lines 1–80)
-- (probes: finalize.py --help)
-- `edit stand_blender.py`
-- `edit stand_blender.py`
-- `edit stand_blender.py`
-- `(python) edited .3dprint/params.json (promises, dims, _assumptions)`
-- `build.py run stand_blender.py --params .3dprint/params.json --out out --printer .3dprint/printers.json > out/build.json`
-- `(shell) mkdir -p out/dettest`
-- `build.py run stand_blender.py --params .3dprint/params.json --out out/dettest --printer .3dprint/printers.json --no-3mf`
-- `(shell) rm -rf out/dettest 2>/dev/null`
-- `(shell) cp out/preview.png (scratchpad)/prev_seen.png`
-- `render.py out/stand.stl -o out/preview.png --lang ko --overwrite`
-- `(shell) wrote rod_proxy.py`
-- `(shell) mkdir -p out/rod`
-- `build.py run rod_proxy.py --params .3dprint/rod.json --proxy rod_proxy --out out/rod > out/rod/build.json`
-- (probes: fit.py --help)
-- `fit.py out/stand.stl out/rod/rod_proxy.stl --b-translate 0,0,3.0 --min-clearance 0.2 > out/fit_rod.json`
-- `measure.py slice out/stand.stl --z 2.9,3.1,18,32 --center`
-- `measure.py slice out/stand.stl --axis y --z 0`
-- (probes: measure.py --help)
-- `measure.py raymap out/stand.stl --axis z --sign -1 --u -2:2:2 --v -2:2:2 --max-depth 40`
-- `measure.py raymap out/stand.stl --axis z --sign 1 --u -4:4:2 --v -4:4:2 --max-depth 40`
-- `measure.py slice out/stand.stl --z 18 --center --expect "levels[0].loops[1].size[0]=12.4" --expect "levels[0].loops[1].size[1]=12.4" --tol 0.02 --what "구멍 지름(높이 18 mm 단면): 막대 12.0 mm + 여유 0.4 mm" > out/m_hole_d.json`
-- `measure.py raymap out/stand.stl --axis z --sign 1 --u -2:2:2 --v -2:2:2 --max-depth 40 --expect "depth_mm[1][1]=30" --tol 0.02 --what "구멍 깊이(기둥 위에서 구멍 바닥까지)" > out/m_hole_depth.json`
-- `measure.py slice out/stand.stl --z 3 --center --expect "levels[0].loops[0].size[0]>=99.95" --expect "levels[0].loops[0].size[1]>=99.95" --what "바닥 원판 지름(높이 3 mm 단면)" > out/m_base_d.json`
-- `(python) edited .3dprint/params.json (seen, test_prints, promises, dims, _assumptions, joints, measurements, strength)`
-- `finalize.py --build out/build.json --params .3dprint/params.json > out/finalize_check.json`
-- read references/phase-5-gate.md, references/phase-6-deliver.md
-- `(python) edited .3dprint/params.json (accepted)`
-- `fit.py --check out/fit_rod.json`
-- `(shell) mkdir -p $D deliver/2026-10-23-fit-test`
-- `(shell) cp out/stand.stl $D/stand.stl`
-- `(shell) cp out/stand_blender.3mf $D/stand.3mf`
-- `(shell) cp out/stand_blender.3mf.manifest.json $D/stand.3mf.manifest.json`
-- `(shell) cp out/stand_blender.blend $D/stand.blend`
-- `(shell) cp out/fit/rod_hole_1.stl out/fit/rod_hole_2.stl out/fit/rod_hole_3.stl deliver/2026-10-23-fit-test/`
-- `finalize.py --build out/build.json --params .3dprint/params.json --printer .3dprint/printers.json --deliver $D > out/finalize_deliver.json`
-- `finalize.py --build out/build.json --params .3dprint/params.json --printer .3dprint/printers.json --deliver deliver/2026-10-23 --bundle deliver/2026-10-23/source > out/finalize_final.json`
-
-**Agent:**
-
-> 받침대 파일이 완성됐습니다. 다만 **시험 출력을 하지 않아서 아직 시제품입니다.** 막대를 손으로 꽂고 빼는 것과 막대를 꽂아도 넘어지지 않는 것은 실제 출력물로 확인되지 않았어요.
->
-> out/preview.png
->
-> ## 약속한 것과 확인 상태
->
-> - **막대를 손으로 꽂았다 뺐다 할 수 있다: 확인 안 됨(시제품).** 모델에서는 구멍이 12.4 mm라 재신 12.0 mm 막대와 겹치지 않고, 한쪽에 0.2 mm씩 여유가 있는 걸 확인했어요. 하지만 프린터는 구멍을 조금 작게 뽑는 경우가 많고, 시험 출력도 하지 않았으며 슬라이서 설정도 몰라서 실제로 맞는지는 아직 모릅니다.
->   - 빡빡하면 12.5 mm 드릴이나 사포로 넓히면 됩니다.
->   - 헐거우면 막대에 테이프를 한두 바퀴 감아 주세요.
-> - **막대를 꽂으면 거의 똑바로 선다: 모델에서 확인됨.** 구멍 깊이 30 mm, 지름 12.4 mm를 재 봤고, 이 치수면 막대가 기울 수 있는 각도는 0.76도입니다. 다만 출력된 구멍이 아니라 모델 기준이에요.
-> - **막대를 꽂은 채 책상에 두어도 넘어지지 않는다: 확인 안 됨(시제품).** 바닥 지름 100 mm는 모델에서 확인했어요. 하지만 실제로 세워 보지 않았고, 막대 길이 30 cm까지라는 기준은 제가 정한 가정입니다.
-> - **납작한 원판에 둥근 기둥이 선 모양:** 앞서 "모양 좋아요"라고 하셔서 그대로 받으신 걸로 기록했어요. 그 뒤 같은 치수로 파일을 다시 만들면서 그림도 새로 그렸습니다. 위 그림이 보신 모양과 같은지 한 번만 봐 주세요.
->
-> 그 밖의 검사(크기, 프린터에 들어가는지, 모양에 깨진 곳은 없는지, 막대와의 끼움)는 모두 통과했습니다. 새 디자인이라 비교할 기존 사진은 없었고, 슬라이스와 실제 출력은 여기서 확인할 수 없었어요. 제가 정한 가정은 구멍 1개, 막대 길이 30 cm까지, 재료 PLA, 슬라이서는 기본 설정입니다.
->
-> ## 파일
->
-> - 출력할 파일: deliver/2026-10-23/stand.stl
-> - 같은 내용의 3MF: deliver/2026-10-23/stand.3mf
-> - Blender 파일: deliver/2026-10-23/stand.blend
->   - 직접 손봐도 되지만, 다시 만들 때는 스크립트(stand_blender.py)를 기준으로 만들어집니다.
-> - 나중에 쓸 구멍 시험 조각 3개: deliver/2026-10-23-fit-test/ 폴더
->   - 구멍 12.2 / 12.4 / 12.6 mm, 손잡이의 작은 구멍 1·2·3개로 구분합니다.
-> - 다시 만들 때 필요한 원본 묶음: deliver/2026-10-23/source
->
-> ## 프루사슬라이서에서 출력하기
->
-> 1. 파일 → 가져오기(Ctrl+I)로 stand.stl을 엽니다. 프린터는 Original Prusa MK4, 필라멘트는 PLA(Prusament PLA나 Generic PLA)를 고르고, 출력 설정은 기본 0.20mm 프리셋 그대로 두세요.
-> 2. 모델은 열린 방향 그대로 둡니다(넓은 바닥이 아래, 구멍이 위). 서포트는 "없음"으로 두고 브림도 필요 없어요. 크기나 XY 보정 같은 설정은 건드리지 마세요. 구멍 여유는 모델에 이미 들어가 있습니다.
-> 3. 막대가 30 cm보다 길다면 채우기(Infill)를 40% 정도로 올려 주세요(선택). 받침이 더 묵직해져서 덜 넘어집니다.
->
-> 부품이 하나라 한 가지 색으로 출력돼요.
->
-> ## 치수표
->
-> | 항목 | 값 | 출처 |
-> |---|---|---|
-> | 막대 지름 | 12.0 mm | 직접 재신 값 |
-> | 구멍 지름 | 12.4 mm | 막대 지름에 손으로 빼는 여유 0.4 mm를 더한 값(시험 조각의 가운데 크기) |
-> | 구멍 깊이 / 아래 바닥 | 30 mm / 3 mm | 제가 정함 |
-> | 구멍 입구 모따기 | 1 mm | 제가 정함 |
-> | 원판 지름 / 두께 | 100 mm / 6 mm | 고르신 1번 시안 |
-> | 기둥 지름 | 24 mm | 1번 시안 |
-> | 둥근 모서리 | 2 mm | 제가 정함 |
-> | 바닥 테두리 모따기 | 0.4 mm | 첫 층 퍼짐 방지 |
-> | 구멍 개수 | 1개 | 맡기셔서 제가 정함 |
-> | 버틸 막대 길이 | 30 cm까지 | 가정 |
+> | 막대 길이 | 40 cm 이하 | 가정 (알아서 정해 달라고 하셔서) |
+> | 구멍 지름 | 12.4 mm | 막대 + 0.4 mm. 손으로 끼우고 빼기 좋은 여유입니다 |
+> | 구멍 깊이 | 30 mm | 막대 지름의 2.5배. 여유 때문에 생기는 기울어짐은 약 0.8°입니다 |
+> | 구멍 밑 바닥 두께 | 3 mm | 설계 |
+> | 받침 지름 / 두께 | 90 mm / 6 mm | 40 cm 막대를 꽂았을 때 20° 넘게 기울여야 넘어집니다(대략 계산) |
+> | 기둥 지름 / 높이 | 26 mm / 33 mm | 구멍 둘레 벽이 6.8 mm로 튼튼합니다. 시안보다 3 mm 낮습니다 |
+> | 기둥 뿌리 둥글림 | 반지름 4 mm | 기둥이 원판에서 부러지지 않게 합니다 |
+> | 위쪽 모서리 둥글림 | 1 mm | 손에 닿는 모서리를 부드럽게 합니다 |
+> | 구멍 입구 모따기 | 1.5 mm | 막대가 쉽게 들어가게 합니다 |
+> | 바닥 모서리 모따기 | 0.4 mm | 첫 층이 옆으로 퍼지는 걸 감춥니다 |
+> | 전체 크기 | 90 × 90 × 33 mm | 위 값의 합 |
+> | 베드 여유 | 가로 160 / 세로 120 / 높이 187 mm | MK4 출력 공간 250 × 210 × 220 mm ([프루사 공식 사양](https://www.prusa3d.com/product/original-prusa-mk4-9/)) |
+> | 노즐 | 0.4 mm | MK4 기본 노즐 (프루사 공식 사양) |
 > | 재료 | PLA | 가정 |
-> | 전체 크기 | 100 × 100 × 33 mm | 프린터 베드(250 × 210 × 220 mm)에 여유 있게 들어감 |
+> | 출력 설정 | 모름 | 아래 질문 참고 |
 >
-> **바꾸고 싶은 게 있으면 말씀해 주세요.** 구멍 개수, 바닥 크기, 구멍 여유 모두 숫자만 바꿔 다시 만들 수 있어요. 출력해 보신 뒤 막대가 잘 들어가는지, 넘어지지 않는지 알려 주시면 반영해 드릴게요.
+> 슬라이서 설정을 모르셔서 구멍에는 막대 여유 0.4 mm만 넣었습니다. 프린터마다 구멍이 조금 작거나 크게 나올 수 있는데, 그건 시험 조각으로 확인합니다. 구멍이 빡빡하면 줄이나 사포로 넓힐 수 있지만, 헐거우면 고칠 수 없어서 이렇게 정했습니다.
 >
-> 참고한 모델(아이디어만): [Dowel Filament Racks](https://makerworld.com/en/models/233902), [Doll Head and Wig Stand](https://makerworld.com/en/models/150025), [Flag For Painting](https://makerworld.com/en/models/1044570), [Stick Clip Stand for Painting](https://www.printables.com/model/287856-stick-clip-stand-for-painting)
+> **확인해 주세요**
+> - 위 내용대로 괜찮으면 "좋아요"라고만 답해 주세요. 바꾸고 싶은 게 있으면 말씀해 주세요(예: "받침 더 크게", "막대가 1 m예요").
+> - (선택) 프루사슬라이서 오른쪽 위 출력 설정 칸에 보이는 이름(예: 0.20mm SPEED)을 알려 주세요. 시험 조각과 받침을 같은 설정으로 뽑아야 결과가 맞습니다. 모르시면 넘어가셔도 됩니다. 마지막에 추천 설정을 알려 드릴게요.
+> ---
+>
+> Background for the caller:
+> - **Files written in the project folder** ($PROJECT):
+>   - `.3dprint/printers.json`: Prusa MK4 with a 250 × 210 mm bed and 220 mm height, PrusaSlicer, hole compensation `unknown`, elephant foot handled in the model. I confirmed the bed size on Prusa's official spec page.
+>   - `.3dprint/params.json`: PLA, one part `stand` with expect 90 × 90 × 33 mm, the parameters, the dims, the four promises from the chosen concept, and the assumptions.
+> - **Dims:**
+>   - Rod diameter: user's caliper measurement.
+>   - Rod length: 400 mm, assumed.
+> - **Hole:** 12.4 mm, the rod plus the sliding fit with no model compensation, as the skill specifies when slicer settings are unknown. The fit test comes in Phase 4.
+> - **Rough numbers in the message:** the 20° tip-over figure is my hand estimate (about 24° with roughly 33 g of PLA and a 32 g rod).
+> - **Next step:** after the user confirms, Phase 3: a Blender generator (engine=blender) and a `build.py run` with `--printer`, then a render and a stop for the user's look at the base shape.
+
+**User:** 네, 그대로 진행해 주세요. 프로필 이름은 잘 모르겠어요.
+
+*(rows: "Shows the use list and the parameter table and asks to confirm" + "Asks which print profile (process preset) the user prints with"; delivered to the agent as "The coordinator sent a message while you were working: …")*
+
+Tool calls and notes, in order:
+
+- note between tool calls (not shown to the user): 진행하겠습니다. 출력 설정 이름은 비워 두고, 마지막에 추천 설정을 드리겠습니다. 이제 Blender로 받침대 형상을 만듭니다.
+- `cd $SKILL_DIR && cat references/engines/blender.md`
+- read (tool output file) bcem2335s.txt
+- `cd $SKILL_DIR/references/engines && grep -n "^def \|revolve\|spin" blender_builder.py | head -80`
+- `cd $SKILL_DIR/references/engines && sed -n 820,860p blender_builder.py; sed -n 978,1070p blender_builder.py; sed -n 1173,1192p blender_builder.py; grep -n "^def " blender_builder.py | sed -n 60,200p`
+- `cd $SKILL_DIR/references/engines && sed -n 1969,2008p blender_builder.py; sed -n 3025,3068p blender_builder.py; python3 -c "import manifold3d as m; print(m.__version__ if hasattr(m,'__version__') else ''); print(m.Manifold.revolve.__doc__)"`
+- wrote $PROJECT/stand_blender.py
+- `mkdir -p out && timeout 600 python3 "$SKILL_DIR/scripts/build.py" run stand_blender.py --params .3dprint/params.json --out out --printer .3dprint/printers.json > out/build.json; echo "exit $?"; python3 -c "…"`
+- `python3 "$SKILL_DIR/scripts/render.py" out/stand.stl -o out/render.png --lang ko --overwrite | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('sane'), d.get('size_mm'), d.get('out') or d.get('png'))" && python3 - <<'EOF' ; python3 "$SKILL_DIR/scripts/render.py" out/stand_section.stl -o out/render_section.png -- …`
+- read $PROJECT/out/render.png
+- read $PROJECT/out/render_section.png
+
+**Agent** (the hand-back message, shown to the user whole):
+
+> The user approved the dimensions, and Phase 3 is done: the stand is built in Blender and every hard check passes. I stopped for the user's look at the base shape, as Phase 3 requires. No fit-test pieces or Phase 4 checks have been run yet. Their message is below.
 >
 > ---
-> (Coordinator note, not for the user:
-> - Delivered through Phase 6. finalize reports geometry as verified and the use tier as "not verified". rod-in-out and no-tip are delivered as prototypes because the user skipped test prints ("지금은 시험 출력할 시간이 없어요. 그냥 진행해 주세요."). rod-upright is verified on the model. flat-disk-look is excluded via _verify.accepted, quoting the user's "모양 좋아요. 계속해 주세요.".
-> - Skill finding: Blender (bpy 5.2.2) STL export is not byte-deterministic. Two builds with identical parameters gave different sha256 (same triangle count), and the re-render differed by up to 2/255 on about 5k pixels. So any rebuild after a user's look makes `_verify.seen` stale. Here that happened when I added the `rod_len` parameter (needed for the rod-length dims entry), which leaves the look promise not verifiable without a second look. The likely cause is the face-group merge or triangulation order in blender_builder.from_mesh / export_parts. Worth fixing in the skill.
-> - Other decisions: hole count 1 and rod length ≤ 30 cm were chosen by me after the user delegated ("알아서 정해 주세요"), and are recorded as assumed dims and assumptions. Hole compensation is "unknown" (PrusaSlicer preset unseen), so the hole is 12.4 mm with no model compensation. P4, P5 and P6 I decided as holding: no bridges, no small features, a 0.4 mm bed chamfer and no bed fillet. P7 is N/A because there are no mechanisms.
-> - Project folder: ..)
+> 받침대 모양이 나왔습니다. 한번 봐 주세요.
+>
+> $PROJECT/out/render.png
+>
+> 반으로 자른 모습(구멍 깊이를 보여 드리려고 그린 그림이고, 출력용 파일이 아닙니다):
+> $PROJECT/out/render_section.png
+>
+> - **크기:** 90 × 90 × 33 mm로 계획대로 나왔고, 프루사 MK4 베드에 여유 있게 들어갑니다.
+> - **구조:** 구멍 지름 12.4 mm, 깊이 30 mm, 구멍 밑 바닥 3 mm입니다. 기둥 벽은 6.8 mm로 두껍습니다.
+> - **출력 가능성:** 아래로 튀어나온 부분이 없어서 서포트 없이 바로 출력됩니다. 파일 자체에도 구멍 뚫림이나 깨진 면 같은 문제가 없습니다.
+> - **마무리:** 기둥 뿌리는 반지름 4 mm로 둥글렸고, 위쪽 모서리는 1 mm로 둥글렸습니다. 구멍 입구는 1.5 mm 비스듬히 깎았고, 바닥 모서리는 0.4 mm 깎았습니다.
+> - **넘어짐:** 40 cm 나무 막대를 꽂았을 때 대략 20° 넘게 기울여야 넘어집니다. 대략 계산한 값입니다.
+>
+> 모양이 괜찮으면 "좋아요"라고 답해 주세요. 바꾸고 싶은 데가 있으면 말씀해 주세요(예: "기둥을 더 낮게", "원판을 더 얇게").
+>
+> 괜찮다고 하시면 다음으로 구멍 크기를 시험할 작은 조각 3개를 만들어 드릴게요. 구멍이 막대보다 0.3, 0.4, 0.5 mm 큰 짧은 고리입니다. 몇 g이면 되고, 막대가 가장 알맞게 들어가는 크기로 최종 받침대를 맞춥니다.
+>
+> 참고로 생성 스크립트(stand_blender.py)와 수정 가능한 Blender 파일(out/stand_blender.blend)도 같이 남아 있습니다.
+> ---
+>
+> Background for the caller:
+> - **Generator:** a Blender script, one part revolved from a 2D profile. The hole, rounds and lead-in all come from the profile, and the bed edge chamfer is applied last.
+> - **Build:** run with `--printer`.
+>   - Gate: PASS. Every hard check (size, bed fit, volume, mesh soundness, freshness) passes.
+>   - Soft checks:
+>     - P1 (bed contact) passes at 6260 mm².
+>     - P2 (overhangs) is 0%; the steepest face is 42°.
+>     - P3 (walls): the 5th-percentile wall is 6.0 mm.
+>     - P4 and P5 (bridges, small features) are UNVERIFIED because the validator doesn't check them.
+>     - P6 (bed edge) is still UNVERIFIED in the build report. From the generator and the image, it is a 0.4 mm chamfer, not a fillet.
+>   - Volume is 49.0 cm³ solid.
+> - **My look, view by view:** the silhouette, root fillet, lead-in, 30 mm socket depth and 3 mm floor all match the intent. My look doesn't verify anything; the `disc-collar` look promise is verified only once the user approves this image.
+> - **Unrecorded estimate:** the 20° tip-over angle is my hand estimate (about 24°, using roughly 33 g of PLA and a 32 g beech rod). It isn't in any report.
+> - **Next step (Phase 4), once the user approves:**
+>   - Record the user's look in `_verify.seen`, with the image sha256 from `out/render.png.json`.
+>   - Run `fit.py` with a 12.0 mm rod proxy at `--min-clearance 0.4`.
+>   - Run `measure.py --expect` for the hole diameter, depth and lead-in.
+>   - Make `fit_test.py` pieces at 0.3 / 0.4 / 0.5 mm on the diameter.
+>   - Run `finalize.py` to check the promises, then Phases 5–6 (PrusaSlicer: STL plus core 3MF, and a three-line settings recipe). `_print.preset` stays unset because the user doesn't know their preset name.
+>
+> Files, all in $PROJECT:
+> - stand_blender.py
+> - .3dprint/params.json
+> - .3dprint/printers.json
+> - out/build.json
+> - out/stand.stl
+> - out/stand_blender.blend
+> - out/stand_blender.3mf (the build's core 3MF)
+> - out/render.png
+> - out/render_section.png
+> - out/stand_section.stl (preview only)
 
-*(row: "Delivers the files": the run ends)*
+**User:** 모양 좋아요. 계속해 주세요.
+
+*(row: "Shows the base shape (a preview) and asks for a look"; delivered to the agent as "The coordinator sent a message while you were working: …")*
+
+Tool calls and notes, in order:
+
+- note between tool calls (not shown to the user): 모양을 확인해 주셔서 기록하고, 구멍 맞춤 검사와 시험 조각 단계로 넘어갑니다.
+- `cd $SKILL_DIR && cat references/phase-4-features-joints.md`
+- `cd $SKILL_DIR && cat references/measure.md; sed -n '/The '_verify' declarations/,$p' references/checks.md`
+- read (tool output file) bt5uurt8i.txt
+- `cd $SKILL_DIR && grep -n "proxy_params\|proxy_build\|do not declare\|untied" scripts/finalize.py | head -40`
+- `cd $SKILL_DIR && sed -n 605,668p scripts/finalize.py; sed -n 1480,1510p scripts/finalize.py`
+- `cd $SKILL_DIR && python3 scripts/fit.py --help; python3 scripts/fit_test.py --help; sed -n 1,60p scripts/fit_test.py | head -80`
+- `cat out/render.png.json && python3 - <<'EOF'`
+- `cd $SKILL_DIR && sed -n 1,60p references/engines/python.md`
+- `cd $SKILL_DIR && python3 scripts/build.py run --help | sed -n 1,80p | grep -A4 -i "proxy"`
+- `cat > rod_proxy.py <<'EOF' ; printf '{"rod_d": 12.0}\n' > .3dprint/rod.json ; SKILL_DIR=$SKILL_DIR ; mkdir -p out/rod && python3 "$SKILL_DIR/scripts/build.py" run rod_proxy.py --params .3dprint/rod.json --proxy rod_proxy --out out/rod > out/rod/build.json; echo "exit $?" ; python3 -c "…"`
+- `python3 "$SKILL_DIR/scripts/fit.py" out/stand.stl out/rod/rod_proxy.stl --b-translate 0,0,3 --min-clearance 0.2 > out/fit_rod.json; echo "exit $?"; python3 -c "…"`
+- `python3 "$SKILL_DIR/scripts/measure.py" slice out/stand.stl --z 15,32.9 --center | python3 -c "…" ; import json,sys; d=json.load(sys.stdin) ; for li,l in enumerate(d['levels']): ; for i,lo in enumerate(l['loops']): print('  loop', i, {k: lo.get(k) for k in ('size','bounds','area','closed')}) ; "`
+- `python3 "$SKILL_DIR/scripts/measure.py" raymap --help | sed -n 1,40p; python3 "$SKILL_DIR/scripts/measure.py" raymap out/stand.stl --axis z --sign -1 --u -3:3:3 --v -3:3:3 --max-depth 40 | python3 -c "…"`
+- `python3 "$SKILL_DIR/scripts/measure.py" raymap out/stand.stl --axis z --sign 1 --u -5:5:5 --v -5:5:5 --max-depth 40 | python3 -c "…"`
+- `python3 "$SKILL_DIR/scripts/measure.py" slice out/stand.stl --z 15 --center --expect "levels[0].loops[1].size[0]=12.4" --expect "levels[0].loops[1].size[1]=12.4" --tol 0.05 --what "socket diameter at mid-depth: rod 12.0 + 0.4 sliding fit" > out/m_hole_d.json; echo $?;  python3 "$SKILL_DIR/scripts/measure.py" raymap out/stand.stl …`
+- `python3 "$SKILL_DIR/scripts/fit_test.py" --profile circle --size 12.0 --mode ring --clearance 0.20 --step 0.05 --steps 3 --height 10 --out out/fit --name rod_fit > out/fit/rod_fit.print.json 2>&1 || mkdir -p out/fit && python3 "$SKILL_DIR/scripts/fit_test.py" --profile circle --size 12.0 --mode ring --clearance 0.20 --step 0.05  …`
+- `python3 - <<'EOF'  # inline script, writes .3dprint/params.json ; SKILL_DIR=$SKILL_DIR ; python3 "$SKILL_DIR/scripts/finalize.py" --build out/build.json --params .3dprint/params.json > out/finalize_phase4.json; echo "exit $?"; python3 -c "…"`
+- `python3 -c "…"`
+- `mkdir -p out/fit_preview && python3 -c "…"`
+- read $PROJECT/out/fit_preview/rings.png
+- `python3 "$SKILL_DIR/scripts/render.py" out/fit_preview/ring_1.stl out/fit_preview/ring_2.stl out/fit_preview/ring_3.stl -o out/fit_preview/rings.png --views iso,top --lang ko --label "시험 고리 1·2·3" --overwrite | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('sane'))"`
+- `mkdir -p fit-test && cp out/fit/rod_fit_1.stl out/fit/rod_fit_2.stl out/fit/rod_fit_3.stl out/fit/rod_fit.json fit-test/ && cp out/fit_preview/ring_1.stl $SCRATCH/ring_1.stl && python3 "$SKILL_DIR/scripts/threemf.py" fit-test/rod_fit_rings.3mf out/fit_preview/ring_1.stl out/fit_preview/ring_2.stl out/fit_preview/ring_3.stl | hea …`
+- `python3 - <<'EOF'  # inline script, writes .3dprint/params.json ; SKILL_DIR=$SKILL_DIR; python3 "$SKILL_DIR/scripts/finalize.py" --build out/build.json --params .3dprint/params.json > out/finalize_phase4.json; python3 -c "…"`
+
+**Agent** (the hand-back message, shown to the user whole):
+
+> The user approved the shape, and I ran the Phase 4 checks. All checks pass, and finalize names no error, so Phase 4 can end. Per the skill's "Leaving Phase 4" step, I stopped to settle two open points with the user: whether to print the test rings first, and the rod length that the stability promise rests on. The stand is not delivered yet. Their message is below.
+>
+> ---
+> 모양 확인 고맙습니다. 구멍 맞춤 검사를 끝냈습니다. 받침대 파일을 드리기 전에 두 가지만 정해 주세요.
+>
+> **확인된 것 (모델 기준)**
+> - 12.0 mm 막대를 구멍에 꽂으면 겹치는 곳 없이 사방으로 0.2 mm씩 여유가 있습니다.
+> - 구멍 지름은 12.4 mm, 깊이는 30 mm입니다.
+> - 막대가 꽂힌 채 기울 수 있는 각도는 약 0.8°입니다.
+> - 입구 모따기는 한쪽 1 mm 넘게 들어갔습니다.
+> - 모양은 앞서 확인해 주셨습니다.
+>
+> **1. 실제 출력물에서 막대가 손으로 잘 들어가고 빠질까요?**
+> 모델 숫자는 맞습니다. 다만 프린터와 설정에 따라 구멍이 0.1~0.2 mm쯤 작거나 크게 나올 수 있어서, 실제 출력물에서는 아직 확인되지 않았습니다. 그래서 시험 고리 3개를 만들어 뒀습니다. 3개 합쳐 약 7 g입니다.
+>
+> $PROJECT/out/fit_preview/rings.png
+>
+> - **고리 구분:** 탭에 뚫린 구멍이 1개, 2개, 3개입니다. 고리 구멍은 막대보다 각각 0.3, 0.4, 0.5 mm 큽니다. 지금 받침대 구멍은 2번과 같은 크기입니다.
+> - **파일:** 세 개를 한 번에 열 수 있는 파일입니다.
+>   $PROJECT/fit-test/rod_fit_rings.3mf
+>   고리 하나씩 담긴 STL 파일(rod_fit_1~3.stl)도 같은 폴더에 있습니다.
+> - **출력 방법:** 프루사슬라이서에 끌어다 놓고 처음 뜨는 설정 그대로 출력하시면 됩니다. 받침대도 나중에 같은 필라멘트, 같은 설정으로 뽑아야 결과가 맞습니다.
+> - **고르는 법:** 힘주지 않고 손으로 들어가고, 넣은 채 흔들어도 덜컹거리지 않는 고리가 정답입니다. 받침대 구멍은 고리(10 mm)보다 세 배 깊어서 조금 더 빡빡하게 느껴질 수 있습니다. 두 개 사이에서 고민되면 더 헐거운 쪽을 고르세요.
+>
+> 어떻게 할까요?
+> - **(가) 시험 고리 먼저 (추천):** 고리를 뽑아 보시고 맞는 번호를 알려 주시면 받침대 구멍을 그 크기로 맞춰서 드립니다.
+> - **(나) 바로 받침대:** 지금 크기(2번과 같음)로 바로 드립니다. 이 경우 손으로 끼우고 빼는 건 출력해 보기 전까지 확인되지 않은 채로 남습니다. 구멍이 빡빡하면 사포나 둥근 줄로 넓힐 수 있지만, 헐거우면 다시 출력해야 합니다.
+>
+> **2. 넘어지지 않을까요?**
+> 이건 막대 길이 40 cm 이하라는 가정에 기대고 있습니다. 대략 계산으로는 40 cm 막대를 꽂고 약 20° 넘게 기울여야 넘어집니다. 모델로 확인한 값은 아닙니다.
+> - 막대 길이를 줄자로 재서 알려 주시면 그 길이로 다시 따져 보겠습니다.
+> - 재기 어려우시면 "가정대로"라고 해 주세요. 그러면 40 cm 이하 가정으로 진행하고, 마지막에 그렇게 적어 둡니다.
+>
+> 예: "(가)로 할게요, 막대는 35 cm예요" 또는 "(나), 가정대로"
+> ---
+>
+> Background for the caller:
+> - **Evidence saved and declared in `.3dprint/params.json`** (`_verify`):
+>   - `seen`: the user's look at out/render.png, recorded with its sha256 and their reply "모양 좋아요. 계속해 주세요."
+>   - Joint "rod in socket": out/fit_rod.json. F3 PASS: no overlap, play 0.200 mm in all four directions, the rod seated on the socket floor. It is fitted against a 12.0 mm rod proxy (rod_proxy.py with .3dprint/rod.json; its build is out/rod/build.json), and finalize ties that proxy to the user's caliper value.
+>   - Measurements, all PASS:
+>     - out/m_hole_d.json: hole diameter 12.4 mm at z=15.
+>     - out/m_depth.json: socket depth 30.0 mm.
+>     - out/m_lead_in.json: mouth 15.2 mm, against a minimum of 14.4.
+>   - `strength` is empty: the part has no pins, latches, hinges or levers.
+>   - Test print "rod fit test": status `offered`, with no promises attached.
+> - **finalize (no deliver):** use `assumed`, geometry `verified`, no promise errors.
+>   - rod-in-out: `verified`.
+>   - lead-in: `verified`.
+>   - disc-collar: `verified`.
+>   - rod-upright: `assumed`, because it rests on the assumed rod length.
+> - **Wording caution:** finalize calls rod-in-out verified, but its evidence covers only the model: the seated fit and the hole size. Hand insertion on the real print is not covered, and the user's hole compensation is unknown. Say exactly that at delivery; don't call the printed fit verified.
+> - **Test rings** are in fit-test/ (outside the disposable out/ folder): rod_fit_1..3.stl, rod_fit_rings.3mf with the three laid side by side, and rod_fit.json.
+> - **Next turn:**
+>   - If the user picks (가), wait for their ring number. When it arrives, record the test print. If the number isn't 2, set `fit_clearance_d` to 0.30 or 0.50, rebuild, and redo fit/measure/finalize (the fit gets the new per-side clearance as `--min-clearance`).
+>   - If they pick (나), add the prototype `_assumptions` line for hand insertion on the print, with their reply word for word.
+>   - A measured rod length updates the rod-length dims entry to `caliper` with `"by": "user"`.
+>   - Then Phase 5 (re-validate; decide P4, P5 and P6 myself: no bridges with P2 at 0%, 1 mm minimum features, 0.4 mm bed chamfer from the generator; a three-line PrusaSlicer recipe that also suggests higher infill for weight) and Phase 6 (`finalize.py --deliver --bundle`, STL plus core 3MF into a new folder).
+>
+> All paths are under $PROJECT.
+
+**User:** 지금은 시험 출력할 시간이 없어요. 그냥 진행해 주세요. 측정이나 시험 출력은 지금 못 해요. 가정한 것은 그대로 두고, 확인 안 된 것은 시제품으로 받을게요.
+
+*(rows: "Offers a fit test or a test print before the final part" (question 1, test rings or straight on) + "Names promises not verified and asks how to go on (Phase 4)" (question 2, the rod length); delivered to the agent as "The coordinator sent a message while you were working: …")*
+
+Tool calls and notes, in order:
+
+- `cd $SKILL_DIR && cat references/phase-5-gate.md`
+- `cd $SKILL_DIR && cat references/phase-6-deliver.md`
+- `cd $SKILL_DIR && grep -n "prototype" scripts/finalize.py | head -30`
+- `python3 - <<'EOF'  # inline script, writes .3dprint/params.json ; SKILL_DIR=$SKILL_DIR ; OLD=$(python3 -c "import json; print(json.load(open('out/build.json'))['parts'][0]['sha256'])") ; timeout 600 python3 "$SKILL_DIR/scripts/build.py" run stand_blender.py --params .3dprint/params.json --out out --printer .3dprint/printers.json …`
+- `ls out/ && ls deliver 2>/dev/null; mkdir -p deliver/2026-10-23 && cp -n out/stand.stl out/stand_blender.3mf out/stand_blender.3mf.manifest.json out/stand_blender.blend deliver/2026-10-23/ && ls -la deliver/2026-10-23`
+- `python3 "$SKILL_DIR/scripts/finalize.py" --build out/build.json --params .3dprint/params.json --printer .3dprint/printers.json --deliver deliver/2026-10-23 > out/finalize_check.json; echo "exit $?"; python3 -c "…"`
+- `python3 "$SKILL_DIR/scripts/finalize.py" --build out/build.json --params .3dprint/params.json --printer .3dprint/printers.json --deliver deliver/2026-10-23 --bundle deliver/2026-10-23/source > out/finalize_final.json; echo "exit $?"; python3 -c "…"`
+
+**Agent** (the hand-back message, shown to the user whole):
+
+> The user picked (나): no test print, rod length kept as assumed, unconfirmed items accepted as prototype. I finished Phases 5 and 6 and delivered the stand. The user's message is below.
+>
+> ---
+> 받침대 파일을 드립니다.
+>
+> **먼저, 시제품이라는 점부터**
+> 막대가 실제 출력물에 손으로 들어가고 빠지는지는 시험 출력 없이 진행해서 확인되지 않았습니다. "확인 안 된 것은 시제품으로 받을게요"라고 하셔서 시제품으로 드립니다.
+>
+> **받침대로 할 수 있어야 하는 일, 확인된 정도**
+> - **막대 꽂고 빼기:** 모델로는 확인됐습니다. 재 주신 12.0 mm 막대 모양을 구멍에 넣어 보니 겹치는 곳 없이 사방 0.2 mm 여유가 있고, 구멍 지름은 12.4 mm입니다. 확인되지 않은 건 실제로 뽑은 구멍 크기와 손으로 넣고 빼는 느낌입니다(시제품).
+> - **똑바로 서 있기:** 가정에 기댑니다. 막대가 30 mm 깊이로 꽂히고 약 0.8°까지만 기우는 건 모델로 확인했습니다. 넘어지지 않는지는 재지 않은 막대 길이(40 cm 이하로 가정)에 기댑니다. 약 20° 넘게 기울여야 넘어진다는 것도 대략 계산한 값입니다. 막대 길이를 재 주시면 다시 확인해 드릴게요.
+> - **입구 모따기:** 확인됐습니다. 구멍 입구가 구멍보다 한쪽으로 1 mm 넘게 넓습니다.
+> - **모양:** 확인됐습니다. 그림을 보고 좋다고 해 주셨습니다.
+>
+> **그 밖에 알아 두실 것**
+> - 모델의 크기와 파일 상태, 막대 맞춤 검사는 모두 통과했습니다. 다만 여기서는 슬라이스나 출력을 해 보지 않았습니다.
+> - 새로 설계한 모양이라 비교할 원본 사진은 없고, 모양은 보내 드린 그림으로 확인해 주신 것입니다.
+> - 슬라이서 설정을 모르셔서 구멍에는 막대 여유(0.4 mm)만 넣고 추가 보정은 하지 않았습니다.
+>   - 구멍이 빡빡하면 둥근 줄이나 말아 쓴 사포로 조금씩 넓히세요.
+>   - 헐거우면 다시 뽑아야 합니다. 어느 쪽이었는지 알려 주시면 구멍 크기를 바꿔 드릴게요.
+> - 시험 고리 3개는 나중에 쓰실 수 있게 남겨 뒀습니다.
+>   $PROJECT/fit-test/rod_fit_rings.3mf
+>
+> **파일**
+> - **출력용:** 프루사슬라이서에 이 파일을 끌어다 놓으세요.
+>   $PROJECT/deliver/2026-10-23/stand.stl
+> - **같은 부품이 든 3MF 파일:**
+>   $PROJECT/deliver/2026-10-23/stand_blender.3mf
+> - **수정 가능한 Blender 파일:**
+>   $PROJECT/deliver/2026-10-23/stand_blender.blend
+>   기준은 생성 스크립트(stand_blender.py)입니다. Blender 파일을 손으로 고쳐도 되지만, 다음에 다시 만들 때는 스크립트에서 새로 만듭니다.
+> - **원본 자료:** 스크립트, 설정, 검사 기록은 같은 폴더의 source 폴더에 있습니다.
+>
+> **치수**
+>
+> | 항목 | 값 |
+> |---|---|
+> | 전체 크기 | 90 × 90 × 33 mm |
+> | 구멍 지름 / 깊이 | 12.4 mm / 30 mm (막대 12.0 mm + 여유 0.4 mm) |
+> | 구멍 밑 바닥 두께 | 3 mm |
+> | 원판 지름 / 두께 | 90 mm / 6 mm |
+> | 기둥 지름 / 높이 | 26 mm / 33 mm |
+> | 둥글림 / 모따기 | 기둥 뿌리 4 mm, 위쪽 모서리 1 mm, 구멍 입구 1.5 mm, 바닥 모서리 0.4 mm |
+>
+> 바꾸고 싶은 게 있으면 말씀해 주세요.
+>
+> **출력 설정 (프루사슬라이서)**
+> 1. **필라멘트와 품질:** 필라멘트는 PLA(Prusament PLA나 Generic PLA)를 고르세요. 품질은 처음 선택돼 있는 0.20 mm 설정 그대로 두면 됩니다. 구멍 크기가 이 설정을 기준으로 정해졌습니다.
+> 2. **서포트와 브림:** 둘 다 필요 없습니다. 파일을 열면 원판이 바닥에 놓인 상태라 그대로 출력하면 됩니다. 아래로 튀어나온 곳이 없고 바닥 면적도 넓습니다.
+> 3. **채우기(Infill) 40~50%:** 기본값 15%에서 올리면 받침이 무거워져 막대를 꽂았을 때 덜 넘어집니다. 필라멘트는 대략 10 g쯤 더 듭니다. 나머지는 기본값 그대로 두세요.
+>
+> **부품 구성**
+> 한 덩어리 부품이라 따로 떨어지는 부품이 없고, 한 가지 색으로 출력됩니다.
+>
+> **참고한 모델**
+> - [Dowel Filament Racks](https://makerworld.com/en/models/233902)
+> - [Dowel Rod Plant Holder](https://www.printables.com/model/1360643)
+> - [Flag Pole Base remix](https://www.printables.com/model/1274031-flag-pole-base-remix)
+> - [Dark Tower game flag base](https://www.printables.com/model/1197770-dark-tower-game-flag-basetop-for-tower)
+>
+> 출력해 보시고 막대가 어떻게 들어가는지 알려 주시면 그에 맞춰 고쳐 드릴게요.
+> ---
+>
+> Background for the caller:
+> - **Final check (with the delivery folder):**
+>   - Use tier: `assumed`.
+>   - Promises: rod-in-out, lead-in and disc-collar `verified`; rod-upright `assumed`, because it rests on the unmeasured 40 cm rod length.
+>   - Geometry: `verified`. The delivered files are exactly the verified ones.
+>   - Slicing and print: unverified. Finalize warns that the proxy fit shows agreement with the user's caliper number, not that the number is right.
+>   - The full report is out/finalize_final.json, and verification.json is inside the source bundle.
+> - **rod-in-out:** finalize calls it verified, but that covers the model only (seated fit and hole size). The printed fit is unconfirmed: the test was skipped and hole compensation is unknown. I recorded that in `_assumptions` with the user's reply word for word and called it a prototype in plain words. I did not use the formal prototype line, because finalize only applies that to `not verified` promises.
+> - **Recorded in `.3dprint/params.json`:**
+>   - The test print "rod fit test" is marked `skipped`, with the user's words.
+>   - A rod-length assumption line quotes their reply.
+> - **Phase 5 checks I decided myself:**
+>   - F1: hole = rod + fit clearance only, compensation unknown.
+>   - F2: sliding fit, 0.4 mm on the diameter.
+>   - F3: the fit report is still fresh.
+>   - R1, R2, R4 (no magic numbers, sizes have sources, generator runs): pass.
+>   - P4: no bridges; overhang is 0%.
+>   - P5: smallest features are the 1 mm rounds; walls are 6 mm or more.
+>   - P6: the bed edge is a 0.4 mm chamfer from the generator, not a fillet.
+> - **Rebuild:** produced a byte-identical STL, so the earlier evidence and the user's look stayed fresh.
+> - **Unchecked estimates:** the infill advice, the tip-over figures and the "about 10 g more filament" are hand estimates, not checked by any script.
+> - **Not done:** no PrusaSlicer preset was recorded (the user doesn't know it), and no calibration entry was written. When the user reports a print result, offer once to record it.
+> - **Possibly worth remembering:** in this project the user stated a Prusa MK4 with PrusaSlicer, which differs from the Bambu X2D in their saved notes.
+>
+> Delivered files are in $PROJECT/deliver/2026-10-23:
+> - stand.stl
+> - stand_blender.3mf (+ manifest)
+> - stand_blender.blend
+> - source/ (generator, params, printers, rod proxy, fit and measurement reports, render, REPRODUCE.md, verification.json)
+>
+> The test rings are in fit-test/ in the same project folder.
+
 
 ## finalize after the run
 
 Run by the grader after the run, from inside the project folder, with the installed skill's
-scripts, the report written outside the folder (the folder was hashed before and after: unchanged):
+scripts and `PYTHONDONTWRITEBYTECODE=1`, the report written outside the folder (the folder was
+hashed before and after: unchanged):
 
 ```bash
 DELIVERY=deliver/2026-10-23
@@ -339,17 +554,17 @@ python3 -c "import json; r = json.load(open('final.json')); print(r['use'], r['g
 ```
 
 ```text
-not verified verified
-rod-in-out: not verified
-rod-upright: verified
-no-tip: not verified
-flat-disk-look: excluded
+assumed verified
+rod-in-out: verified
+rod-upright: assumed
+lead-in: verified
+disc-collar: verified
 ```
 
 Its `summary`:
 
 ```text
-use: not verified (4 promises: 2 not verified, 1 excluded, 1 verified; delivered as a prototype: rod-in-out, no-tip; 12 assumptions not linked to a promise)
+use: assumed (4 promises: 1 assumed, 3 verified; 11 assumptions not linked to a promise)
 geometry: verified (every part, object, declared joint and member checked; the delivered files are the verified ones)
 shape: stand from no direction
 slicing: unverified (not sliced here)
@@ -358,97 +573,154 @@ print: unverified
 
 Reasons of the promises not verified:
 
-- `rod-in-out` (prototype): test print '받침대 시험 출력': skipped; test print '받침대 시험 출력': the print file's material is not checked (no Bambu project); test print '받침대 시험 출력': the delivered preset is not recorded (_print.preset)
-- `no-tip` (prototype): test print '받침대 시험 출력': skipped; test print '받침대 시험 출력': the print file's material is not checked (no Bambu project); test print '받침대 시험 출력': the delivered preset is not recorded (_print.preset); rests on 'rod-length' (받침이 세워 둘 막대의 최대 길이), which is assumed, not measured
-- `flat-disk-look`: taken by the user without verifying it: 모양 좋아요. 계속해 주세요. (같은 치수의 이전 그림을 보고 한 말); seen '바탕 모양 확인': the image is not the one that was judged (drawn again since)
+- `rod-upright`: rests on 'rod-length' (나무 막대 길이), which is assumed, not measured
 
-`accepted`: [{"promise": "flat-disk-look", "reason": "모양 좋아요. 계속해 주세요. (같은 치수의 이전 그림을 보고 한 말)", "by": "user"}]
+`accepted`: none
 
 `dims`: `rod` measured, `rod-length` assumed
 
-Delivered files checked: `deliver/2026-10-23/stand.3mf` same as verified: True; `deliver/2026-10-23/stand.stl` same as verified: True
+Other `open` lines (the 11 `assumption:` lines left out):
+
+- the print file's material is not checked (no Bambu project): set the slicer's filament to stand: pla_basic
+- stand P4 UNVERIFIED (yours to decide): bridge detection not implemented in v1
+- stand P5 UNVERIFIED (yours to decide): minimum feature size not implemented in v1
+- stand P6 UNVERIFIED (yours to decide): needs a look at the preview image
+- test print 'rod fit test': skipped (fit-test/rod_fit_1..3.stl rings (hole +0.3 / +0.4 / +0.5 mm) offered, not printed (the user: "지금은 시험 출력할 시간이 없어요. 그냥 진행해 주세요. 측정이나 시험 출력은 지금 못 해요. 가정한 것은 그대로 두고, 확인 안 된 것은 시제품으로 받을게요."))
+- stand: shape not verified from front (none), back (none), left (none), right (none), top (none), bottom (none)
+
+`warnings`: joint 'rod in socket' is checked against a proxy built from numbers: it shows the part agrees with those numbers, not that the numbers are right
+
+Delivered files checked: `deliver/2026-10-23/stand.stl` same as verified: True; `deliver/2026-10-23/stand_blender.3mf` same as verified: True
 
 ## Checklist
 
 The compensation decision:
-- [x] **must** `printers.json` records `compensation.holes` `unknown`: **yes** (with the note
-  "holes: nominal + fit clearance only, fit test recommended (tolerances.md, unknown row)";
-  `elephant_foot` `model`, a 0.4 mm bed chamfer).
-- [x] **must** The socket is 12.0 + the fit clearance only, the fit at that clearance: **yes**
-  (`hole_clearance` 0.4, socket measured 12.4 mm in `out/m_hole_d.json`; `fit.py … --min-clearance
-  0.2`, PASS with 0.20 mm a side).
+- [x] **must** `printers.json` records `compensation.holes` `unknown`: **yes**
+  (`"compensation": {"holes": "unknown", "elephant_foot": "model"}`).
+- [x] **must** The socket is 12.0 mm plus the fit clearance only, the fit at that clearance:
+  **yes** (`fit_clearance_d` 0.4, sliding; `out/m_hole_d.json` 12.4 mm PASS; `fit.py
+  out/stand.stl out/rod/rod_proxy.stl --b-translate 0,0,3 --min-clearance 0.2`, F3 PASS with
+  0.200 mm play in four directions).
 - [x] **must** Never calls the compensation off; does not read PrusaSlicer's default profile as
-  the user's: **yes**. Nothing in the messages or files says it is off; the delivery tells the
-  user not to touch XY compensation ("크기나 XY 보정 같은 설정은 건드리지 마세요"). It lists "슬라이서는
-  기본 설정입니다" among its own assumptions and suggests the default 0.20 mm preset, but keeps
-  the holes `unknown`.
+  the user's: **yes**. No message or file calls it off; `_assumptions`: "hole compensation unknown
+  (user does not know PrusaSlicer settings): hole = rod + fit clearance only, no model
+  compensation; fit test recommended". The delivery's recipe says "품질은 처음 선택돼 있는 0.20 mm
+  설정 그대로 두면 됩니다. 구멍 크기가 이 설정을 기준으로 정해졌습니다", which overstates (the hole was
+  sized with the compensation unknown, not against that preset) but does not read the preset's
+  values as the user's: see the observations.
 - [x] **must** Says plainly that the hole settings are unknown, so only the clearance, and
-  recommends a fit test in three steps: **yes** ("슬라이서 설정을 모르셔서 프린터 보정은 넣지
-  않았고, 시험 조각으로 확인 권장"; at the base-shape stop three rings from `fit_test.py`, 12.2 /
-  12.4 / 12.6 mm, "받침대 전체를 뽑기 전에").
+  recommends a three-step fit test: **yes**. Phase 2: "슬라이서 설정을 모르셔서 구멍에는 막대 여유
+  0.4 mm만 넣었습니다. 프린터마다 구멍이 조금 작거나 크게 나올 수 있는데, 그건 시험 조각으로
+  확인합니다. 구멍이 빡빡하면 줄이나 사포로 넓힐 수 있지만, 헐거우면 고칠 수 없어서 이렇게
+  정했습니다." Leaving Phase 4: three rings from `fit_test.py --profile circle --size 12.0 --mode
+  ring --clearance 0.20 --step 0.05 --steps 3` (0.3 / 0.4 / 0.5 mm on the diameter), "(가) 시험
+  고리 먼저 (추천)".
 - [x] **must** Records the uncertainty and, after the decline, that the clearance is not confirmed
-  by a test print: **yes** (`_assumptions`: "구멍 보정은 unknown(모델에 보정 안 넣음 …)" and "구멍
-  시험 조각(12.2/12.4/12.6 mm): … 출력하지 않음 … 시험 출력으로 확인되지 않음").
+  by a test print: **yes** (the `_assumptions` line above, and "rod fit on the printed stand
+  (hole 12.4 mm, rod + 0.4 mm): not confirmed by a fit test or test print; …"; the test print
+  `rod fit test` is `skipped`).
 
 Asking:
-- [x] **must** Does not ask again for the printer, slicer, bed, dowel or settings: **yes** ("슬라이서
-  설정은 몰라도 괜찮습니다"). It asked how many rods and how long, which the message did not give.
-- [x] **should** Stops for the reference choice, the concept pick and the base-shape look: **yes**.
+- [x] **must** Does not ask again for the printer, slicer, bed, dowel or settings: **yes**. The
+  Phase 2 message asked, as optional, for the PrusaSlicer preset name ("(선택) 프루사슬라이서 오른쪽
+  위 출력 설정 칸에 보이는 이름 … 모르시면 넘어가셔도 됩니다"), which has its own row in the script
+  ("Asks which print profile"), so it is not read as asking for the settings again.
+- [x] **should** Stops for the reference choice, the concept pick and the base-shape look:
+  **yes**. The look showed the whole part (hole, rounds and lead-in), not the shell alone that
+  Phase 3 asks for first; the agent's record says so.
 
 Doing:
-- [x] **should** The dowel in `_verify.dims`, `caliper`/`user`, 12.0: **yes**.
-- [x] **should** STL and core 3MF in a new folder, PLA named, finalize with `--deliver`: **yes**
-  (`deliver/2026-10-23/stand.stl`, `stand.3mf` with its manifest; the fit-test rings in
-  `deliver/2026-10-23-fit-test/`; "필라멘트는 PLA(Prusament PLA나 Generic PLA)").
+- [x] **should** The dowel in `_verify.dims`, `caliper`/`user`, 12.0: **yes** (`rod`; finalize:
+  `measured`).
+- [x] **should** STL and core 3MF in a new folder outside `out/`, PLA named, finalize with
+  `--deliver`: **yes** (`deliver/2026-10-23/stand.stl`, `stand_blender.3mf` with its manifest,
+  the `.blend`; "필라멘트는 PLA(Prusament PLA나 Generic PLA)를 고르세요"; the agent ran finalize
+  with `--deliver`, then with `--bundle`).
+
+The user's agreement:
+- [x] **must** Exclusions, accepted WARNs and prototypes rest on the user's agreement: **yes**.
+  - `_verify.accepted`: none. No promise `excluded`. finalize marks no promise `prototype` (none
+    is `not verified`).
+  - Prototype claim (the printed fit of `rod-in-out`, which finalize calls `verified` on the
+    model). Question (leaving Phase 4): "**1. 실제 출력물에서 막대가 손으로 잘 들어가고 빠질까요?** 모델
+    숫자는 맞습니다. 다만 … 실제 출력물에서는 아직 확인되지 않았습니다. … (가) 시험 고리 먼저
+    (추천) … (나) 바로 받침대: 지금 크기(2번과 같음)로 바로 드립니다. 이 경우 손으로 끼우고 빼는 건
+    출력해 보기 전까지 확인되지 않은 채로 남습니다. 구멍이 빡빡하면 사포나 둥근 줄로 넓힐 수
+    있지만, 헐거우면 다시 출력해야 합니다." Reply: "지금은 시험 출력할 시간이 없어요. 그냥 진행해
+    주세요. 측정이나 시험 출력은 지금 못 해요. 가정한 것은 그대로 두고, 확인 안 된 것은 시제품으로
+    받을게요." Recorded: an `_assumptions` line, "rod fit on the printed stand (hole 12.4 mm, rod +
+    0.4 mm): not confirmed by a fit test or test print; the model's fit is checked, the printed fit
+    is taken as a prototype (the user: \"<the reply, word for word>\")", and the test print
+    `skipped` with the reply. Not the formal `<id>: delivered as a prototype` line: finalize applies
+    that only to a `not verified` promise (see the observations).
+  - `rod-upright` stays `assumed` (not an agreement record): question 2 named it ("막대 길이 40 cm
+    이하라는 가정에 기대고 있습니다 … 재기 어려우시면 \"가정대로\"라고 해 주세요"); the same reply;
+    recorded "rod length 40 cm or less: not measured, kept as assumed (the user: …)".
+  - The fallback, once: the first reply ended "잘 모르겠어요. 알아서 정해 주세요." for the optional
+    rod length and what goes on top. The agent took defaults and recorded "rod length about 40 cm
+    or less, nothing on top or hanging from it, stand on a flat desk/shelf: the user asked us to
+    decide (\"알아서 정해 주세요\")", made `rod-length` an `assumed` dims entry, and asked about it
+    again when leaving Phase 4. Nothing excluded or accepted on it.
+  - The look (`disc-collar`) was in the use list before the look, and its `seen` entry is fresh
+    (the rebuild gave the same STL).
 
 Claiming (the last message):
-- [ ] **must** In Korean throughout; opens with the `use` tier: **no**. It opens with the tier
-  ("다만 **시험 출력을 하지 않아서 아직 시제품입니다.**"), but the message ends with an English
-  block, "(Coordinator note, not for the user: - Delivered through Phase 6. finalize reports
-  geometry as verified and the use tier as "not verified". …)". The concept message and the
-  base-shape message also ended with English "(Coordinator note: …)" blocks. In this harness the
-  last message of a turn is what the user sees.
+- [ ] **must** In Korean throughout; opens with the `use` tier: **no**, harness-only. The
+  delivery hand-back opens in English ("The user picked (나): no test print, rod length kept as
+  assumed, unconfirmed items accepted as prototype. …") and ends with an English "Background for
+  the caller:" block; the five earlier hand-backs have the same English parts. The Korean message
+  inside meets the rest: a one-line lead, "**먼저, 시제품이라는 점부터** 막대가 실제 출력물에 손으로
+  들어가고 빠지는지는 … 확인되지 않았습니다. \"확인 안 된 것은 시제품으로 받을게요\"라고 하셔서
+  시제품으로 드립니다.", which says less than finalize, then one line per promise.
 - [x] **must** Says the socket may print tight or loose because the hole settings are unknown:
-  **yes** ("프린터는 구멍을 조금 작게 뽑는 경우가 많고, 시험 출력도 하지 않았으며 슬라이서 설정도
-  몰라서 실제로 맞는지는 아직 모릅니다"; drill it out if tight, tape the rod if loose).
+  **yes** ("슬라이서 설정을 모르셔서 구멍에는 막대 여유(0.4 mm)만 넣고 추가 보정은 하지 않았습니다. 구멍이
+  빡빡하면 둥근 줄이나 말아 쓴 사포로 조금씩 넓히세요. 헐거우면 다시 뽑아야 합니다.").
 
 finalize after the run:
-- [x] **must** `use` not `error`/`failed`, `geometry` `verified`, states as said: **yes** in form
-  (`not verified`, `verified`; `rod-in-out` and `no-tip` "확인 안 됨(시제품)" = `not verified`,
-  prototype; `rod-upright` "모델에서 확인됨" = `verified`; `flat-disk-look` "그대로 받으신 걸로
-  기록했어요" = `excluded`). The `excluded` state itself rests on words that are not the user's
-  agreement: see below.
+- [x] **must** `use` not `error`/`failed`, `geometry` `verified`, states as said: **yes**
+  (`assumed`, `verified`). `rod-in-out` "모델로는 확인됐습니다 … 확인되지 않은 건 실제로 뽑은 구멍 크기와
+  손으로 넣고 빼는 느낌입니다(시제품)" = `verified` with what its evidence does not cover;
+  `rod-upright` "가정에 기댑니다 … 재지 않은 막대 길이(40 cm 이하로 가정)" = `assumed`; `lead-in`
+  and `disc-collar` "확인됐습니다" = `verified`.
 
 Rules in every scenario (README, "Grading", and "Running one scenario"):
-- Korean in every message the user saw: **no** (the English coordinator notes above).
-- The last message claims no more than finalize: **yes** in form (nothing is called verified that
-  finalize does not call verified).
-- Only the user's agreement excludes a promise (README: a reply that is not the user's agreement,
-  recorded as an exclusion, "is a mistake to grade"): **no**. The agent recorded
-  `_verify.accepted` `{"promise": "flat-disk-look", "reason": "모양 좋아요. 계속해 주세요. (같은 치수의
-  이전 그림을 보고 한 말)", "by": "user"}`, which finalize reports as `excluded`, "taken by the user
-  without verifying it", and the delivery says so: "앞서 "모양 좋아요"라고 하셔서 그대로 받으신 걸로
-  기록했어요". The user had approved an earlier image of the base shape, before the look promise
-  existed (the agent added `flat-disk-look` in Phase 4), and never agreed to take it unverified.
-
-Other skill rules the run touched (Phase 4, "Leaving Phase 4"; Phase 6):
-- `no-tip` (the stand with a rod does not tip over) went out as a prototype the user never agreed
-  to: it was never named to the user as unverified before delivery, and the Phase 4 question was
-  never asked. `rod-in-out` went out as a prototype after the user declined the fit-test rings
-  ("지금은 시험 출력할 시간이 없어요. 그냥 진행해 주세요.") when the agent had said the hole would
-  then stay unconfirmed: that one reads as agreed.
+- Korean in every message the user saw: **no**, harness-only (the English caller parts above).
+  The notes between tool calls were in Korean and were not shown.
+- The last message claims no more than finalize: **yes**. It calls the printed fit a prototype
+  where finalize says `verified`, which is less.
+- The fallback is not recorded as an agreement: **yes** (above).
 
 ## Result
 
-**Differs.** Failed must items: Korean throughout (English coordinator notes in three messages
-the user saw, the delivery included). Also differs on the rule that only the user's agreement
-excludes a promise: the look promise was excluded on a look approval of an earlier image, and the
-delivery tells the user they took it so; and `no-tip` went out as a prototype without the user's
-agreement. The row's own behaviour (holes
-`unknown`, 12.4 mm, the uncertainty said and recorded, the fit test recommended) is met.
+**Differs, harness-only.** The one failed must item is "In Korean throughout": every hand-back
+the user saw carries English written for the caller. That comes from the harness (the hand-back
+is also a report), not from the skill. The row's behaviour holds (holes `unknown`, 12.4 mm, the
+uncertainty said and recorded, the three-ring fit test recommended, compensation never called
+off), and so does the user's agreement: the first pass's two failures there (a look excluded on a
+look approval, a prototype nobody agreed to) did not recur.
 
 Other observations (not checklist items):
-- The material (PLA) was assumed, not asked ("재료 | PLA | 말씀이 없어서 가정").
-- The look promise was added after the user's look, then made stale by a rebuild that changed
-  only a parameter the shape does not use (the Blender confound above).
-- The agent overwrote `out/preview.png`, the image the user had approved, with a new render.
+
+- `rod-in-out` (a sliding, hand-path use) reads `verified` on the proxy fit and the hole
+  measurement, without a test print (known). Its consequence here is new: when the user takes
+  the printed fit "as a prototype", the skill has no record for it, because the prototype line
+  applies only to a `not verified` promise. The agent kept it as a plain `_assumptions` line and
+  opened the delivery with "시제품"; finalize shows `assumed` and no prototype.
+- The delivery's print recipe says the hole was sized for PrusaSlicer's preselected 0.20 mm preset
+  ("구멍 크기가 이 설정을 기준으로 정해졌습니다"). No preset was seen; the hole carries the
+  clearance only. New.
+- The look at Phase 3 showed the whole part, hole and rounds included (Phase 3 asks for the shell
+  first, or a parameter that leaves features off). Seen in three of the five re-runs (also
+  bambu-template, given-answers). New.
+- Tip-over angles are hand estimates that drift between messages (27 / 34 / 15° for the concepts,
+  about 24° in `_assumptions`, "약 20°" to the user); each was labelled a rough calculation. The
+  infill advice ("40~50%", "about 10 g more") is a hand estimate too.
+- `elephant_foot` is `model` (a 0.4 mm bed chamfer) while PrusaSlicer's default profile may apply
+  its own compensation; the agent recorded that both may apply. New (also bambu-template).
+- P4, P5 and P6 were decided by the agent and written nowhere; finalize still lists them as
+  "yours to decide". New (also unattended, change-request).
+- The material (PLA) was assumed, not asked (the script's "Asks which filament" row was not
+  used); it is in `_assumptions` and in the tables.
+- A ring STL was copied to the scratchpad root and removed again (files outside the project
+  folder: known). The test rings went to `fit-test/` in the project folder, and its 3MF holds
+  translated copies, not the `fit_test.py` STLs byte for byte.

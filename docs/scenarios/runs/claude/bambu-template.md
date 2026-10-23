@@ -1,379 +1,348 @@
 # bambu-template, Claude
 
-- Agent and model: Claude Code-based harness subagent, model claude-opus-5-5 (one subagent per
-  scenario; the session lead played the user and relayed the scripted replies)
-- Skill commit: 1a9acb8 (main, installed in the release layout, without `docs/`)
-- Kit: the scenario file at 8a663aa (`v070-scenarios`)
-- Date, OS, Python: 2026-10-23, Linux, Python 3.13 with bpy 5.2.2 (manifold3d, numpy)
-- Web search: on; denied approvals: none
-- setup.py output: kept outside the project folder: `.3dprint/printers.json` and
-  `.3dprint/templates/x1c.3mf` with their sha256; no finalize (nothing to read yet)
-- Engine: Blender (bpy) for the cap, the Python engine for the concepts and the rod proxy
+- Agent and model: Claude Code-based harness subagent (run agent a48d946c1ea6a1ea5), model
+  claude-opus-5-5; one run agent per scenario, the session lead played the user
+- Skill commit: e2f7953 (v070-rerun; content of main ecc5036 + kit b6134c8), installed in the
+  release layout, without `docs/`
+- Kit: the scenario file at b6134c8 (`v070-scenarios`; unchanged at 91473b5)
+- Date, OS, Python: 2026-10-23, Linux, Python 3.13.16 with bpy 5.2.2 (manifold3d, numpy)
+- Web search: on; denied approvals: none recorded
+- setup.py output: `runs071/log/setup_bambu-template.json`, kept outside the project folder:
+  `.3dprint/printers.json` (190147b1…) and `.3dprint/templates/x1c.3mf` (156228f7…); no finalize
+  (nothing to read yet)
+- Engine: Blender (bpy) for the cap, its revolved profiles made in manifold3d; manifold3d scripts
+  for the concepts and the rod proxy
+
+This is the re-run. The first pass, at skill 1a9acb8, is
+[`bambu-template-1a9acb8.md`](bambu-template-1a9acb8.md).
+
+How this harness worked (facts that bear on the marks below):
+
+- The lead started the run agent with the run brief (`runs071/run-brief.txt`): the skill's
+  folder, the working folder, and "The last message of each of your turns is shown to the user
+  exactly as you write it, all of it. Write nothing in it for anyone but the user." The brief
+  names no coordinator or lead.
+- The run agent returns each turn through a hand-back to its caller (`SubagentHandback`), which
+  is also a report to that caller. The hand-back is the last message of the turn: under the
+  brief it is what the user saw, and it is graded whole. Where an agent ended a turn with plain
+  text instead, the harness made it hand back ("[handback-send-enforce]"); the hand-back is what
+  is quoted.
+- The lead sent each scripted reply word for word with a messaging tool; the agent received it
+  labelled "The coordinator sent a message while you were working: …".
+- After the run ended, the lead asked for an English record of the run; that request and the
+  reply are not part of the conversation and were used here only to cross-check.
+- Graded by a separate agent that took no part in the runs, from the transcript, the project
+  folder as the run left it, `runs071/log/` (the lead's replies and notes) and finalize run
+  afterwards.
 
 Confounds of this run (facts; none of them changes a mark below):
 
 - The run agent had the skill owner's account memory in its context (it names a Bambu Lab X2D
   and Bambu Studio). This run used the X1 Carbon saved in the folder. Codex runs will not have
   that memory.
-- `references/development.md`, shipped with the skill, holds the scenario rows. This agent did
-  not read it (its record lists it as not read).
-- Blender-built STLs were not byte-deterministic at this commit (the triangle order changed
-  between identical builds), so any rebuild made `seen` entries and other evidence stale. This
-  run built with Blender: both looks the user approved went stale through rebuilds, and in the
-  last turn the agent changed its own generator to export manifold3d's triangles directly
-  (deterministic since), rebuilt and renewed every report; `_verify.seen` was left empty.
-
-How this harness worked: the agent got a run brief (the skill's folder, its working folder,
-"talk to the user only through the final message of each of your turns", "to show an image, put
-its path in your message") followed by the opening message; the lead relayed each reply word for
-word from the scenario's table. Text the agent wrote between tool calls was not shown to the user;
-only the last message of each turn was. After the run ended, the lead asked for an English record
-of the run; it is not part of the conversation and was used here only to cross-check. Graded by a
-separate agent that took no part in the runs, from the transcript, the project folder as the run
-left it and finalize run afterwards.
+- Harness: none of the five hand-backs carries English for the caller; all are in Korean.
+- The Blender STL is now deterministic (#23); no rebuild came after the user's look, and the
+  `seen` entry is fresh.
 
 ## Conversation
 
-Tool calls are summarised in order: reads, web searches and script help grouped; "(scratchpad)" is the agent's scratch folder, outside the project folder. The agent's messages are quoted whole.
+Tool calls and notes are listed in order between the messages. Absolute paths are shortened in
+the whole section, the agent's messages included: `$PROJECT` is the run's project folder
+(`…/scratchpad/runs071/claude/bambu-template`), `$SKILL_DIR` the installed skill, `$SCRATCH` the
+session's scratchpad, outside the project folder. Otherwise the agent's messages are quoted whole.
 
 **User:** 옷걸이 봉 끝에 끼울 마개를 하나 만들어 주세요. 봉은 둥근 쇠파이프이고, 바깥지름을 캘리퍼로 재 보니 22.0 mm예요. 마개는 손으로 끼웠다 뺐다 할 수 있으면 좋겠어요. 프린터 설정은 이 폴더에 저장해 둔 그대로예요.
 
 *(opening message)*
 
-Tool calls:
+Tool calls and notes, in order:
 
-- read SKILL.md
-- read references/phase-0-detect.md, .3dprint/printers.json
-- `build.py detect`
-- read references/phase-1-references.md
-- web search (3): 22mm tube end cap printables; closet rod end cap 22mm 3D print thingiverse OR makerworld; thingiverse 22mm pipe end cap outer diameter clothes rail
-- fetch (2): https://www.printables.com/model/548118-cap-22mm-id, https://makerworld.com/models/2629955
-- web search (1): printables "end cap" round tube 22 mm outside diameter cap slip on
-- fetch (3): https://3dgo.app/models/printables/708170, https://www.makerworld.com/en/models/1655081, https://www.printables.com/model/172012-tube-end-cap-wedge-clamp
-- read references/phase-2-printer-dimensions.md, references/tolerances.md
+- read $SKILL_DIR/SKILL.md
+- `ls -la $PROJECT; ls -R $SKILL_DIR`
+- `find .3dprint -type f | xargs ls -la && for f in $(find .3dprint -type f -name '*.json' -o -type f -name '*.md' -o -type f -name '*.txt'); do echo "=== $f"; cat "$f"; done`
+- read $SKILL_DIR/references/phase-0-detect.md
+- `timeout 300 python3 "$SKILL_DIR/scripts/build.py" detect 2>&1 | head -80; cd .3dprint/templates && python3 -c "…"`
+- read $SKILL_DIR/references/phase-1-references.md
+- web search: 22mm tube end cap printables
+- web search: 22mm pipe end cap closet rod thingiverse OR makerworld
+- fetch: https://www.printables.com/model/548118-cap-22mm-id
+- fetch: https://makerworld.com/en/models/2947453
+- fetch: https://makerworld.com/models/2629955
+- web search: thingiverse round tube end cap 22mm outside cap ribs
+- web search: printables clothes rail end cap 22mm
+- fetch: https://makerworld.com/models/2978315
+- fetch: https://www.printables.com/model/172012-tube-end-cap-wedge-clamp
+- read $SKILL_DIR/references/phase-2-printer-dimensions.md
 
-**Agent:**
+**Agent** (the hand-back message, shown to the user whole):
 
-> Blender(bpy 5.2.2)로 모델링하고, 참고 모델은 웹 검색으로 찾았어요. 미리보기는 Blender 렌더로 보여드릴게요. Blender로 만들면 편집용 `.blend`가 남아요. 다만 Fusion처럼 치수를 고치면 따라 바뀌는 CAD 기록은 남지 않아요. 치수는 전부 생성 스크립트에 숫자로 들어가요.
+> 진행 방식부터 말씀드릴게요. Blender로 모델을 만들고, 참고할 모델은 웹에서 찾고, 미리보기 그림도 Blender로 뽑습니다. 프린터는 이 폴더에 저장된 설정(X1C, 뱀부 스튜디오)을 그대로 씁니다. Blender로 만들면 결과물이 메쉬 파일(STL/3MF)이라 Fusion처럼 치수를 고쳐 가며 다시 만드는 설계 기록은 남지 않아요. 대신 치수는 전부 생성 스크립트의 값으로 남아서, 나중에 숫자만 바꿔 다시 뽑을 수 있습니다.
 >
-> **요청 정리:** 바깥지름 22.0 mm(캘리퍼 측정)인 둥근 쇠파이프 옷걸이 봉 끝에 씌우는 마개예요. 손으로 끼웠다 뺐다 할 수 있어야 하고, 폴더에 저장된 프린터 설정(X1C, Bambu Studio)으로 출력합니다.
+> ## 요청 정리
+> 바깥지름 22.0 mm인 둥근 쇠파이프(옷걸이 봉)의 끝을 바깥에서 덮는 마개입니다. 손으로 끼웠다 뺐다 할 수 있어야 하니, 너무 헐겁지도 빡빡하지도 않게 잡아 주는 게 핵심이에요. 파이프 안지름은 모르니, 안에 꽂는 방식보다 바깥에 씌우는 방식이 맞습니다.
 >
-> **비슷한 기존 모델 4개**
+> ## 찾은 기존 모델 4개
 >
-> | # | 이름 | 사이트 | 링크 | 라이선스 | 참고할 만한 점 |
-> |---|---|---|---|---|---|
-> | 1 | Cap 22mm I.D. (Fly Boy) | Printables | [548118](https://www.printables.com/model/548118-cap-22mm-id) | 페이지에 표시 안 됨 | 22 mm 관 바깥에 씌우는 단순한 컵 모양이에요(벽 1 mm, 바닥 2 mm, 높이 25 mm). 만든 사람이 출력해 보니 안지름이 22 mm가 아니라 21.7 mm로 나왔대요. 여유를 꼭 줘야 한다는 실제 사례예요. |
-> | 2 | Round Tube End Caps – External Push-Fit Covers (BTKR) | MakerWorld | [1655081](https://www.makerworld.com/en/models/1655081) | Standard Digital File License(공유·판매 금지) | 바깥에 눌러 씌우는 마찰식 마개예요. 11–20 mm 관용은 높이 20 mm이고 22 mm용은 없어요. |
-> | 3 | tube end cap wedge clamp (FeKo) | Printables | [172012](https://www.printables.com/model/172012-tube-end-cap-wedge-clamp) | 페이지에 표시 안 됨 | 바깥지름 22 mm 관 안쪽에 넣고 M5 볼트로 쐐기를 벌려 고정해요. 아주 단단하지만 빼려면 공구가 필요하고, 관의 안지름(18.6 mm 기준)을 알아야 해요. |
-> | 4 | 30x30mm Square Tube End Cap – Flush Fit Plug (Benevolent Maker) | MakerWorld | [2629955](https://makerworld.com/models/2629955) | MakerWorld Exclusive License | 사각관 안에 넣는 마개라 모양은 다르지만, 끝을 가늘게 해서 잘 들어가게 하고 볼록한 띠로 붙잡는 방식을 참고할 만해요. 손으로 끼워요. |
+> | # | 이름 | 사이트 | 라이선스 | 가져올 만한 점 |
+> |---|---|---|---|---|
+> | ① | [Cap 22mm I.D.](https://www.printables.com/model/548118-cap-22mm-id) | Printables | 확인 안 됨 | 22 mm 파이프에 바깥에서 씌우는 단순한 원통 마개예요(안지름 22, 바깥 24, 높이 25 mm, 바닥 2 mm). 제작자가 뽑은 걸 재 보니 안지름이 21.7 mm로 나왔다고 해요. 구멍이 설계보다 작게 출력된다는 뜻이라, 22.0 mm 봉에는 꽉 끼거나 아예 안 들어갈 수 있어요. |
+> | ② | [Pipe Protective Cap All-in-One](https://makerworld.com/en/models/2947453) | MakerWorld | Standard Digital File License | 잡는 방식을 고를 수 있어요(매끈하게, 걸림 턱, 갈고리 등). 입구 안쪽을 비스듬히 깎아서 끼우기 쉽게 했고, 서포트 없이 바닥을 대고 출력해요. |
+> | ③ | [Round Furniture Leg Caps 20–30mm](https://makerworld.com/models/2978315) | MakerWorld | Standard Digital File License (공유·판매 금지) | 1 mm 간격으로 11가지 크기를 만들고 바닥에 크기를 새겨 둔 아이디어예요. 다만 파이프 안에 꽂는 방식으로 보여서 모양은 이번 용도와 달라요. |
+> | ④ | [tube end cap wedge clamp](https://www.printables.com/model/172012-tube-end-cap-wedge-clamp) | Printables | 확인 안 됨 | 바깥 22 mm 파이프 안에 넣고 M5 볼트로 쐐기를 벌려 고정해요. 아주 단단하지만 공구가 필요하고 손으로 빼기는 어려워서, 이번 용도와는 반대 방향이에요. |
 >
-> 그대로 써도 되는 모델은 없어요. 1번은 실제로 21.7 mm로 출력돼서 22.0 mm 봉에는 안 들어가거나 너무 빡빡해요. 2번은 20 mm까지만 있고, 3번은 공구가 필요하고, 4번은 사각관용이에요. Printables 두 모델의 라이선스는 제가 읽은 페이지에 나오지 않았어요. 궁금하시면 모델 페이지의 License 칸에서 확인하실 수 있어요. 어느 쪽을 고르셔도 제가 새로 그리기 때문에 모양이 원본과 비슷해지지는 않아요.
+> Printables 두 개는 페이지 본문에 라이선스가 보이지 않았어요. 모델 페이지 오른쪽의 License 칸에서 직접 확인하실 수 있어요.
 >
-> **어떻게 진행할까요?**
-> - **A.** 한 모델을 바탕으로 만들기(어느 부분을 가져올지 말씀해 주세요)
-> - **B.** 여러 모델에서 아이디어 섞기. 예를 들면 1번의 단순한 컵 모양에 4번의 가늘어지는 입구와 붙잡는 돌기를 더하는 식이에요.
-> - **C.** 처음부터 새로 만들기
-> - **D.** 기존 모델 그대로 쓰기(지금은 맞는 게 없어서 추천하지 않아요)
-> - 또는 "4개 더 보여줘"
+> **그대로 써도 되는 모델은 없어 보여요.** ①이 가장 가깝지만 출력하면 안지름이 21.7 mm라 22.0 mm 봉에서 손으로 끼웠다 빼기는 어려울 거예요.
 >
-> B나 C를 고르시면 잡는 방식이 다른 시안 2–3개(예: 안쪽 얇은 돌기로 잡는 컵, 틈을 내서 스프링처럼 조이는 컵)를 그림으로 보여드릴게요. 거기서 하나를 고르시면 돼요.
+> ## 어떻게 할까요?
+> - **A. 하나를 참고:** 예를 들어 ①의 형태를 따르고, 안지름만 제대로 맞춥니다.
+> - **B. 여러 개를 섞기:** ①처럼 바깥에 씌우는 형태에, ②의 비스듬한 입구와 안쪽의 가는 세로 돌기 몇 줄을 더합니다. 돌기가 살짝 눌리면서 잡아 줘서 손으로 끼우고 뺄 수 있어요. **이걸 추천드려요.**
+> - **C. 처음부터 새로 만들기**
+> - **D. 기존 모델을 그대로 쓰기:** 위 이유로 추천하지 않아요.
+> - 다른 모델 4개를 더 찾아볼 수도 있어요.
 >
-> 시안을 잡는 데 도움이 되니, 아시면 같이 알려 주세요. 모르셔도 괜찮고, 그럼 제가 정할게요.
-> 1. 봉이 받침대나 벽에서 끝까지 몇 mm쯤 나와 있나요? 마개 깊이를 정하는 데 필요해요.
-> 2. 마개는 잘린 끝만 덮으면 되나요? 아니면 옷걸이가 끝으로 빠지지 않게 봉보다 조금 큰 턱이 있으면 좋을까요?
+> B나 C를 고르시면 모양이 조금씩 다른 시안 2~3개를 그림으로 먼저 보여 드릴게요(윗면이 둥근지 평평한지, 높이 등). 어느 쪽으로 할까요?
 
-**User:** 기존 모델 말고 새로 만들어 주세요. 잘 모르겠어요. 알아서 정해 주세요.
+**User:** 기존 모델 말고 새로 만들어 주세요.
 
-*(rows: "Shows existing models and asks which way to go (A–D)" + the fallback (rod length out of its support, a stop lip))*
+*(row: "Shows existing models and asks which way to go (A–D)"; delivered to the agent as "The coordinator sent a message while you were working: …")*
 
-Tool calls:
+Tool calls and notes, in order:
 
-- (probes: grep)
-- read references/design.md
-- (probes: render.py --help, strength.py --help)
-- `strength.py snap --material pla_basic --orientation xy --length $L --h 1.2 --b 12 --undercut 0.3 --repeated --entry-angle 30 --retention-angle 30`
-- `(shell) mkdir -p out/concepts`
-- `(shell) wrote out/concepts/concepts.py`
-- `render.py out/concepts/$c.stl -o out/concepts/$c.png --views iso,top,front --lang ko --overwrite`
-- read out/concepts/c1_spring_arm_cap.png, out/concepts/c2_trilobe_cap.png, out/concepts/c3_inner_plug.png
+- `python3 "$SKILL_DIR/scripts/render.py" --help 2>&1 | head -50; grep -n "^def " "$SKILL_DIR/scripts/parts.py" | head -80`
+- note between tool calls (not shown to the user): 새로 만드는 쪽(C)으로 갑니다. 지금부터 시안 3개를 대략적인 모양으로 만들어 그림으로 보여 드릴게요.
+- `sed -n 1,60p "$SKILL_DIR/references/tolerances.md"; grep -n -i "tube\|cap\|friction\|crush\|rib" "$SKILL_DIR/references/tolerances.md" "$SKILL_DIR/references/design.md" | head -40`
+- `mkdir -p $PROJECT/out/concepts && cat > $PROJECT/out/concepts/concepts.py <<'EOF' ; cd $PROJECT && python3 out/concepts/concepts.py`
+- `for n in 1-flat 2-dome 3-grip; do python3 "$SKILL_DIR/scripts/render.py" out/concepts/$n.stl -o out/concepts/$n.png --lang ko --overwrite 2>&1 | python3 -c "import json,sys; d=json.load(sys.stdin); print('$n', d.get('sane'), d.get('out') or d.get('path'), d.get('warnings'))" ; done`
+- read $PROJECT/out/concepts/1-flat.png
+- read $PROJECT/out/concepts/2-dome.png
+- read $PROJECT/out/concepts/3-grip.png
+- `cd $PROJECT/out/concepts && python3 - <<'EOF' ; ls`
 
-**Agent:**
+**Agent** (the hand-back message, shown to the user whole):
 
-> 새로 만들게요. 물어본 두 가지는 이렇게 정했어요. 바꾸고 싶으면 언제든 말씀해 주세요.
-> - **깊이:** 마개가 봉에 15 mm 씌워져요. 봉이 받침대나 벽에서 15 mm 이상 나와 있으면 끝까지 들어가요.
-> - **턱:** 따로 달지 않았어요. 1안은 마개 자체가 봉보다 한쪽으로 3 mm쯤 굵어서, 옷걸이가 끝에서 한 번 걸려요.
+> 새로 만드는 쪽(C)으로 진행했어요. 대략적인 모양의 시안 3개를 만들어 봤습니다. 치수는 아직 대략 잡은 값이에요(안지름 22.4 mm, 벽 2 mm, 끼워지는 깊이 20 mm). 정확한 값은 고르신 다음 단계에서 정해요.
 >
-> 잡는 방식이 다른 시안 세 개를 만들었어요. 세 개 모두 막힌 쪽을 바닥에 놓고 출력해서 서포트가 필요 없고, 몇 그램짜리 작은 출력이에요(3–5 g).
+> 세 시안 모두 안쪽에 세로 돌기 6줄이 있어요. 끼우면 돌기가 파이프 표면을 살짝 눌러서 잡아 주기 때문에 손으로 끼우고 뺄 수 있어요. 입구 안쪽은 비스듬히 깎아서 끼우기 쉽게 했고, 세 개 모두 서포트 없이 출력돼요.
 >
-> **1안: 스프링 팔 컵 (추천)**
-> out/concepts/c1_spring_arm_cap.png
-> - 컵 안쪽에 휘어진 얇은 팔 3개가 있어요. 봉을 넣으면 팔이 살짝 밀려나면서 스프링처럼 봉을 붙잡아요. 크기는 지름 약 28 × 높이 17 mm예요.
-> - 팔은 출력 층 방향으로 휘어요. 그래서 여러 번 끼웠다 빼도 잘 버텨요. 대략 계산해 보니 휨이 PLA 반복 사용 한도의 3분의 2쯤이에요(나중에 정식으로 다시 확인할게요).
-> - 봉과 0.3 mm 겹치게 잡기 때문에 출력이 0.1–0.2 mm쯤 어긋나도 꽉 끼거나 헐거워질 일이 적어요.
-> - 대신 바깥지름이 셋 중에서 가장 커요.
+> **시안 1: 평평한 윗면**
+> $PROJECT/out/concepts/1-flat.png
+> 윗면이 평평하고 모서리를 살짝 깎은 원통이에요(26.4 × 26.4 × 22 mm). 닫힌 면을 바닥에 대고 출력해서 가장 빠르고 안정적이에요. 단순하고 깔끔한 모양이에요.
 >
-> **2안: 세 점 조임 컵**
-> out/concepts/c2_trilobe_cap.png
-> - 안쪽 세 곳을 살짝 평평하게 해서 그 자리가 봉을 눌러요. 지름 약 25.6 mm로 가장 날씬해요.
-> - 대신 봉과 겹치는 양이 0.1 mm뿐이에요. 출력 오차에 따라 헐겁거나 아예 안 들어갈 수 있어요. 참고 모델 1번도 0.3 mm 작게 나왔어요. 그래서 시험 출력이 꼭 필요해요.
+> **시안 2: 둥근 돔 끝**
+> $PROJECT/out/concepts/2-dome.png
+> 끝이 둥글어서 부딪혀도 덜 아프고 부드러워 보여요(높이 28 mm로 6 mm 더 길어요). 입구 쪽을 바닥에 대고 출력하고, 안쪽 천장을 비스듬히 만들어 서포트가 필요 없게 해요. 대신 출력 시간이 조금 더 들고, 돔 표면에 층 자국이 계단처럼 살짝 보일 수 있어요.
 >
-> **3안: 안쪽 꽂이 마개**
-> out/concepts/c3_inner_plug.png
-> - 파이프 구멍 안에 꽂는 방식이에요. 바깥에 나오는 머리가 봉과 같은 22 mm라서 끝이 가장 깔끔하게 이어져요.
-> - 대신 파이프 **안지름**을 캘리퍼로 재 주셔야 해요. 그림은 19 mm로 가정하고 그렸어요. 파이프 끝이 막혀 있지 않고 매끈해야 해요.
+> **시안 3: 손잡이 홈**
+> $PROJECT/out/concepts/3-grip.png
+> 시안 1에 바깥 세로 홈 16줄을 더했어요. 뺄 때 손가락이 덜 미끄러져요. 크기와 출력 방법은 시안 1과 같고, 홈 때문에 출력 시간이 아주 조금 늘어요.
 >
-> 어느 안으로 할까요? 고민되시면 "1안"이라고만 답해 주세요. 고르신 다음에는 사용 목록과 치수 표를 한 번 보여드리고 바로 모델링에 들어갈게요.
+> 어느 시안으로 할까요? 섞어도 돼요. 예를 들어 "2번에 3번의 홈"처럼 말씀해 주세요.
 
 **User:** 첫 번째 안으로 할게요.
 
-*(row: "Shows concept variants and asks which one")*
+*(row: "Shows concept variants and asks which one"; delivered to the agent as "The coordinator sent a message while you were working: …")*
 
-Tool calls:
+Tool calls and notes, in order:
 
-- read references/bambu-process.md
-- `strength.py loads`
-- read references/phase-3-base-shape.md, references/calibration.md
-- `(shell) mkdir -p bbsprof`
-- `calibration.py lookup --file .3dprint/calibration.json --printer x1c --material pla_basic --nozzle 0.4 --layer 0.2 --orientation upright --process "0.20mm Standard @BBL X1C" --feature mechanism --kind snap`
-- `(python) edited .3dprint/params.json, .3dprint/printers.json (promises, dims, _assumptions)`
-- (probes: strength.py --help)
-- `(python) edited .3dprint/params.json (promises)`
+- `python3 -c "…"`
+- `grep -n -i "press\|friction\|interference\|fit test\|fit_test\|test piece" "$SKILL_DIR/references/design.md" "$SKILL_DIR/references/phase-4-features-joints.md" "$SKILL_DIR/references/checks.md" "$SKILL_DIR/references/materials.md" | head -60; ls "$SKILL_DIR/../.." 2>/dev/null | head; ls $PROJECT/.3dprint`
+- read $SKILL_DIR/references/phase-4-features-joints.md
+- `cat "$SKILL_DIR/references/bambu-process.md"`
+- fetch: https://raw.githubusercontent.com/bambulab/BambuStudio/v02.08.02.61/resources/profiles/BBL/process/0.20mm%20Standard%20@BBL%20X1C.json
+- fetch: https://raw.githubusercontent.com/bambulab/BambuStudio/v02.08.02.61/resources/profiles/BBL/process/fdm_process_single_0.20.json
+- fetch: https://raw.githubusercontent.com/bambulab/BambuStudio/v02.08.02.61/resources/profiles/BBL/process/fdm_process_single_common.json
+- fetch: https://raw.githubusercontent.com/bambulab/BambuStudio/v02.08.02.61/resources/profiles/BBL/process/fdm_process_common.json
+- `sed -n 1,400p "$SKILL_DIR/references/checks.md"`
+- `python3 - <<'EOF'  # inline script, writes .3dprint/params.json, .3dprint/printers.json`
 
-**Agent:**
+**Agent** (the hand-back message, shown to the user whole):
 
-> 1안(스프링 팔 컵)으로 진행할게요. 프린터는 폴더에 저장된 설정 그대로 X1C, Bambu Studio, 0.20mm Standard 프로필, 0.4 mm 노즐이에요.
+> 시안 1(평평한 윗면)로 정했어요. 실제로 만들기 전에, 이 마개로 할 수 있어야 하는 일과 치수를 확인받고 싶어요.
 >
-> **마개로 할 수 있어야 하는 일**
-> 1. **손으로 끼웠다 뺐다 하기**: 22.0 mm 봉 끝에 공구 없이, 여러 번 반복해서요. 팔이 휘는 정도는 PLA를 반복해서 쓸 수 있는 한도 안에 들도록 계산했어요(약 0.45 %, 한도 0.6 %). 끼울 때는 약 8 N(800 g 무게 정도)이 들어서 손으로 쉽게 끼울 수 있어요. 봉이 받침대에서 15 mm 이상 나와 있다고 가정했어요.
-> 2. **저절로 빠지지 않기**: 옷걸이가 툭 부딪혀도 그대로 있어야 해요. 빼는 힘은 계산상 약 1–3 N(100–300 g 무게)이에요. 팔 모양 때문에 계산 범위가 넓어서, 실제 세기는 시험 출력으로 확인해야 해요.
-> 3. **스프링 팔 3개**: 팔 끝의 작은 돌기가 봉 표면보다 약 0.3 mm 안쪽까지 들어와서 봉을 눌러요(출력 후 기준).
-> 4. **모양**: 끝이 평평한 원통이에요.
+> ## 마개로 할 수 있어야 하는 일
+> 1. **끼우기:** 봉 끝에 맨손으로 밀어 넣으면, 봉 끝이 마개 안쪽 바닥에 닿을 때까지 들어가요.
+> 2. **빼기:** 맨손으로 잡아당기면 빠져요.
+> 3. **안 빠지기:** 끼운 채로는 옷걸이가 밀려와 부딪히거나 봉을 만져도 빠지거나 밀려 나오지 않아요.
 >
-> **치수 표**
+> 1~3번은 손 느낌의 문제라 계산만으로는 장담할 수 없어요. 실제로 한 번 뽑아서 끼워 봐야 확인돼요(아래 3번 질문).
 >
-> | 항목 | 값 | 출처 |
-> |---|---|---|
-> | 봉 바깥지름 | 22.0 mm | 직접 재신 값(캘리퍼) |
-> | 봉이 나와 있는 길이(최소) | 15 mm | 가정(맡겨 주셔서 정함) |
-> | 마개 깊이 | 15 mm | 위 길이에 맞춤 |
-> | 마개 바깥지름 × 높이 | 30.0 × 17.4 mm | 계산값(시안은 28.4 mm였는데, 팔이 휠 공간 때문에 조금 커졌어요) |
-> | 끝면 두께 / 컵 벽 두께 | 2.4 / 1.8 mm | 설계 권장값(벽 1.6–2.0 mm) |
-> | 스프링 팔 | 3개, 두께 1.2 mm, 길이 약 11 mm, 뒤쪽 휨 공간 0.7 mm | 걸쇠 팔 최소 두께 1.2 mm, 휨 계산 |
-> | 봉과 겹침(출력 후) | 0.3 mm(반지름) | 휨 계산으로 정함 |
-> | 출력 오차 보정 | 팔 끝 원 +0.15 mm(반지름) | 이 프로필은 구멍 보정이 꺼져 있어서 모델에 넣음 |
-> | 재료 | PLA(Bambu PLA Basic) | 가정(저장된 설정의 필라멘트) |
-> | 출력 설정 | 0.20mm Standard @BBL X1C | 저장된 설정 |
-> | 출력 방향 | 막힌 끝이 바닥, 서포트 없음 | 설계 |
-> | 베드 여유 | 가로·세로 각 226 mm, 높이 232 mm | 256 × 256 × 250 mm 베드 기준 |
->
-> 출력 방향 때문에 바꾼 점이 하나 있어요. 팔이 바닥에 붙어 있으면 휘지 못하니까, 팔 아래쪽을 45°로 비스듬히 깎아서 바닥과 떨어뜨렸어요. 이렇게 하면 서포트 없이 출력되고, 팔은 출력 층이 강한 방향으로 휘어요. 팔은 컵 안쪽에 있어서 겉에서는 안 보여요.
->
-> 이대로 모델링을 시작할까요? 바꾸고 싶은 게 있으면 말씀해 주세요. 예를 들어 더 단단히 잡히게 하거나(팔을 4개로), 마개를 더 짧게 하거나, PLA가 아닌 다른 필라멘트로 출력하는 식으로요.
-
-**User:** 네, 그대로 진행해 주세요.
-
-*(row: "Shows the use list and the parameter table and asks to confirm")*
-
-Tool calls:
-
-- read references/engines/blender.md
-- `write cap_blender.py`
-- `(python) edited .3dprint/params.json`
-- `(shell) mkdir -p out`
-- `build.py run cap_blender.py --params .3dprint/params.json --out out --printer .3dprint/printers.json > out/build.json`
-- `edit cap_blender.py`
-- `build.py run cap_blender.py --params .3dprint/params.json --out out --printer .3dprint/printers.json > out/build.json`
-- `(python) edited .3dprint/params.json, cap_blender.py`
-- `build.py run cap_blender.py --params .3dprint/params.json --out out --printer .3dprint/printers.json > out/build.json`
-- `(shell) mkdir -p out/preview`
-- `render.py out/cap.stl -o out/preview/cap.png --views iso,top,front,bottom --lang ko --overwrite`
-- `render.py out/preview/cap_section.stl -o out/preview/cap_section.png --views iso,front --lang ko --label "반으로 자른 단면 (미리보기용)" --overwrite`
-- read out/preview/cap.png, out/preview/cap_section.png
-- `(python) edited .3dprint/params.json (_assumptions)`
-
-**Agent:**
-
-> 기본 모양을 만들었어요. 다음 단계로 가기 전에 한번 봐 주세요.
->
-> out/preview/cap.png
-> out/preview/cap_section.png (안쪽이 보이게 반으로 잘라 본 그림이에요. 미리보기용이고 출력 파일은 아니에요.)
->
-> - **크기:** 30 × 30 × 17.4 mm예요. 부피는 4.6 cm³이고 PLA로 5 g 정도예요.
-> - **겉모양:** 끝이 평평한 원통이고, 모서리는 살짝 깎았어요. 바닥에 닿는 모서리는 둥글리지 않고 깎았어요.
-> - **안쪽:** 스프링 팔 3개가 있고, 각 팔 끝에 작은 돌기가 있어요. 돌기를 이은 원은 지름 21.70 mm로 그렸어요. 출력하면 보통 조금 작게 나오는 걸 계산에 넣어서, 출력 후에는 22.0 mm 봉보다 약 0.3 mm 안쪽까지 눌러 줄 거예요.
-> - **검사 결과:** 닫힌 한 덩어리이고, 크기가 계획과 맞고, 베드에 들어가요. 서포트가 필요한 부분은 없어요(0 %).
-> - **알림 1개:** 스프링 팔 두께가 최소 기준인 1.2 mm라서 얇은 벽 알림이 떴어요. 팔이 잘 휘라고 일부러 정한 두께예요. 출력 설정을 정할 때 얇은 벽이 제대로 나오도록 맞출게요.
-> - **아직 확인 안 한 것:** 팔과 봉이 실제로 맞물리는 정도, 팔의 강도, 다리처럼 걸쳐지는 부분(브리지)과 아주 작은 부분은 자동 검사가 없어요. 이건 다음 단계에서 확인해요.
->
-> 치수 표에서 바뀐 점이 하나 있어요. 팔 아래쪽 경사를 45°에서 46°로 1° 더 세웠어요. 서포트 없이 확실히 출력되게 하려고요. 그래서 돌기 쪽 팔 높이가 4 mm에서 약 3.6 mm로 조금 낮아졌어요. 잡는 힘 계산에는 거의 영향이 없어요.
->
-> 모양이 괜찮으면 다음 단계로 넘어갈게요. 봉 모형을 만들어 팔이 봉과 얼마나 맞물리는지 숫자로 확인하고, 팔 강도를 계산해요. 이 마개는 작아서(5 g), 그다음에 마개 하나만 먼저 시험 출력해서 끼워 보시라고 권할 거예요.
-
-**User:** 모양 좋아요. 계속해 주세요.
-
-*(row: "Shows the base shape (a preview) and asks for a look")*
-
-Tool calls:
-
-- read references/phase-4-features-joints.md, references/measure.md, references/checks.md
-- (probes: fit.py --help, measure.py --help)
-- `measure.py slice out/cap.stl --z 15.5`
-- `(python) edited .3dprint/params.json, .3dprint/rod_proxy.json, cap_blender.py`
-- `(shell) wrote rod_proxy.py`
-- `build.py run cap_blender.py --params .3dprint/params.json --out out --printer .3dprint/printers.json > out/build.json`
-- `(shell) mkdir -p out/rod`
-- `build.py run rod_proxy.py --params .3dprint/rod_proxy.json --proxy rod_proxy --out out/rod > out/rod/build.json`
-- `fit.py out/cap.stl out/rod/rod_proxy.stl --b-translate 0,0,2.4 --play none > (scratchpad)/fit_probe.json`
-- `fit.py out/cap.stl out/rod/rod_proxy.stl --b-translate 0,0,2.4 --max-interference 2.5 --min-clearance 0 --play "0,0,1…"`
-- `strength.py snap --from-build out/build.json --part cap --param h=arm_t --param b=arm_b_eq --param length=arm_len --param undercut=grip_interference --param repeated=snap_repeated --param orientation=arm_orientation --param entry_angle=lead_in_angle --param re`
-- `measure.py slice out/cap.stl --axis $ax --z 0`
-- `measure.py slice out/cap.stl --axis x --z 0 --expect "levels[0].loops[1].bounds[0]=10.85" --tol 0.02 --what "bump inner face radius on the +Y bump (rod surface 11.0 minus 0.15 mm in the model)" > out/m_bump.json`
-- `measure.py slice out/cap.stl --axis y --z 0 --expect "levels[0].loops[1].size[0]=1.2" --tol 0.02 --what "spring arm radial thickness, away from the bump" > out/m_arm_t.json`
-- read references/phase-5-gate.md
-- `render.py out/cap.stl -o out/preview/cap.png --views iso,top,front,bottom --lang ko --overwrite`
-- read out/preview/cap.png
-- (probes: bambu3mf.py --help)
-- `(python) edited .3dprint/params.json (accepted, seen, test_prints, promises, dims, _assumptions, joints, measurements, strength)`
-- `finalize.py --build out/build.json --params .3dprint/params.json > (scratchpad)/fin1.json`
-- (probes: bambu3mf.py --help)
-- `(shell) mkdir -p test-print/2026-10-23`
-- `(shell) cp out/cap.stl test-print/2026-10-23/cap.stl`
-- `(shell) wrote out/job_test.json`
-- `bambu3mf.py out/job_test.json > out/job_test_result.json`
-- `(python) edited .3dprint/params.json (test_prints, promises)`
-- `finalize.py --build out/build.json --params .3dprint/params.json > (scratchpad)/fin2.json`
-
-**Agent:**
-
-> 모양을 확인해 주셔서 다음 단계를 진행했어요. 숫자로 확인한 결과와, 부탁드릴 시험 출력 하나를 정리했어요.
->
-> **측정하기 쉽게 팔 위치만 돌렸어요.** 모양과 치수는 그대로예요. 다만 파일이 바뀌어서 그림을 다시 그렸어요. 이것도 괜찮은지 한 번 더 봐 주세요.
-> out/preview/cap.png
->
-> **확인한 것 (모델 기준)**
-> - **봉에 끼운 상태:** 22.0 mm 봉 모형을 넣어 봤어요. 봉은 바닥까지 들어가고, 겹치는 곳은 설계대로 세 돌기뿐이에요(돌기마다 0.15 mm, 출력 오차 보정 포함). 뺄 때도 다른 곳에 걸리지 않아요.
-> - **스프링 팔 강도:** 휘는 정도는 0.45 %로, PLA를 반복해서 쓸 수 있는 한도 0.6 % 안이에요. 힘은 팔 3개를 합쳐서 끼울 때 약 8 N, 뺄 때 약 3 N으로 계산됐어요. 손가락으로 쉽게 낼 수 있는 힘이에요.
-> - **치수 측정:** 돌기 안쪽 면은 반지름 10.85 mm(봉 표면보다 0.15 mm 안쪽), 팔 두께는 1.2 mm로 계획과 같아요.
-> - **출력 관련:** 서포트가 필요한 곳도, 허공에 걸쳐지는 부분(브리지)도 없어요. 너무 가는 부분도 없고, 바닥 모서리는 깎아 놨어요.
->
-> **아직 숫자로 못 정하는 것**
-> 실제로 얼마나 단단히 잡히는지는 프린터가 돌기를 얼마나 작게 뽑느냐에 따라 달라져요(겹침이 약 0.15–0.45 mm). 겹침이 0.4 mm를 넘으면 팔이 버틸 수 있는 한도를 넘을 수도 있어요. 그래서 마개 하나를 먼저 출력해 보시길 권해요. 이 출력물이 그대로 최종 마개가 돼요.
->
-> test-print/2026-10-23/cap_test.3mf
-> - Bambu Studio에서 **프로젝트 열기(Open Project)**로 여세요. X1C, Bambu PLA Basic, 0.20mm Standard 설정이 들어 있어요.
-> - 이 마개에만 두 가지 설정을 바꿨어요. 하나는 벽 생성 방식을 Arachne로 바꾼 거예요. 1.2 mm 얇은 팔이 빈틈없이 채워져요. 다른 하나는 벽 선을 2줄에서 4줄로 늘린 거예요. 컵 벽과 팔 뿌리가 꽉 차서 튼튼해져요. 둘 다 오브젝트 목록에서 보이고, 지울 수도 있어요.
->
-> 출력하신 뒤에 이렇게 해 보시고 결과를 알려 주세요.
-> 1. 손으로 봉에 끝까지 끼웠다가 빼기를 몇 번 해 보세요. 쉬운지, 빡빡한지, 헐거운지 알려 주세요.
-> 2. 끼운 채로 옷걸이를 밀어서 마개에 툭 부딪혀 보세요. 그대로 있는지 알려 주세요.
-> 3. 팔이 하얗게 변하거나 금이 갔는지 봐 주세요.
-> 4. (선택) 봉이 받침대에서 몇 mm 나와 있는지 자로 재 주시면, 지금 가정한 "15 mm 이상"을 실제 값으로 바꿀게요.
->
-> **확인해 주실 것 2가지**
-> - **위 그림의 모양이 괜찮은가요?**
-> - **얇은 벽 알림을 그대로 둘까요?** 스프링 팔 두께가 최소 기준인 1.2 mm라서 알림이 떠 있어요. 잘 휘라고 일부러 정한 두께고, 출력 설정(Arachne)으로 대응했어요. "괜찮다"고 해 주시면 그대로 둘게요.
->
-> 지금 출력해 보기 어려우시면 시제품(검증 안 됨)으로 최종 파일을 드릴 수도 있어요. 다만 끼우는 힘과 잡는 힘은 확인되지 않은 상태로 남아요.
-
-**User:** 지금은 시험 출력할 시간이 없어요. 그냥 진행해 주세요. 모양 좋아요. 계속해 주세요. 잘 모르겠어요. 알아서 정해 주세요.
-
-*(rows, in the order asked: "Offers a fit test or a test print before the final part" + "Shows the base shape (a preview) and asks for a look" (the redrawn image) + the fallback (keep the thin-wall warning?))*
-
-Tool calls:
-
-- read references/phase-6-deliver.md
-- `(python) edited cap_blender.py`
-- `build.py run cap_blender.py --params .3dprint/params.json --out out --printer .3dprint/printers.json > out/build.json`
-- `(shell) mkdir -p out/det$i`
-- `build.py run cap_blender.py --params .3dprint/params.json --out out/det$i --printer .3dprint/printers.json --no-3mf > out/det$i/build.json`
-- `(shell) wrote det_probe.py`
-- `(python) edited cap_blender.py`
-- `build.py run cap_blender.py --params .3dprint/params.json --out out/det$i --printer .3dprint/printers.json --no-3mf > out/det$i/build.json`
-- `(shell) rm -rf out/det1 out/det2 test-print`
-- `build.py run cap_blender.py --params .3dprint/params.json --out out --printer .3dprint/printers.json > out/build.json`
-- `fit.py out/cap.stl out/rod/rod_proxy.stl --b-translate 0,0,2.4 --max-interference 2.5 --min-clearance 0 --play "0,0,1…"`
-- `strength.py snap --from-build out/build.json --part cap --param h=arm_t --param b=arm_b_eq --param length=arm_len --param undercut=grip_interference --param repeated=snap_repeated --param orientation=arm_orientation --param entry_angle=lead_in_angle --param re`
-- `measure.py slice out/cap.stl --axis x --z 0 --expect "levels[0].loops[1].bounds[0]=10.85" --tol 0.02 --what "bump inner face radius on the +Y bump (rod surface 11.0 minus 0.15 mm in the model)" > out/m_bump.json`
-- `measure.py slice out/cap.stl --axis y --z 0 --expect "levels[0].loops[1].size[0]=1.2" --tol 0.02 --what "spring arm radial thickness, away from the bump" > out/m_arm_t.json`
-- `render.py out/cap.stl -o out/preview/cap.png --views iso,top,front,bottom --lang ko --overwrite`
-- read out/preview/cap.png
-- `(python) edited .3dprint/params.json (accepted, test_prints, promises, _assumptions)`
-- `(shell) mkdir -p deliver/2026-10-23`
-- `(shell) cp out/cap.stl deliver/2026-10-23/cap.stl`
-- `(shell) cp out/cap_blender.blend deliver/2026-10-23/cap_blender.blend`
-- `(python) edited out/job_deliver.json`
-- `bambu3mf.py out/job_deliver.json > out/job_deliver_result.json`
-- `finalize.py --build out/build.json --params .3dprint/params.json --printer .3dprint/printers.json --deliver deliver/2026-10-23 > (scratchpad)/fin3.json`
-- `finalize.py --build out/build.json --params .3dprint/params.json --printer .3dprint/printers.json --deliver deliver/2026-10-23 --bundle deliver/2026-10-23/source > (scratchpad)/fin4.json`
-
-**Agent:**
-
-> 마개 파일을 완성했어요. 시험 출력을 하지 않고 진행하기로 하셔서 **시제품**으로 드려요. 끼우고 빼는 힘, 잡는 힘, 최종 그림의 모양 세 가지는 아직 확인되지 않았어요.
->
-> **약속한 것들의 상태**
-> - **손으로 끼웠다 뺐다 하기: 확인 안 됨(시제품).** 계산과 봉 모형으로 따지면 맞아요. 22.0 mm 봉이 바닥까지 들어가고, 팔 휨은 한도 안이에요. 끼울 때는 약 8 N, 뺄 때는 약 3 N이에요. 하지만 시험 출력을 하지 않아서 실제 힘은 모르고, 봉이 받침대에서 15 mm 이상 나와 있다는 가정에도 기대고 있어요.
-> - **저절로 빠지지 않기: 확인 안 됨(시제품).** 계산상 빼는 힘은 약 3 N(300 g 무게 정도)이에요. 옷걸이로 부딪혔을 때 버티는지는 출력해 봐야 알아요.
-> - **스프링 팔 3개가 봉을 잡기: 가정이 맞으면 성립.** 모델에서 돌기가 봉 표면보다 0.15 mm 안쪽에 있고(출력 후 약 0.3 mm), 팔 두께가 1.2 mm인 걸 직접 재서 확인했어요. 이것도 봉 길이 15 mm 가정에 기대요.
-> - **끝이 평평한 원통 모양: 확인 안 됨(시제품).** 같은 모양을 두 번 좋다고 하셨어요. 그런데 마지막에 파일을 매번 똑같이 나오게 고치면서 다시 만들어서, 최종 그림은 아직 확인 전이에요. 아래 그림을 보시고 괜찮다고 해 주시면 기록해 둘게요.
->   out/preview/cap.png
->
-> **그 밖의 확인 결과**
-> - 크기, 닫힌 형태, 베드에 들어가는지, 봉 모형과 맞물리는지, 팔 강도 계산을 모두 최종 파일로 다시 확인했고 다 통과했어요. 다만 봉 모형은 22.0 mm와 15 mm라는 숫자로 만든 거라, 그 숫자가 맞는지까지 증명하지는 않아요.
-> - 새로 설계한 모양이라 비교할 참고 사진은 없어요. 슬라이싱과 실제 출력은 여기서 하지 않았어요.
-> - 얇은 벽 알림은 맡겨 주셔서 그대로 뒀어요. 대신 아래 출력 설정으로 대응했어요.
->
-> **출력하고 쓰실 때 알아 두실 것**
-> - 프린터가 돌기를 얼마나 작게 뽑느냐에 따라 실제 겹침이 0.15–0.45 mm 사이로 달라질 수 있어요. 처음 끼울 때 아주 빡빡하면 억지로 밀어 넣지 마시고 알려 주세요. 0.4 mm를 넘으면 팔이 반복 사용 한도를 넘을 수 있어요. 반대로 헐거워도 알려 주세요. 겹침을 조정해 드릴게요.
-> - 마찰은 PLA와 쇠 사이를 일반적인 값(0.3)으로 가정했어요. 봉 끝이 평평하고 날카로운 거스러미가 없다고도 가정했어요.
-> - 필라멘트는 저장된 설정의 Bambu PLA Basic을 기준으로 계산했어요.
->
-> **파일** (deliver/2026-10-23/)
-> - `cap.3mf`: Bambu Studio에서 **프로젝트 열기(Open Project)**로 여세요. X1C, PLA Basic, 0.20mm Standard 설정이 들어 있어요.
-> - `cap.stl`: 다른 프로그램용 파일이에요.
-> - `cap_blender.blend`: 편집용 파일이에요. 손으로 고쳐도 되지만, 다시 만들 때는 생성 스크립트(`cap_blender.py`)가 기준이 돼요.
-> - `source/`: 다시 만들고 다시 확인하는 데 필요한 스크립트, 설정, 검사 기록이에요.
->
-> **치수 표**
+> ## 치수
 >
 > | 항목 | 값 | 출처 |
 > |---|---|---|
 > | 봉 바깥지름 | 22.0 mm | 직접 재신 값 |
-> | 봉이 나와 있는 길이(최소) | 15 mm | 가정 |
-> | 마개 깊이 | 15 mm | 위 길이에 맞춤 |
-> | 바깥지름 × 높이 | 30.0 × 17.4 mm | 계산값 |
-> | 끝면 / 컵 벽 두께 | 2.4 / 1.8 mm | 설계 권장값 |
-> | 스프링 팔 | 3개, 두께 1.2 mm, 길이 11 mm, 뒤쪽 휨 공간 0.7 mm, 아래쪽 46° 경사 | 휨 계산 |
-> | 봉과 겹침 | 출력 후 약 0.3 mm(모델 0.15 mm + 출력 오차 보정 0.15 mm) | 휨 계산 |
-> | 입구 경사 | 25° | 설계 기준(30° 이하) |
-> | 재료 / 출력 설정 | PLA Basic(가정) / 0.20mm Standard @BBL X1C | 저장된 설정 |
+> | 마개 안지름(벽 사이) | 22.7 mm | 봉 22.0 + 손으로 빼는 부품의 여유 0.4 + 구멍 보정 0.3 |
+> | 구멍 보정 | 지름 +0.3 mm | 이 폴더의 프린터 설정(0.20mm Standard)은 구멍을 따로 보정하지 않아서, 모델 쪽에 0.3 mm를 더함(권장 범위 0.2~0.4의 가운데) |
+> | 안쪽 돌기 | 6줄, 폭 1.2 mm | 돌기 폭은 권장값 |
+> | 돌기가 봉을 누르는 양 | 한쪽 0.15 mm (돌기 끝 지름 22.0 mm) | 근거 자료가 없는 시작값이라 테스트 출력으로 정해요 |
+> | 벽 두께 | 2.0 mm | 권장 범위 1.6~2.0 |
+> | 덮는 깊이 | 20 mm | 제가 정한 값이라 확인 부탁드려요 |
+> | 윗면 두께 | 2.0 mm | 제가 정한 값 |
+> | 입구 비스듬히 깎은 폭 | 한쪽 0.5 mm, 돌기 끝도 1.5 mm에 걸쳐 비스듬히 시작 | 제가 정한 값 |
+> | 바닥 모서리 모따기 | 1.0 mm | 보기 좋게 하려는 것. 첫 층이 퍼지는 건 출력 설정이 0.15 mm 보정함 |
+> | 전체 크기 | 지름 26.7 × 높이 22 mm, 약 4 g | 위 값에서 계산 |
+> | 출력판 여유 | 가로·세로 각 229 mm, 높이 228 mm 남음 | X1C 256 × 256 × 250 mm |
+> | 필라멘트 | PLA (뱀부 PLA Basic) | 가정, 다르면 알려 주세요 |
+> | 출력 설정 | 0.20mm Standard @BBL X1C | 이 폴더의 프린터 설정 |
 >
-> 바꾸고 싶은 게 있으면 말씀해 주세요.
+> 입구를 비스듬히 깎은 폭은 시안 때 말씀드린 0.8 mm에서 0.5 mm로 줄였어요. 벽이 2 mm라서 0.8 mm로 깎으면 입구 테두리가 너무 얇아지거든요. 대신 돌기 끝도 비스듬히 시작하게 해서 끼우기 쉽게 했어요.
 >
-> **출력 설정**
-> 기본 프로필에서 이 마개에만 두 가지를 바꿨어요. 오브젝트 목록에서 보이고, 지울 수도 있어요.
-> - **벽 생성 방식 Arachne:** 1.2 mm 얇은 스프링 팔을 두께가 변하는 선으로 빈틈없이 채워요.
-> - **벽 선 4줄(기본 2줄):** 컵 벽과 팔 뿌리가 꽉 차서, 반복해서 휘는 팔 뿌리가 튼튼해져요.
+> ## 세 가지만 알려 주세요
+> 1. **봉 끝에서 받침(브래킷)이나 벽까지 몇 mm 비어 있나요?** 마개가 봉 끝을 20 mm 덮어요. 그보다 짧으면 깊이를 줄일게요.
+> 2. **위 '할 수 있어야 하는 일' 1~3번이 맞나요?** 더하거나 뺄 게 있으면 말씀해 주세요.
+> 3. **테스트 출력을 해 보실 수 있나요?** 봉을 누르는 양만 다른 마개 3개를 만들게요. 1단계(살살)는 0.05 mm, 2단계는 0.15 mm, 3단계(꽉)는 0.25 mm예요. 안쪽 바닥에 점 1·2·3개로 표시하고, 각 4 g 정도라 다 합쳐 30~40분이면 뽑혀요. 봉에 하나씩 끼워 보고 '맨손으로 들어가고, 맨손으로 빠지고, 저절로는 안 빠지는' 것을 골라 주시면 그 단계로 확정해요. 지금 어려우시면 2단계로 만들고, 테스트 출력으로 확인하지 않았다고 기록해 둘게요.
 >
-> 막힌 끝을 바닥에 놓고 출력하고, 서포트와 브림은 필요 없어요.
->
-> **부품:** 마개 하나짜리 단일 부품이에요. 색을 바꾸려면 오브젝트 목록에서 필라멘트만 바꾸시면 돼요.
->
-> **참고한 모델**
-> - [Cap 22mm I.D. (Printables)](https://www.printables.com/model/548118-cap-22mm-id)
-> - [Round Tube End Caps (MakerWorld)](https://www.makerworld.com/en/models/1655081)
-> - [tube end cap wedge clamp (Printables)](https://www.printables.com/model/172012-tube-end-cap-wedge-clamp)
-> - [30x30mm Square Tube End Cap (MakerWorld)](https://makerworld.com/models/2629955)
->
-> 참고로 만들다가 하나 발견했어요. Blender 도우미의 기존 방식(manifold 모델을 Blender로 가져오는 과정)으로 내보내면 같은 스크립트로도 매번 조금씩 다른 STL이 나왔어요. 그래서 이 마개는 삼각형을 그대로 내보내는 방식으로 바꿨고, 이제는 몇 번을 다시 만들어도 같은 파일이 나와요.
->
-> 출력해 보시고 결과(쉽게 끼워지는지, 잘 잡히는지)를 알려 주시면 그에 맞춰 조정해 드릴게요.
+> (선택) 뱀부 스튜디오 버전을 아시면 알려 주세요(도움말 > 정보). 모르셔도 괜찮아요. 지금은 02.08.02.61 기준으로 만들어요.
 
-*(row: "Delivers the files": the run ends)*
+**User:** 잘 모르겠어요. 알아서 정해 주세요. 네, 그대로 진행해 주세요. 지금은 시험 출력할 시간이 없어요. 그냥 진행해 주세요. 버전은 잘 모르겠어요.
+
+*(rows, in the order asked: the fallback (question 1, the free rod length to the bracket) + "Shows the use list and the parameter table and asks to confirm" (question 2) + "Offers a fit test or a test print before the final part" (question 3) + "Asks for the Bambu Studio version" (the optional question); delivered to the agent as "The coordinator sent a message while you were working: …")*
+
+Tool calls and notes, in order:
+
+- read $SKILL_DIR/references/phase-3-base-shape.md
+- read $SKILL_DIR/references/engines/blender.md
+- `sed -n 1,75p "$SKILL_DIR/references/design.md"; grep -n "^## \|^### " "$SKILL_DIR/references/design.md"`
+- `python3 "$SKILL_DIR/scripts/fit.py" --help; python3 "$SKILL_DIR/scripts/measure.py" --help | head -60`
+- `grep -n "max_interference\|interference" "$SKILL_DIR/scripts/fit.py" | head -40`
+- `grep -n "^## \|^### " "$SKILL_DIR/references/measure.md"; awk '/A watertight proxy/,0' "$SKILL_DIR/references/measure.md" | head -70`
+- `grep -n "^def \|^    def " "$SKILL_DIR/references/engines/blender_builder.py" | head -80; python3 -c "…"`
+- `sed -n 1,60p "$SKILL_DIR/references/engines/blender_builder.py"; sed -n 1173,1192p "$SKILL_DIR/references/engines/blender_builder.py"`
+- note between tool calls (not shown to the user): Now writing the generator (Blender, with the revolved profiles brought in through manifold3d).
+- wrote $PROJECT/endcap.py
+- `sed -i 's/revolve(2 \* bb.circle_segments(r_out))/revolve(bb.circle_segments(r_out))/; s/revolve(2 \* bb.circle_segments(r_mouth))/revolve(bb.circle_segments(r_mouth))/; s/full_segments = 2 \* bb.circle_segments(r_tip)/full_segments = bb.circle_segments(r_tip)/' endcap.py && grep -n "circle_segments" endcap.py && python3 - <<'EO …`
+- `mkdir -p out && python3 "$SKILL_DIR/scripts/build.py" run endcap.py --params .3dprint/params.json --out out --printer .3dprint/printers.json > out/build.json; echo "exit $?"; python3 - <<'EOF'`
+- `sed -i 's/    if rim_flat < 1.2:/    if rim_flat < 1.2 - 1e-6:          # recommended feature width; 1e-6 absorbs float rounding/' endcap.py && grep -n "rim_flat < " endcap.py && python3 "$SKILL_DIR/scripts/build.py" run endcap.py --params .3dprint/params.json --out out --printer .3dprint/printers.json > out/build.json; echo "ex …`
+- `cd $SCRATCH && cat > capm_test.py <<'EOF' ; python3 capm_test.py`
+- `cd $SCRATCH && cat >> capm_test.py <<'EOF' ; python3 capm_test.py | tail -22`
+- read $PROJECT/endcap.py (from line 20)
+- `python3 - <<'EOF'  # inline script, writes $PROJECT/.3dprint/params.json, endcap.py ; grep -n "ROOT\b\|z_d\|rib_end_gap" endcap.py; python3 - <<'EOF'`
+- `python3 "$SKILL_DIR/scripts/build.py" run endcap.py --params .3dprint/params.json --out out --printer .3dprint/printers.json > out/build.json; echo "exit $?"; python3 - <<'EOF' ; ls out`
+- `cd $SCRATCH && cat > capm_test2.py <<'EOF' ; python3 capm_test2.py`
+- `cd $SCRATCH && cat > capm_test3.py <<'EOF' ; python3 capm_test3.py`
+- `grep -n "DEFAULT_MAX_INTERFERENCE\s*=\|DEFAULT_CONTACT\|DEFAULT_SEARCH\s*=\|def play\|bind" "$SKILL_DIR/scripts/fit.py" | head -20; sed -n 1,60p "$SKILL_DIR/scripts/fit.py"`
+- `cd $SCRATCH && python3 -c "…"`
+- `cd $SCRATCH && python3 -c "…"`
+- read $PROJECT/endcap.py (from line 40)
+- `python3 - <<'EOF'  # inline script, writes endcap.py ; grep -n "grid_n\|rib_half_steps" endcap.py | head; SKILL_DIR=$SKILL_DIR; python3 "$SKILL_DIR/scripts/build.py" run endcap.py --params .3dprint/params.json --out out --printer .3dprint/printers.json > out/build.json; echo "exit $?"; python3 - <<'EOF'`
+- `python3 "$SKILL_DIR/scripts/render.py" out/cap.stl -o out/render.png --color "cap=Jade White" --lang ko --overwrite | python3 -c "import json,sys; d=json.load(sys.stdin); print(d.get('sane'), d.get('warnings'), d.get('errors'))"`
+- read $PROJECT/out/render.png
+- `cd $SCRATCH && mkdir -p view && cat > view/section.py <<'EOF' ; python3 view/section.py $PROJECT/out/cap.stl view/cap_section.stl && SKILL_DIR=$SKILL_DIR && python3 "$SKILL_DIR/scripts/render.py" view/cap_section.stl -o view/cap_section.png --views iso,front --color "cap_section=Jade White" --lang ko --label "단면 (절반을 잘라 낸 모습)" - …`
+- read $SCRATCH/view/cap_section.png
+
+**Agent** (the hand-back message, shown to the user whole):
+
+> 말씀하신 대로 정했어요. 덮는 깊이는 20 mm로 하고, 봉 끝에 그만큼 빈 공간이 있다고 가정했어요. 테스트 출력은 건너뛰고, 돌기가 봉을 누르는 양은 중간값(한쪽 0.15 mm)으로 했어요. 뱀부 스튜디오 버전은 02.08.02.61 기준으로 기록했어요.
+>
+> 기본 모양이 나왔어요. 다음 단계로 넘어가기 전에 한번 봐 주세요.
+>
+> $PROJECT/out/render.png
+>
+> 안쪽이 잘 보이도록 절반을 잘라 낸 그림이에요.
+> $SCRATCH/view/cap_section.png
+>
+> - **크기:** 지름 26.7 × 높이 22 mm, 약 5 g. 출력판에 넉넉히 들어가고, 아래를 향한 면이 없어서 서포트가 필요 없어요.
+> - **안쪽:** 세로 돌기 6줄이 벽에서 0.35 mm 튀어나와 있어요. 봉이 닿는 곳은 이 돌기뿐이고, 벽 자체는 봉에서 떨어져 있어요. 돌기 폭은 메쉬를 깔끔하게 만들려고 1.2 mm에서 1.25 mm로 아주 조금 넓어졌어요. 입구 쪽 3.3 mm 구간에서는 돌기가 비스듬히 벽으로 사라지고, 입구는 한쪽 0.5 mm씩 넓어져서 처음 끼울 때 걸리지 않아요.
+> - **검사:** 메쉬 검사(구멍, 뒤집힌 면, 겹친 면 등)와 크기, 출력판 크기 검사를 모두 통과했어요.
+>
+> ## 두 가지 여쭤볼게요
+> 1. **모양이 고르신 시안 1(평평한 윗면, 모서리를 살짝 깎은 원통)과 맞나요?**
+>
+> 2. **손으로 끼우고 빼는 것, 끼운 채로 저절로 빠지지 않는 것은 확인되지 않은 상태예요.** 이 두 가지는 실제로 뽑아서 봉에 끼워 봐야만 알 수 있어요.
+>    - **가. 확인되지 않은 시제품으로 받기:** 그대로 마무리해서 드려요. 돌기가 세게 나오면 손으로 끼우거나 빼기가 뻑뻑할 수 있고, 약하게 나오면 헐거워서 빠질 수 있어요. 그러면 누르는 양 숫자 하나만 바꿔 다시 뽑으면 돼요(약 4 g).
+>    - **나. 나중에 마개를 한 번 뽑아서 끼워 보고 결과 알려 주기:** 결과를 받으면 '확인됨'으로 기록하고, 필요하면 조정해서 마무리해요.
+>    - **다. 이 두 가지를 확인 대상에서 빼기:** 확인하지 않은 채로 받으시는 거라, 가와 같은 위험이 있어요.
+>
+>    어느 쪽으로 할까요?
+
+**User:** 모양 좋아요. 계속해 주세요. 측정이나 시험 출력은 지금 못 해요. 가정한 것은 그대로 두고, 확인 안 된 것은 시제품으로 받을게요.
+
+*(rows: "Shows the base shape (a preview) and asks for a look" (question 1) + "Names promises not verified and asks how to go on (Phase 4)" (question 2); delivered to the agent as "The coordinator sent a message while you were working: …")*
+
+Tool calls and notes, in order:
+
+- `sed -n 1,72p "$SKILL_DIR/references/measure.md"; python3 "$SKILL_DIR/scripts/measure.py" slice --help`
+- `python3 "$SKILL_DIR/scripts/measure.py" slice out/cap.stl --z 10,21.9 | python3 -c "…"`
+- `python3 "$SKILL_DIR/scripts/measure.py" raymap out/cap.stl --axis x --sign 1 --u -1:1:0.1 --v 10:21:0.5 | python3 -c "…"`
+- `sed -n 1,80p "$SKILL_DIR/references/engines/python.md"`
+- note between tool calls (not shown to the user): Updating the project state with your decisions, then building the rod stand-in for the fit check.
+- `python3 - <<'EOF'  # inline script, writes .3dprint/params.json ; mkdir -p .3dprint && printf '{\n  "pipe_od": 22.0\n}\n' > .3dprint/pipe_proxy.json && cat > pipe_proxy.py <<'EOF' ; SKILL_DIR=$SKILL_DIR; mkdir -p out/pipe && python3 "$SKILL_DIR/scripts/build.py" run pipe_proxy.py --params .3dprint/pipe_proxy.json --proxy pipe_pr …`
+- `python3 "$SKILL_DIR/scripts/fit.py" out/cap.stl out/pipe/pipe_proxy.stl --b-translate 0,0,2.0 --min-clearance 0 > out/fit_cap_rod.json; echo "exit $?"; python3 -c "…"`
+- `python3 -c "…" ; import json,sys ; d=json.load(sys.stdin) ; for L in d['levels']: ; l=L['loops'][1]; print(L.get('level', L.get('z_mm')), l['area_mm2'], l['circle_fit']['radius_mm'], l['is_circle'], list(L.keys())) ; "`
+- `python3 "$SKILL_DIR/scripts/measure.py" slice out/cap.stl --z 10 --expect "levels[0].loops[1].area_mm2=402.0" --tol 0.2 --what "bore area 10 mm above the bed: the 22.7 mm bore less six ribs whose tips lie on a 22.0 mm circle (hand calculation on the 222-step polygon: 402.0 mm2; five ribs 402.4, seven 401.6, tips at 22.2 or 21.8  …`
+- `python3 - <<'EOF'  # inline script, writes .3dprint/params.json ; SKILL_DIR=$SKILL_DIR; python3 "$SKILL_DIR/scripts/finalize.py" --build out/build.json --params .3dprint/params.json > out/finalize_phase4.json; echo "exit $?"; python3 -c "…"`
+- read $SKILL_DIR/references/phase-5-gate.md
+- read $SKILL_DIR/references/phase-6-deliver.md
+- `python3 - <<'EOF'  # inline script, writes .3dprint/params.json ; SRC=$(python3 -c "import json; print(' '.join(json.load(open('out/build.json'))['sources']))"); python3 "$SKILL_DIR/scripts/validate.py" out/cap.stl --expect 26.7,26.7,22.0 --printer .3dprint/printers.json --source $SRC --params .3dprint/params.json > out/validate …`
+- `python3 - <<'EOF'  # inline script, writes .3dprint/params.json ; D=deliver/2026-10-23; test -e "$D" && echo "EXISTS" || mkdir -p "$D"; cat > out/bambu_job.json <<EOF ; python3 "$SKILL_DIR/scripts/bambu3mf.py" out/bambu_job.json > out/bambu_job.out.json; echo "bambu3mf exit $?"; python3 -c "…" ; import gzip, re ; data = open("de …`
+- `python3 "$SKILL_DIR/scripts/finalize.py" --build out/build.json --params .3dprint/params.json --printer .3dprint/printers.json --deliver deliver/2026-10-23 > out/finalize_deliver.json; echo "exit $?"; python3 -c "…"`
+- `python3 "$SKILL_DIR/scripts/finalize.py" --build out/build.json --params .3dprint/params.json --printer .3dprint/printers.json --deliver deliver/2026-10-23 --bundle deliver/2026-10-23/source > out/finalize_bundle.json; echo "exit $?"; python3 -c "…"`
+
+**Agent** (the hand-back message, shown to the user whole):
+
+> 완성했어요. 다만 **이 마개는 시제품이에요.** 아래 두 가지는 실제로 뽑아서 끼워 봐야 알 수 있는데, 지금은 시험 출력을 못 하신다고 해서 확인하지 않은 채로 드려요("측정이나 시험 출력은 지금 못 해요. 가정한 것은 그대로 두고, 확인 안 된 것은 시제품으로 받을게요."라고 하셨어요).
+> - **맨손으로 끼우고 빼기:** 확인 안 됨. 출력하지 않았고, 봉 끝에 20 mm쯤 빈 공간이 있다는 가정에 기대고 있어요. 봉을 본뜬 모형으로 확인한 건 끝까지 들어가면 봉 끝이 마개 바닥에 닿고 돌기가 봉에 딱 맞닿는다는 것까지예요. 손으로 넣고 뺄 때 드는 힘은 확인 못 했어요.
+> - **끼운 채로 저절로 안 빠지기:** 확인 안 됨. 출력하지 않았어요.
+>
+> 나머지 세 가지는 확인했어요.
+> - **안쪽 세로 돌기 6줄:** 단면을 재서 돌기 6개와, 돌기 끝을 잇는 원 지름 22.0 mm를 확인했어요. 지름 22.0 mm 봉 모형에 사방에서 닿고 겹치는 곳도 없어요. 실제로 봉을 누르는 힘은 출력하면 구멍이 0.3 mm쯤 작게 나온다는 것을 전제로 해서, 모델만으로는 확인되지 않아요.
+> - **비스듬한 입구:** 입구가 한쪽 0.5 mm 넓어지고, 돌기가 입구 아래에서 비스듬히 사라지는 것을 단면으로 확인했어요.
+> - **평평한 윗면 원통 모양:** 미리보기 그림을 보시고 좋다고 하셨어요.
+>
+> ## 그 밖의 결과
+> - **크기와 모양 검사:** 크기, 메쉬, 출력판에 들어가는지, 봉 모형과의 맞물림 모두 통과했어요. 새로 디자인한 모양이라 비교할 참고 사진은 없어요. 출력 프로그램으로 직접 잘라 보거나 출력해 보지는 않았어요.
+> - **출력 설정:** 출력 설정에서 구멍 보정(X-Y 구멍 보정, 원 보정)은 **켜지 마세요.** 구멍이 조금 작게 출력되는 만큼을 모델에 이미 반영해 두었기 때문에, 켜면 두 번 보정돼서 헐거워져요. 드리는 프로젝트 파일은 보정이 꺼진 기본 설정이에요.
+> - **필라멘트:** 뱀부 PLA Basic을 가정했어요. PETG 같은 다른 재료로 뽑으시려면 알려 주세요. 맞는 정도가 달라져요.
+> - **너무 빡빡하거나 헐거울 때:** 숫자 하나만 바꿔 다시 뽑으면 돼요(약 4 g). 돌기가 누르는 양 0.15 mm를 헐겁게는 0.05, 꽉 끼게는 0.25로 바꾸면 돼요. 결과를 알려 주시면 바로 만들어 드릴게요.
+>
+> 미리보기: $PROJECT/out/render.png
+>
+> ## 파일
+> 폴더: $PROJECT/deliver/2026-10-23/
+> - **endcap_x1c.3mf:** 뱀부 스튜디오 프로젝트(X1C, 0.20mm Standard, PLA Basic)예요. 파일 > 프로젝트 열기로 여세요.
+> - **cap.stl:** 마개 STL이에요.
+> - **endcap.blend:** Blender 파일이에요. 손으로 고쳐도 괜찮지만, 다시 만들 때는 생성 스크립트(endcap.py)를 기준으로 만들어요.
+> - **source/:** 다시 만들고 다시 확인하는 데 필요한 스크립트, 설정, 측정 기록이에요.
+>
+> ## 최종 치수
+>
+> | 항목 | 값 | 출처 |
+> |---|---|---|
+> | 봉 바깥지름 | 22.0 mm | 직접 재신 값 |
+> | 봉 끝에서 받침까지 빈 길이 | 20 mm 이상 | 가정 |
+> | 마개 안지름(벽 사이) | 22.7 mm | 봉 + 여유 0.4 + 구멍 보정 0.3 |
+> | 돌기 | 6줄, 폭 1.25 mm, 끝을 잇는 원 지름 22.0 mm(봉을 한쪽 0.15 mm 누름) | 시작값, 테스트 출력으로 정할 값 |
+> | 벽 두께 / 윗면 두께 | 2.0 mm / 2.0 mm | 권장 범위 |
+> | 덮는 깊이 | 20 mm | 제가 정한 값 |
+> | 입구 | 한쪽 0.5 mm 넓힘. 돌기는 입구에서 3.3 mm 아래부터 비스듬히 사라짐 | 제가 정한 값 |
+> | 모따기 | 바닥 모서리 1.0 mm, 입구 테두리 0.3 mm | 제가 정한 값 |
+> | 전체 크기 | 지름 26.7 × 높이 22 mm, 약 4~5 g | 계산 |
+>
+> 바꾸고 싶은 곳이 있으세요?
+>
+> ## 출력 설정
+> 0.20mm Standard @BBL X1C를 그대로 쓰고 따로 바꾼 건 없어요. 낮고 바닥이 넓어서 넘어질 걱정이 없고, 아래를 향한 면이 없어서 서포트가 필요 없어요. 일반 용도라 벽이나 채움을 늘릴 이유도 없어요. 닫힌 면을 바닥에 대고 출력하니까, 봉 끝에서 보이는 면은 출력판 무늬로 나와요.
+>
+> ## 부품
+> 부품은 하나예요. 색을 바꾸시려면 오브젝트 목록에서 마개를 선택하고 필라멘트만 바꾸면 돼요.
+>
+> ## 참고한 모델
+> - [Cap 22mm I.D.](https://www.printables.com/model/548118-cap-22mm-id) (Printables, 라이선스 확인 안 됨): 바깥에 씌우는 형태
+> - [Pipe Protective Cap All-in-One](https://makerworld.com/en/models/2947453) (MakerWorld, Standard Digital File License): 걸림 턱과 비스듬한 입구 아이디어
+> - [Round Furniture Leg Caps 20–30mm](https://makerworld.com/models/2978315) (MakerWorld, Standard Digital File License)
+> - [tube end cap wedge clamp](https://www.printables.com/model/172012-tube-end-cap-wedge-clamp) (Printables, 라이선스 확인 안 됨)
+>
+> 모양은 새로 디자인했고, 위 모델에서 형상을 가져온 부분은 없어요.
+>
+> 나중에 뽑아서 끼워 보시면 어땠는지 알려 주세요. 확인된 것으로 기록하고, 필요하면 바로 조정해 드릴게요.
+
 
 ## finalize after the run
 
 Run by the grader after the run, from inside the project folder, with the installed skill's
-scripts, the report written outside the folder (the folder was hashed before and after: unchanged):
+scripts and `PYTHONDONTWRITEBYTECODE=1`, the report written outside the folder (the folder was
+hashed before and after: unchanged):
 
 ```bash
 DELIVERY=deliver/2026-10-23
@@ -384,16 +353,17 @@ python3 -c "import json; r = json.load(open('final.json')); print(r['use'], r['g
 
 ```text
 not verified verified
-on-off-by-hand: not verified
+on-off: not verified
 stays-on: not verified
-spring-arms: assumed
-flat-end: not verified
+inner-ribs: verified
+lead-in: verified
+flat-top: verified
 ```
 
 Its `summary`:
 
 ```text
-use: not verified (4 promises: 3 not verified, 1 assumed; delivered as a prototype: on-off-by-hand, stays-on, flat-end; 17 assumptions not linked to a promise)
+use: not verified (5 promises: 2 not verified, 3 verified; delivered as a prototype: on-off, stays-on; 13 assumptions not linked to a promise)
 geometry: verified (every part, object, declared joint and member checked; the delivered files are the verified ones)
 shape: cap from no direction
 slicing: unverified (not sliced here)
@@ -402,101 +372,140 @@ print: unverified
 
 Reasons of the promises not verified:
 
-- `on-off-by-hand` (prototype): test print 'cap test print': skipped; rests on 'rod-free-length' (봉이 받침대나 벽에서 끝까지 나와 있는 길이(최소)), which is assumed, not measured
-- `stays-on` (prototype): test print 'cap test print': skipped; rests on 'rod-free-length' (봉이 받침대나 벽에서 끝까지 나와 있는 길이(최소)), which is assumed, not measured
-- `spring-arms`: rests on 'rod-free-length' (봉이 받침대나 벽에서 끝까지 나와 있는 길이(최소)), which is assumed, not measured
-- `flat-end` (prototype): no evidence yet
+- `on-off` (prototype): test print 'cap on the user's rod': skipped; rests on 'rod-free-length' (봉 끝에서 받침(브래킷)이나 벽까지 비어 있는 길이), which is assumed, not measured
+- `stays-on` (prototype): test print 'cap on the user's rod': skipped
 
-`accepted`: [{"check": "cap P3", "reason": "사용자: '잘 모르겠어요. 알아서 정해 주세요.' (스프링 팔 1.2 mm는 잘 휘라고 정한 두께라는 설명 뒤) - 두께는 그대로 두고 출력 설정(Arachne)으로 대응"}]
+`accepted`: none
 
-`dims`: `rod` measured, `rod-free-length` assumed
+`dims`: `pipe-od` measured, `rod-free-length` assumed
 
-Delivered files checked: `deliver/2026-10-23/cap.3mf` same as verified: True, preset `0.20mm Standard @BBL X1C`, filament `Bambu PLA Basic @BBL X1C`; `deliver/2026-10-23/cap.stl` same as verified: True
+Other `open` lines (the 15 `assumption:` lines left out):
 
-`open` lines on the print file's material or preset: none
+- cap P4 UNVERIFIED (yours to decide): bridge detection not implemented in v1
+- cap P5 UNVERIFIED (yours to decide): minimum feature size not implemented in v1
+- cap P6 UNVERIFIED (yours to decide): needs a look at the preview image
+- test print 'cap on the user's rod': skipped (the user: "측정이나 시험 출력은 지금 못 해요.")
+- cap: shape not verified from front (estimated), back (estimated), left (estimated), right (estimated), top (assumed), bottom (assumed)
+
+`warnings`: joint 'cap on rod' is checked against a proxy built from numbers: it shows the part agrees with those numbers, not that the numbers are right
+
+Delivered files checked: `deliver/2026-10-23/cap.stl` same as verified: True; `deliver/2026-10-23/endcap_x1c.3mf` same as verified: True
+
+`deliver/2026-10-23/endcap_x1c.3mf`: filaments {"cap": {"slot": 1, "settings": "Bambu PLA Basic @BBL X1C", "material": "pla_basic"}}, preset `0.20mm Standard @BBL X1C`
 
 ## Checklist
 
 The compensation decision:
 - [x] **must** `printers.json` records `compensation.holes` `model`, with the reason: **yes**
-  (`"holes": "model", "elephant_foot": "slicer"`, source: "generated template names '0.20mm
-  Standard @BBL X1C'; Bambu public profiles v02.08.02.61: enable_circle_compensation 0,
-  xy_hole_compensation 0 …"; in the parameter table "이 프로필은 구멍 보정이 꺼져 있어서 모델에 넣음").
-  The values were read from Bambu's public profiles, fetched with `curl` into the scratchpad,
-  outside the project folder.
-- [ ] **must** The socket gets the model hole compensation, 22.5–22.8 mm, fit
-  `--min-clearance` 0.25–0.40: **n/a as written**. The cap the agent designed (concept 1, chosen
-  with the scripted reply) is not a clearance socket: three sprung arms grip the tube with bumps
-  modelled 0.15 mm inside its surface (bump circle 21.70 mm, cup bore behind the arms larger), and
-  the fit was run with `--min-clearance 0 --max-interference 2.5`. The row's part holds: the model
-  hole compensation was added to the gripping circle (`hole_comp` 0.15 mm radial, `r_bump =
-  rod_r − grip_interference + hole_comp`, i.e. +0.30 mm on the diameter, inside the item's +0.20
-  to +0.40), measured on the model (`out/m_bump.json`, 10.85 mm).
+  (`"holes": "model", "elephant_foot": "slicer"`, `source`: "generated template, 0.20mm Standard
+  @BBL X1C: xy_hole_compensation 0, enable_circle_compensation 0 (fdm_process_common),
+  elefant_foot_compensation 0.15 (fdm_process_single_0.20), BambuStudio v02.08.02.61 public
+  profiles"; the same in `_assumptions`; in the table "이 폴더의 프린터 설정(0.20mm Standard)은
+  구멍을 따로 보정하지 않아서, 모델 쪽에 0.3 mm를 더함"). The values were read from Bambu's public
+  profiles on GitHub at the template's version.
+- [x] **must** The fitted feature gets the model hole compensation on top of its fit: **yes**,
+  the item's "another fit" case. The cap grips the tube with six ribs modelled to press 0.15 mm a
+  side: rib-tip circle 22.0 − 0.30 (interference) + 0.30 (`hole_comp_d`) = 22.0 mm; the bore
+  between the ribs 22.0 + 0.40 + 0.30 = 22.7 mm. Measured: `out/m_ribs.json` (bore area 402.0
+  mm² at z 10, the six ribs and the 22.0 mm tip circle), `out/m_leadin.json`. Fit against the rod
+  proxy with `--min-clearance 0`, PASS (the tips touch the 22.0 mm rod; the press comes from the
+  print's undersize).
 
 Asking:
-- [x] **must** Asks nothing the project fixes: **yes** (no question on compensation, printer,
-  slicer, template, version, filament or preset). It asked how far the rod sticks out and whether
-  a stop lip was wanted, and whether to keep the thin-wall warning.
-- [x] **should** Stops for the reference choice, the concept pick and the base-shape look: **yes**.
+- [x] **must** Asks nothing the project fixes: **yes**. No question on compensation, the printer,
+  the slicer, a template or the filament. It asked the free rod length to the bracket (fallback),
+  the use list, a three-step test print, and, as optional, the Bambu Studio version ("(선택) 뱀부
+  스튜디오 버전을 아시면 알려 주세요 … 모르셔도 괜찮아요. 지금은 02.08.02.61 기준으로 만들어요"). The
+  version is not among the item's things and Phase 2 allows it as an optional question, so it is
+  read here as allowed, though the generated template already names 02.08.02.61.
+- [x] **should** Stops for the reference choice, the concept pick and the base-shape look:
+  **yes**. The look showed the whole cap, ribs and lead-in included (Phase 3 asks for the shell
+  first); the agent's record says so.
 
 Doing:
-- [x] **must** A Bambu project by `bambu3mf.py` from `.3dprint/templates/x1c.3mf` in a new folder,
-  its manifest, an STL; Open Project: **yes** (`out/job_deliver.json` → `deliver/2026-10-23/cap.3mf`
-  and `cap.3mf.manifest.json`, `cap.stl`; "Bambu Studio에서 **프로젝트 열기(Open Project)**로
-  여세요").
+- [x] **must** A Bambu project by `bambu3mf.py` from `.3dprint/templates/x1c.3mf` in a new
+  folder, its manifest, an STL; Open Project: **yes** (`out/bambu_job.json` →
+  `deliver/2026-10-23/endcap_x1c.3mf` and `endcap_x1c.3mf.manifest.json`, `cap.stl`, `endcap.blend`;
+  "뱀부 스튜디오 프로젝트(X1C, 0.20mm Standard, PLA Basic)예요. 파일 > 프로젝트 열기로 여세요").
 - [x] **must** finalize with `--deliver` on that folder: **yes** (then `--bundle`).
 - [x] **should** `_material` `pla_basic`, `_print.preset` `0.20mm Standard @BBL X1C`: **yes**.
-- [x] **should** The tube in `_verify.dims`, `caliper`/`user`, 22.0: **yes**.
-- [x] **should** `.3dprint/templates/x1c.3mf` unchanged: **yes** (sha256 as setup printed;
-  `printers.json` changed only by the added `compensation`).
+- [x] **should** The tube in `_verify.dims`, `caliper`/`user`, 22.0: **yes** (`pipe-od`; finalize:
+  `measured`).
+- [x] **should** `.3dprint/templates/x1c.3mf` unchanged: **yes** (sha256 156228f7… as setup
+  printed). `printers.json` changed only by the added `compensation` block (its sha256 differs
+  from setup's, as it must).
+
+The user's agreement:
+- [x] **must** Exclusions, accepted WARNs and prototypes rest on the user's agreement: **yes**.
+  - `_verify.accepted`: none. No promise `excluded`.
+  - Prototypes `on-off` and `stays-on` (finalize: `not verified`, `prototype: true`). Question, at
+    the base-shape stop: "**손으로 끼우고 빼는 것, 끼운 채로 저절로 빠지지 않는 것은 확인되지 않은
+    상태예요.** 이 두 가지는 실제로 뽑아서 봉에 끼워 봐야만 알 수 있어요. 가. 확인되지 않은 시제품으로
+    받기: 그대로 마무리해서 드려요. 돌기가 세게 나오면 손으로 끼우거나 빼기가 뻑뻑할 수 있고, 약하게
+    나오면 헐거워서 빠질 수 있어요. 그러면 누르는 양 숫자 하나만 바꿔 다시 뽑으면 돼요(약 4 g). 나.
+    나중에 마개를 한 번 뽑아서 끼워 보고 결과 알려 주기 … 다. 이 두 가지를 확인 대상에서 빼기: 확인하지
+    않은 채로 받으시는 거라, 가와 같은 위험이 있어요. 어느 쪽으로 할까요?" Reply: "모양 좋아요.
+    계속해 주세요. 측정이나 시험 출력은 지금 못 해요. 가정한 것은 그대로 두고, 확인 안 된 것은
+    시제품으로 받을게요." Recorded: "on-off: delivered as a prototype, not verified (the user:
+    \"측정이나 시험 출력은 지금 못 해요. 가정한 것은 그대로 두고, 확인 안 된 것은 시제품으로
+    받을게요.\")" and the same for `stays-on`.
+  - The question came at the base-shape stop, before the Phase 4 finalize first reported the two
+    `not verified` (the lines were written before it ran); it named the same two promises. An
+    earlier Phase 2 test-print question ("지금 어려우시면 2단계로 만들고, 테스트 출력으로 확인하지
+    않았다고 기록해 둘게요"), answered "지금은 시험 출력할 시간이 없어요. 그냥 진행해 주세요.", did not
+    say what it costs; the agent did not take it as agreement and recorded only "rib interference
+    … not confirmed by a test print".
+  - The fallback, once: question 1 at Phase 2, the free rod length to the bracket. The agent set it
+    to 20 mm and recorded "free rod length from the end to the bracket: the user does not know and
+    handed the decision to me; assumed 20 mm, the cap's depth", an `assumed` dims entry that
+    `on-off` rests on; at the next stop it said so ("봉 끝에 그만큼 빈 공간이 있다고 가정했어요"), and
+    after "가정한 것은 그대로 두고" recorded "rod-free-length: stays assumed at 20 mm (the user: …)".
+    Nothing excluded or accepted on the fallback.
+  - The look (`flat-top`) was declared at Phase 2, before the look; its `seen` entry is fresh.
 
 Claiming (the last message):
-- [x] **must** Korean throughout; opens with the `use` tier: **yes** ("시험 출력을 하지 않고
-  진행하기로 하셔서 **시제품**으로 드려요. 끼우고 빼는 힘, 잡는 힘, 최종 그림의 모양 세 가지는
-  아직 확인되지 않았어요.").
-- [x] **must** Does not call slicing or the print checked: **yes** ("슬라이싱과 실제 출력은 여기서 하지
-  않았어요").
+- [x] **must** Korean throughout; opens with the `use` tier: **yes** ("완성했어요. 다만 **이 마개는
+  시제품이에요.** 아래 두 가지는 … 확인하지 않은 채로 드려요(\"측정이나 시험 출력은 지금 못 해요. …
+  시제품으로 받을게요.\"라고 하셨어요). - 맨손으로 끼우고 빼기: 확인 안 됨. … - 끼운 채로 저절로 안
+  빠지기: 확인 안 됨. … 나머지 세 가지는 확인했어요.", then one line each). All five hand-backs are
+  in Korean, model and licence names aside.
+- [x] **must** Does not call slicing or the print checked: **yes** ("출력 프로그램으로 직접 잘라
+  보거나 출력해 보지는 않았어요"; "드리는 프로젝트 파일은 보정이 꺼진 기본 설정이에요"; it tells the user
+  not to turn the hole corrections on).
 
 finalize after the run:
 - [x] **must** The 3MF names `Bambu PLA Basic @BBL X1C` and `0.20mm Standard @BBL X1C`; no `open`
   line on the material or the preset: **yes**.
 - [x] **must** `use` not `error`/`failed`, `geometry` `verified`, states as said: **yes**
-  (`not verified`, `verified`; `on-off-by-hand`, `stays-on`, `flat-end` "확인 안 됨(시제품)" =
-  `not verified`, prototype; `spring-arms` "가정이 맞으면 성립" = `assumed`, resting on the assumed
-  15 mm the rod sticks out).
+  (`not verified`, `verified`; `on-off`, `stays-on` "확인 안 됨" = `not verified`, prototype;
+  `inner-ribs`, `lead-in`, `flat-top` "확인했어요" = `verified`).
 
 Rules in every scenario (README, "Grading", and "Running one scenario"):
-- Korean in every message the user saw: **yes**. Two English notes between tool calls were not
-  shown to the user in this harness.
+- Korean in every message the user saw: **yes**. Its notes between tool calls were partly in
+  English ("Now writing the generator …") and were not shown.
 - The last message claims no more than finalize: **yes**.
-- The fallback is not the user's acceptance of a warning (README, "Running one scenario": an agent
-  that records it as one "has made a mistake to grade"): **no**. The agent asked "**얇은 벽 알림을
-  그대로 둘까요?** … "괜찮다"고 해 주시면 그대로 둘게요."; the reply to it was the fallback
-  ("잘 모르겠어요. 알아서 정해 주세요."), and the agent recorded `_verify.accepted` `{"check": "cap
-  P3", "reason": "사용자: '잘 모르겠어요. 알아서 정해 주세요.' …"}`. finalize lists it under
-  `accepted`; the delivery says "얇은 벽 알림은 맡겨 주셔서 그대로 뒀어요".
-
-Other skill rules the run touched (Phase 4, "Leaving Phase 4"):
-- `flat-end` (the look) went out as a prototype the user never agreed to. The user approved the
-  look twice; rebuilds made both images stale, and the agent made it a prototype without asking
-  ("아래 그림을 보시고 괜찮다고 해 주시면 기록해 둘게요"). For `on-off-by-hand` and `stays-on` the
-  agent had offered "지금 출력해 보기 어려우시면 시제품(검증 안 됨)으로 최종 파일을 드릴 수도 있어요"
-  and the user answered "지금은 시험 출력할 시간이 없어요. 그냥 진행해 주세요.": those read as
-  agreed.
+- The fallback is not recorded as an agreement: **yes** (above).
 
 ## Result
 
-**Differs.** The fallback reply was recorded as the user's acceptance of the thin-wall warning
-(`_verify.accepted`, "cap P3"). Also differs: the look promise `flat-end` was delivered as a
-prototype without the user's agreement. The checklist item on the socket's size does not fit this
-design (an interference grip, not a clearance socket) and is marked n/a; the row's behaviour it
-checks (model hole compensation added because the template's preset has the corrections off)
-holds. The other must items hold.
+**Matches.** Every must item and every should item holds. The first pass's two differences (the
+fallback recorded as the acceptance of a thin-wall warning, a look delivered as a prototype
+nobody agreed to) did not recur: the prototypes rest on a reply to a question that named them,
+their cost and the choices, and the fallback produced an assumed value, recorded as handed back.
 
 Other observations (not checklist items):
-- The test-print project the user was offered in the fifth message
-  (`test-print/2026-10-23/cap_test.3mf`) was deleted by the agent in the last turn, with its
-  determinism probes (`rm -rf out/det1 out/det2 test-print`).
-- `fit.py` passed only with `--max-interference 2.5` (the designed overlap at the three bumps,
-  2.36 mm³); the reason is in `_assumptions`.
-- The message to the user ends with a note on the Blender export change, in Korean.
+
+- The prototype question came at the base-shape stop, before finalize first reported the two
+  promises `not verified`, and the prototype lines were written before Phase 4's finalize ran.
+  The kit's agreement item says the question comes "whenever finalize first reports a promise
+  not verified"; asking earlier, about the same named promises, is read here as meeting it. New.
+- The bed edge has a 1.0 mm chamfer, called a look, while the template's 0.15 mm elephant-foot
+  compensation stays on (design.md: one or the other). The agent recorded it. New (also
+  holes-unknown).
+- Three automatic fixes were used on the Phase 3 build (G7's limit); the fourth build passed.
+- A half-section image and three scratch scripts (`capm_test*.py`, `view/section.py`) were
+  written in the scratchpad, outside the project folder, and the image was shown to the user
+  from there (files outside the project folder: known).
+- The `inner-ribs` success text was reworded after the user had seen it (rib width 1.2 → 1.25 mm
+  from the angular grid); the user was told the width, not the rewording.
+- The material (PLA Basic) was assumed from the template, not asked.
