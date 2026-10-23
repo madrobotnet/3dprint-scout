@@ -2,7 +2,7 @@
 
 Read this on entering Phase 3, with `references/engines/<engine>.md` (the engine in use) and
 `references/design.md`. A mixed object (a CAD body with a Blender part) needs both engine files
-and `references/engines/blender.md`, "Mixed parts: one object, two engines".
+and `references/engines/mixed.md`.
 
 ## The generator script
 

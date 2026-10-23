@@ -285,7 +285,7 @@ References: each phase file on entering its phase; the others when a line names 
 
 | Path | Read when |
 |---|---|
-| `references/engines/<engine>.md` | Phase 3, the engine in use only (`blender-live.md` for a live Blender); the builders it names |
+| `references/engines/<engine>.md` | Phase 3, the engine in use only; `blender-live.md` for a live Blender, `python-sdf.md` for an organic Python part, `mixed.md` for two engines in one object |
 | `references/phase-4-mechanisms.md`, `phase-6-files.md` | A part that moves or carries load (Phase 4); a print-file finding or a bundle refusal (Phase 6) |
 | `references/design.md` | Phase 3 and 4: bed edge, overhangs, walls, orientation, part seams, supports |
 | `references/design-mechanisms.md` | A mechanism: print-in-place joints, members that carry load (P7) |
