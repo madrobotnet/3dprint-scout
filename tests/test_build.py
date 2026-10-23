@@ -43,6 +43,19 @@ def build(p):
     return {"body": body - inner, "peg": m3d.Manifold.cylinder(10, 4, 4, 64)}
 """
 
+# The DEFAULTS convention (engines/python.md). build() writes to both dicts after merging: what
+# it computes or changes there is not what the parts were built from and must not be recorded.
+PYGEN_DEFAULTS = """
+import manifold3d as m3d
+DEFAULTS = {"w": 40.0, "d": 30.0, "h": 20.0, "wall": 2.0, "plug": {"w": 3.0, "fit": "snug"}, "_note": "metadata"}
+def build(params):
+    p = {**DEFAULTS, **params}
+    params["derived"] = p["h"] - p["wall"]
+    DEFAULTS["d"] = 999.0
+    body = m3d.Manifold.cube([p["w"], p["d"], p["h"]])
+    return {"body": body, "peg": m3d.Manifold.cylinder(10, 4, 4, 64)}
+"""
+
 
 def run(*argv):
     buf = io.StringIO()
@@ -140,6 +153,19 @@ class OpenSCAD(Base):
         prm = self.params({"_parts": {"lid": {"expect": [55, 30, 3]}}, "w": 55, "lid_h": 3})
         code, out = run("run", self.src, "--params", prm, "--out", self.out, "--no-wall-check", "--no-3mf")
         self.assertEqual(out["parts"][0]["validate"]["files"][0]["checks"]["D1"]["state"], "PASS")
+
+    def test_parameters_are_the_overrides_and_parts_carry_their_material(self):
+        """OpenSCAD's own defaults (`d = 30;` in the .scad) are never read: the build records
+        the -D values only, and no key is called a typo."""
+        prm = self.params({"_material": "pla_basic", "_parts": {"body": {"expect": [40, 30, 20]},
+                                                                 "lid": {"expect": [40, 30, 3], "material": "petg_hf"}},
+                           "w": 40, "lid_h": 3, "unused": 1})
+        code, out = run("run", self.src, "--params", prm, "--out", self.out, "--no-wall-check", "--no-3mf")
+        self.assertEqual(code, 0, out.get("errors"))
+        self.assertEqual(out["parameters"], {"scope": "overrides", "values": {"w": 40, "lid_h": 3, "unused": 1}})
+        self.assertFalse(any("typo" in w for w in out["warnings"]), out["warnings"])
+        self.assertEqual({p["name"]: p["material"] for p in out["parts"]}, {"body": "pla_basic", "lid": "petg_hf"})
+        self.assertNotIn("parameters", out["engine_info"])
 
     def test_changed_include_makes_evidence_stale(self):
         run("run", self.src, "--params", self.prm, "--out", self.out, "--no-wall-check")
@@ -239,8 +265,119 @@ class PythonEngine(Base):
         self.assertEqual(code, 1)
         self.assertIn("wall too thin", out["errors"][0])
 
+    def test_parameters_merged_with_defaults(self):
+        """A module DEFAULTS dict: the build records {**DEFAULTS, **params} as it was before
+        build() ran, names a params.json key DEFAULTS lacks, and each part gets its material."""
+        src = self.write("gen.py", PYGEN_DEFAULTS)
+        prm = self.params({"_material": "petg_hf", "_parts": {"body": {"expect": [44, 30, 20]}, "peg": {"material": "pla_basic"}},
+                           "w": 44.0, "walll": 3.0})
+        code, out = run("run", src, "--params", prm, "--out", self.out, "--no-wall-check", "--no-3mf")
+        self.assertEqual(code, 0, out.get("errors"))
+        self.assertEqual(out["parameters"], {"scope": "merged", "values": {
+            "w": 44.0, "d": 30.0, "h": 20.0, "wall": 2.0, "plug": {"w": 3.0, "fit": "snug"}, "walll": 3.0}})
+        self.assertEqual([w for w in out["warnings"] if "typo" in w],
+                         ["params.json key 'walll' is not in the generator's DEFAULTS (a typo?)"])
+        self.assertEqual({p["name"]: p["material"] for p in out["parts"]}, {"body": "petg_hf", "peg": "pla_basic"})
+        self.assertEqual(out["params"], os.path.relpath(prm))                  # the params path stays
+        self.assertNotIn("parameters", out["engine_info"])
+        self.assertEqual(out["parts"][0]["validate"]["files"][0]["checks"]["D1"]["state"], "PASS")
+
+    def test_parameters_without_defaults_are_the_overrides(self):
+        src = self.write("gen.py", PYGEN)
+        prm = self.params({"_parts": {"body": {}, "peg": {}}, "w": 40, "d": 30, "h": 20, "wall": 2, "extra": "x"})
+        code, out = run("run", src, "--params", prm, "--out", self.out, "--no-wall-check", "--no-3mf")
+        self.assertEqual(code, 0, out.get("errors"))
+        self.assertEqual(out["parameters"], {"scope": "overrides",
+                                             "values": {"w": 40, "d": 30, "h": 20, "wall": 2, "extra": "x"}})
+        self.assertFalse(any("typo" in w for w in out["warnings"]), out["warnings"])   # nothing to compare with
+        self.assertEqual([p["material"] for p in out["parts"]], [None, None])      # no _material: null, not a guess
+        # A DEFAULTS that is not a dict is not merged, and the build says so.
+        src = self.write("gen_list.py", "import manifold3d as m3d\nDEFAULTS = [('w', 10.0)]\n"
+                                        "def build(p):\n    return {'gen_list': m3d.Manifold.cube([p['w'], 10, 10])}\n")
+        prm = self.params({"w": 12.0})
+        code, out = run("run", src, "--params", prm, "--out", self.out, "--no-wall-check", "--no-3mf")
+        self.assertEqual(code, 0, out.get("errors"))
+        self.assertEqual(out["parameters"], {"scope": "overrides", "values": {"w": 12.0}})
+        self.assertTrue(any("DEFAULTS is a list, not a dict" in w for w in out["warnings"]), out["warnings"])
+
+    def test_a_default_that_is_not_json_is_recorded_as_its_repr(self):
+        src = self.write("gen.py", "import manifold3d as m3d\n"
+                                   "DEFAULTS = {'size': (10, 10, 10), 'shape': len, 'holes': {1, 2}, "
+                                   "'plug': {'w': 3.0, 'fit': len}, 'bad': float('nan')}\n"
+                                   "def build(params):\n    p = {**DEFAULTS, **params}\n"
+                                   "    return {'gen': m3d.Manifold.cube(list(p['size']))}\n")
+        code, out = run("run", src, "--out", self.out, "--no-wall-check", "--no-3mf")
+        self.assertEqual(code, 0, out.get("errors"))
+        self.assertEqual(out["parameters"], {"scope": "merged", "values": {
+            "size": [10, 10, 10], "shape": "<built-in function len>", "holes": "{1, 2}",
+            "plug": {"w": 3.0, "fit": "<built-in function len>"}, "bad": "nan"}})
+        json.dumps(out, allow_nan=False)                                           # strict JSON throughout
+        noted = [w for w in out["warnings"] if "is not a JSON value" in w]
+        self.assertEqual([re.search(r"'([^']+)'", w).group(1) for w in noted], ["shape", "holes", "plug.fit", "bad"])
+        self.assertFalse(any("'size'" in w for w in out["warnings"]))               # a tuple is a list, no warning
+
+
+class ParametersRecord(unittest.TestCase):
+    """The build JSON's "parameters" and parts[].material, without an engine."""
+
+    def test_merged_or_overrides_and_typos(self):
+        given = {"_parts": {"a": {}}, "_material": "pla_basic", "w": 5, "x": 1}
+        rec, warns = build.parameters_record(given, {"w": 1, "h": 2, "_k": 0})
+        self.assertEqual(rec, {"scope": "merged", "values": {"w": 5, "h": 2, "x": 1}})   # no "_" key from either side
+        self.assertEqual(warns, ["params.json key 'x' is not in the generator's DEFAULTS (a typo?)"])
+        rec, warns = build.parameters_record(given, {"w": 1}, kind="PARAMETERS")
+        self.assertIn("params.json key 'x' is not in the generator's PARAMETERS (a typo?)", warns)
+        self.assertEqual(build.parameters_record(given), ({"scope": "overrides", "values": {"w": 5, "x": 1}}, []))
+        self.assertEqual(build.parameters_record({}), ({"scope": "overrides", "values": {}}, []))
+        # Known but empty defaults still merge: every params.json key is then unknown to them.
+        rec, warns = build.parameters_record({"w": 5}, {})
+        self.assertEqual((rec["scope"], len(warns)), ("merged", 1))
+        # Defaults that are not a dict are not defaults.
+        self.assertEqual(build.parameters_record({"w": 5}, [("w", 1)])[0]["scope"], "overrides")
+        # A NaN from params.json (json.load reads it) is not JSON either.
+        rec, warns = build.parameters_record({"x": float("nan"), "y": float("-inf")})
+        self.assertEqual(rec["values"], {"x": "nan", "y": "-inf"})
+        self.assertEqual(len(warns), 2)
+
+    def test_json_value(self):
+        warns = []
+        self.assertEqual(build.json_value({"a": (1, 2.5, True, None, "s"), "b": {"c": [0.1]}}, "p", warns),
+                         {"a": [1, 2.5, True, None, "s"], "b": {"c": [0.1]}})
+        self.assertEqual(warns, [])
+        self.assertEqual(build.json_value({1: "x"}, "k", warns), "{1: 'x'}")       # a non-string key: the whole dict
+        self.assertEqual(build.json_value([1, object], "l", warns), [1, "<class 'object'>"])
+        self.assertEqual([re.search(r"'([^']+)'", w).group(1) for w in warns], ["k", "l[1]"])
+
+    def test_part_material(self):
+        pm = build.part_material
+        self.assertEqual(pm({"_material": "pla_basic", "_parts": {"a": {"material": "petg_hf"}}}, "a"), "petg_hf")
+        self.assertEqual(pm({"_material": "pla_basic", "_parts": {"a": {"material": "petg_hf"}}}, "b"), "pla_basic")
+        self.assertEqual(pm({"_material": "pla_basic", "_parts": {"a": {"material": None}}}, "a"), "pla_basic")
+        self.assertEqual(pm({"_material": "pla_basic", "_parts": {"a": None}}, "a"), "pla_basic")
+        self.assertEqual(pm({"_material": "pla_basic", "_parts": ["a"]}, "a"), "pla_basic")
+        self.assertIsNone(pm({"_parts": {"a": {"expect": [1, 1, 1]}}}, "a"))
+        self.assertIsNone(pm({"_material": ""}, "a"))
+        self.assertIsNone(pm({}, "a"))
+
 
 class Record(Base):
+    def test_record_parameters_are_the_overrides_and_parts_carry_their_material(self):
+        """record never imports the generator: even one with DEFAULTS gives the overrides."""
+        lid = os.path.join(self.d, "lid.stl"); write_stl(lid, box(20, 20, 2))
+        body = os.path.join(self.d, "body.stl"); write_stl(body, box(20, 20, 10))
+        src = self.write("gen_fusion.py", "DEFAULTS = {'w': 1.0}\ndef run(context=None):\n    pass\n")
+        prm = self.params({"_material": "pla_basic", "_parts": {"lid": {"material": "petg_hf"}, "body": {}},
+                           "w": 20.0, "zzz": 1})
+        code, out = run("record", lid, body, "--source", src, "--params", prm, "--out", self.out, "--no-wall-check", "--no-3mf")
+        self.assertEqual(code, 0, out.get("errors"))
+        self.assertEqual(out["parameters"], {"scope": "overrides", "values": {"w": 20.0, "zzz": 1}})
+        self.assertFalse(any("typo" in w for w in out["warnings"]), out["warnings"])
+        self.assertEqual({p["name"]: p["material"] for p in out["parts"]}, {"lid": "petg_hf", "body": "pla_basic"})
+        code, out = run("record", lid, "--source", src, "--out", self.out, "--no-wall-check", "--no-3mf")
+        self.assertEqual(code, 0, out.get("errors"))
+        self.assertEqual((out["parameters"], out["parts"][0]["material"], out["params"]),
+                         ({"scope": "overrides", "values": {}}, None, None))
+
     def test_record_external_build(self):
         stl = os.path.join(self.d, "fusion_part.stl")
         write_stl(stl, box(20, 20, 20))
@@ -375,6 +512,8 @@ class Record(Base):
         sane = {p["name"]: p["artifact_sane"] for p in out["parts"]}
         self.assertEqual(sane, {"good": True, "empty": False, "trunc": False})
         self.assertIn("truncated", [p for p in out["parts"] if p["name"] == "trunc"][0]["artifact_error"])
+        self.assertEqual([p["material"] for p in out["parts"]], [None, None, None])   # a broken part has the key too
+        self.assertEqual(out["parameters"], {"scope": "overrides", "values": {}})
         self.assertTrue(os.path.isfile(good + ".manifest.json"))
         self.assertFalse(os.path.exists(empty + ".manifest.json"))
         self.assertFalse(os.path.exists(trunc + ".manifest.json"))
@@ -437,6 +576,14 @@ sys.stdout.buffer.write(b"WARNING: \xc7\xd1\xb1\xdb unknown variable\n")
         with open(os.path.join(self.out, "model.stl.manifest.json"), encoding="utf-8") as f:
             self.assertEqual(json.load(f)["sources"], ["model.scad", "\ub77c\uc774\ube0c\ub7ec\ub9ac.scad"])
 
+    def test_parameters_are_the_overrides(self):
+        prm = self.params({"_material": "petg_hf", "_assumptions": ["x"], "w": 10, "label": "A"})
+        code, out = run("run", self.src, "--params", prm, "--out", self.out, "--no-wall-check", "--no-3mf")
+        self.assertEqual(code, 0, out.get("errors"))
+        self.assertEqual(out["parameters"], {"scope": "overrides", "values": {"w": 10, "label": "A"}})
+        self.assertEqual([(p["name"], p["material"]) for p in out["parts"]], [("model", "petg_hf")])
+        self.assertFalse(any("typo" in w or "JSON value" in w for w in out["warnings"]), out["warnings"])
+
 
 # --------------------------------------------------------------------------- #
 # Blender
@@ -498,8 +645,10 @@ for name in only:
     parts.append({"name": name, "stl": stl, "bbox_mm": [10, 10, 10], "triangles": 12, "bytes": os.path.getsize(stl), "seconds": 0.0})
 open(blend, "wb").write(b"BLENDER-v402fake")
 print("Blender quit")
-print("@@3DPS " + json.dumps({"parts": parts, "deps": [src], "blend": blend, "blender": "4.5.0 LTS", "solver": "MANIFOLD",
-                              "mode": mode, "notes": ["fake"], "warnings": []}))
+# FAKE_BLENDER_REPORT adds fields to the line (parameters); without it the line is a helper's from before 0.7.
+extra = json.loads(os.environ.get("FAKE_BLENDER_REPORT") or "{}")
+print("@@3DPS " + json.dumps(dict({"parts": parts, "deps": [src], "blend": blend, "blender": "4.5.0 LTS", "solver": "MANIFOLD",
+                                   "mode": mode, "notes": ["fake"], "warnings": []}, **extra)))
 """
 
 # The same, but a real emulation of the binary: runs the --python-expr and the generator in the
@@ -762,6 +911,33 @@ class BlenderEngine(Base):
         self.assertEqual([p["name"] for p in out["parts"]], ["peg"])
 
     @unittest.skipUnless(os.name != "nt", "uses a shell wrapper as a fake blender")
+    def test_parameters_come_from_the_report_line(self):
+        """bb.main reports the merged PARAMETERS and its warnings; build.py records them as they
+        are. A line without them (an older blender_builder.py next to the generator), or with a
+        malformed record, gives the params.json values with scope overrides."""
+        exe = self.fake(FAKE_BLENDER)
+        src = self.write("gen_blender.py", BLENDER_GEN)
+        prm = self.params({"_material": "pla_basic", "_parts": {"body": {"material": "petg_hf"}, "peg": {}}, "w": 25.0, "x": 1})
+        typo = "params.json key 'x' is not in the generator's PARAMETERS (a typo?)"
+        merged = {"scope": "merged", "values": {"w": 25.0, "d": 20.0, "h": 8.0, "fillet": 1.5, "x": 1}}
+        overrides = {"scope": "overrides", "values": {"w": 25.0, "x": 1}}
+        cases = [({"parameters": merged, "parameter_warnings": [typo], "warnings": [typo]}, merged, [typo]),
+                 ({}, overrides, []),
+                 ({"parameters": {"scope": "everything", "values": {}}, "parameter_warnings": [typo]}, overrides, []),
+                 ({"parameters": {"scope": "merged", "values": [1]}}, overrides, []),
+                 ({"parameters": None}, overrides, [])]
+        for extra, want, warns in cases:
+            with self.subTest(extra=extra), \
+                    mock.patch.dict(os.environ, {"BLENDER": exe, "FAKE_BLENDER_REPORT": json.dumps(extra)}):
+                code, out = run("run", src, "--params", prm, "--out", self.out, "--no-wall-check", "--no-3mf")
+                self.assertEqual(code, 0, out.get("errors"))
+                self.assertEqual(out["parameters"], want)
+                self.assertEqual([w for w in out["warnings"] if "typo" in w], warns)   # lifted once, not twice
+                self.assertNotIn("parameters", out["engine_info"])
+                self.assertNotIn("warnings", out["engine_info"])
+                self.assertEqual({p["name"]: p["material"] for p in out["parts"]}, {"body": "petg_hf", "peg": "pla_basic"})
+
+    @unittest.skipUnless(os.name != "nt", "uses a shell wrapper as a fake blender")
     def test_timeout_and_failure_are_reported(self):
         exe = self.fake(FAKE_BLENDER)
         src = self.write("gen_blender.py", BLENDER_GEN)
@@ -823,14 +999,22 @@ class BlenderEngine(Base):
     @unittest.skipUnless(HAS_BPY, "bpy module not installed")
     def test_bpy_module_path_builds_for_real(self):
         src = self.write("gen_blender.py", BLENDER_GEN)
-        prm = self.params({"_parts": {"body": {"expect": [30, 20, 8]}, "peg": {"expect": [8, 8, 5], "object": "body", "role": "fused"}},
-                           "w": 30.0, "d": 20.0, "h": 8.0})
+        prm = self.params({"_parts": {"body": {"expect": [30, 20, 8]},
+                                      "peg": {"expect": [8, 8, 5], "object": "body", "role": "fused", "material": "petg_hf"}},
+                           "_material": "pla_basic", "w": 30.0, "d": 20.0, "h": 8.0, "filet": 2.0})
         printers = self.write("printers.json", json.dumps(X2D))
         with mock.patch.object(build, "find_blender", return_value=None):
             code, out = run("run", src, "--params", prm, "--out", self.out, "--blender-python", sys.executable,
                             "--no-wall-check", "--printer", printers)
         self.assertEqual(code, 0, out.get("errors"))
         self.assertEqual((out["engine"], out["gate"], out["R4"], out["errors"]), ("blender", "PASS", "PASS", []))
+        # The runner's merge of PARAMETERS and params.json, a misspelt key named once.
+        self.assertEqual(out["parameters"], {"scope": "merged", "values": {"w": 30.0, "d": 20.0, "h": 8.0, "fillet": 1.5,
+                                                                           "filet": 2.0}})
+        self.assertEqual([w for w in out["warnings"] if "typo" in w],
+                         ["params.json key 'filet' is not in the generator's PARAMETERS (a typo?)"])
+        self.assertEqual({p["name"]: p["material"] for p in out["parts"]}, {"body": "pla_basic", "peg": "petg_hf"})
+        self.assertNotIn("parameters", out["engine_info"])
         self.assertEqual(out["engine_info"]["mode"], "bpy")
         self.assertEqual(out["engine_info"]["python"], sys.executable)
         self.assertIn(out["engine_info"]["boolean_solver"], ("MANIFOLD", "EXACT"))
