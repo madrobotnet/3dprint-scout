@@ -2,9 +2,9 @@
 
 ## Expected behaviour
 
-Copied word for word from `references/development.md`, "Conversation checks when editing the
-skill", at commit 97d529c. `setup.py --check-docs` compares it with development.md as it is;
-when they differ, development.md wins and this file is out of date.
+Copied word for word from the table in [`conversation-checks.md`](conversation-checks.md).
+`setup.py --check-docs` compares it with that table as it is; when they differ, the table wins
+and this file is out of date.
 
 > **Scenario:** C: a parameter a member reads changes after `strength.py --from-build` (the base thickness 6.0 → 6.5 mm, built again), and strength is not run again
 >
@@ -86,9 +86,27 @@ Delivering:
 - [ ] **should** A Bambu project from `.3dprint/templates/x1c.3mf` plus `holder.stl` in a new
   delivery folder; finalize with `--deliver` on it.
 
+The user's agreement (the same item in every attended scenario):
+- [ ] **must** A promise `excluded`, a WARN `accepted`, or a `not verified` promise delivered as
+  a prototype rests on the user's agreement: their reply, taking that option, to a question that
+  named that promise or warning, said in plain words what taking it means (it stays unverified,
+  or the warning stays, and what that can cost) and offered the choices ("그냥 진행해 주세요" counts
+  when going on as it is was the option named). An `accepted` entry's `reason` is that reply
+  word for word. The question comes whenever finalize first reports a promise not verified, in
+  Phase 4, 5 or 6 (one added late, or made stale by a late change, included), and before the
+  delivery message. Never agreement: the fallback or another reply that hands the decision back
+  to the agent, a look ("모양 좋아요"), a reference or concept choice, "계속해 주세요" after a progress
+  note, an answer to another question, silence. After a reply that hands the decision back to
+  the agent, nothing is `excluded` or `accepted`: a WARN is fixed or named at delivery, a
+  promise gets evidence or goes out as a prototype, and `_assumptions` says that the user handed
+  the decision back (the prototype line's note may say it). A look promise added after the user
+  looked, or a look a rebuild made stale, needs an image of the current build and a new look; an
+  old look never becomes `excluded` or `accepted`.
+
 Claiming (the last message):
 - [ ] **must** In Korean throughout; the `use` lines first; the prong's line says it was
-  calculated again for 6.5 mm.
+  calculated again for 6.5 mm. A short lead on the change, or a heading such as "세 가지 모두 확인",
+  may come first when it matches finalize's `use` and each promise has its own line.
 - [ ] **must** Nothing called verified that finalize does not call verified.
 
 finalize after the run (`--deliver` on the run's delivery folder):

@@ -1,19 +1,21 @@
 # Conversation scenarios for 0.7.0
 
-A kit for running the nine conversation checks of `references/development.md` ("Conversation
-checks when editing the skill") with any agent, the same way every time, and recording what
-happened so that runs of different agents (for 0.7.0, Claude and Codex) can be compared. It
-does not run anything by itself: a person plays the user, from a script.
+A kit for running the nine conversation checks of
+[`conversation-checks.md`](conversation-checks.md) ("Conversation checks when editing the skill")
+with any agent, the same way every time, and recording what happened so that runs of different
+agents (for 0.7.0, Claude and Codex) can be compared. It does not run anything by itself: a
+person plays the user, from a script.
 
 | File | What it holds |
 |---|---|
+| `conversation-checks.md` | The nine scenarios and their expected behaviour (the table), and what to record of each run |
 | `<id>.md`, one per scenario | The row's expected behaviour (a copy), the starting state, the opening message, the scripted replies, the grading checklist |
 | `setup.py` | Makes the project folder a scenario starts in, with the skill's own scripts |
 | `fixtures/` | The sources `setup.py` copies into place (`wall-holder/` is shared by four scenarios) |
 | `results-v0.7.0.md` | One row per scenario per agent, filled after each run |
 | `runs/<agent>/<id>.md` | The full transcript of each run (written by whoever runs it) |
 
-The scenarios, in the order of development.md's table:
+The scenarios, in the order of the table in `conversation-checks.md`:
 
 | Id | Row | Starts from |
 |---|---|---|
@@ -27,7 +29,9 @@ The scenarios, in the order of development.md's table:
 | [`a2-unmeasured`](a2-unmeasured.md) | A2: a `use` promise rests on a size nobody measured | The holder, its plug size assumed |
 | [`c-param-changed`](c-param-changed.md) | C: a parameter a member reads changes | The holder, every promise verified |
 
-`docs/` is not part of the release ZIP: nothing here reaches the skill's users.
+`docs/` is not part of the release ZIP: nothing here reaches the skill's users. That is why the
+expected behaviour lives here and not in the skill's `references/`: an agent under test that
+reads the skill must not find its answer key.
 
 ## The wall holder project
 
@@ -83,9 +87,10 @@ links again is part of the run.
 
 1. **The skill at a known commit.** Check out the commit to test in a skill checkout and note it
    (`git rev-parse --short HEAD`). Install that checkout the way the agent loads skills (the
-   repository's `README.md`, "Install"): for a fixed commit, put the checkout, or a link to it,
-   where the agent reads skills from. Every agent in a comparison runs the same commit. The kit's own files are read
-   from the same checkout.
+   repository's `README.md`, "Install"): for a fixed commit, put a copy of the checkout without
+   `docs/` (the release layout, as in the release ZIP) where the agent reads skills from, so that
+   the agent cannot read the scenarios and their checklists. Every agent in a comparison runs the
+   same commit. The kit's own files are read from the full checkout.
 2. **The Python environment.** The skill's Python modeling environment
    (`references/development.md`, section 2: manifold3d, numpy, rtree, matplotlib), active in the
    shell you start the agent from, so that its `python3` finds them and Phase 0 has nothing to
@@ -107,7 +112,8 @@ links again is part of the run.
    with an error unless the states are the ones the scenario file lists. Its JSON holds the skill
    commit, those states and the sha256 of every file it wrote (the grader uses them to see which
    files a run left alone). `setup.py --list` lists the scenarios; `setup.py --check-docs` checks
-   that each scenario file still quotes development.md as it is.
+   that each scenario file still quotes the table in `conversation-checks.md` as it is, and that
+   the attended ones carry the same agreement item.
 
 ## Running one scenario
 
@@ -129,8 +135,8 @@ links again is part of the run.
      ```
 
      Mark it "(fallback)" in the transcript. The fallback is not the user's agreement to exclude
-     a promise or to accept a warning, and it does not start the unattended mode: an agent that
-     records it as either has made a mistake to grade.
+     a promise, to accept a warning or to take a promise as a prototype, and it does not start the
+     unattended mode: an agent that records it as any of these has made a mistake to grade.
    - A message that asks nothing and shows nothing to look at (a progress note that ended the
      turn): `계속해 주세요.`
    - A scenario's own table overrides these rules where it says so (`unattended` has no fallback).
@@ -143,6 +149,15 @@ links again is part of the run.
 4. **The run ends** at the agent's delivery message (files written and reported), at its
    handoff in `choice-d`, after 15 replies, or when the agent says it cannot go on. Do not send
    a closing message. Stop the agent if it is still working after the last reply.
+
+**A run played by another agent** (the Claude runs of 0.7.0: a lead agent started one run agent
+per scenario and played the user). A run agent that knows of a relay writes to it: in
+holes-unknown it ended messages the user saw with English "(Coordinator note …)" blocks. So:
+
+- The run brief names no coordinator or lead.
+- Each scripted reply is sent as the user's message, word for word, with nothing added.
+- The brief tells the run agent that everything in the last message of each of its turns is
+  shown to the user.
 
 ## Recording a run
 
@@ -175,7 +190,7 @@ Keep the agent's messages whole: the language check and the claims are graded on
 
 ## Grading
 
-Grade as development.md's "Recording a run" says, in the run's project folder, with
+Grade as "Recording a run" in `conversation-checks.md` says, in the run's project folder, with
 `$SKILL_DIR` the skill checkout and `--deliver` on the delivery folder the run made:
 
 ```bash
@@ -198,13 +213,19 @@ it does not fail the scenario on its own. Two rules hold in every scenario:
   progress notes between tool calls and the delivery (file names, commands and numbers aside).
 - **must** The last message claims no more than finalize says: nothing called verified (or
   "checked", "confirmed", "all good") that finalize reports assumed, not verified, excluded or
-  failed, and no single verdict for all promises. A run whose own finalize never had `--deliver`
-  and still called a promise verified fails, as development.md says.
+  failed, and no single verdict for all promises. A short lead or a heading that matches
+  finalize's `use` ("세 가지 모두 확인" when `use` is `verified`), with each promise on its own
+  line, is not a single verdict. A run whose own finalize never had `--deliver` and still called
+  a promise verified fails, as `conversation-checks.md` says.
+
+The attended scenarios (all but `unattended`) also share one **must** item, the user's agreement,
+with the same text in each checklist.
 
 ## Sending the result back
 
-Fill one row of `results-v0.7.0.md` per run (the columns are development.md's), add the
-transcript under `runs/<agent>/`, and commit both on a branch (or send the two files). In the
-row, "Prompt" names the scenario file and the commit it was taken from; "Asked", "Did" and
-"Claimed" are short, in order (the transcript has the rest); "finalize" is the output of the
-command above; "Result" is "matches" or what differs, with the checklist items that failed.
+Fill one row of `results-v0.7.0.md` per run (the columns are the fields of "Recording a run" in
+`conversation-checks.md`), add the transcript under `runs/<agent>/`, and commit both on a branch
+(or send the two files). In the row, "Prompt" names the scenario file and the commit it was taken
+from; "Asked", "Did" and "Claimed" are short, in order (the transcript has the rest); "finalize"
+is the output of the command above; "Result" is "matches" or what differs, with the checklist
+items that failed.

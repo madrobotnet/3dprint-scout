@@ -2,9 +2,9 @@
 
 ## Expected behaviour
 
-Copied word for word from `references/development.md`, "Conversation checks when editing the
-skill", at commit 97d529c. `setup.py --check-docs` compares it with development.md as it is;
-when they differ, development.md wins and this file is out of date.
+Copied word for word from the table in [`conversation-checks.md`](conversation-checks.md).
+`setup.py --check-docs` compares it with that table as it is; when they differ, the table wins
+and this file is out of date.
 
 > **Scenario:** Bambu printer, project from a generated template
 >
@@ -64,11 +64,15 @@ The compensation decision (each item is in the row):
 - [ ] **must** `.3dprint/printers.json` records `compensation.holes` `model`, with the reason in
   the reply or `_assumptions`: the delivered project carries the generated template's system
   preset, which has both hole corrections off.
-- [ ] **must** The socket, a fitted hole, gets the model hole compensation (the `model` row of
-  tolerances.md): 22.0 mm plus the fit clearance on the diameter (+0.40 sliding, +0.30 snug) plus
-  the compensation (+0.20 to +0.40 on the diameter), 22.5 to 22.8 mm; 22.4 mm or less means none
-  was added. A fit against a proxy of the tube uses `fit.py --min-clearance` of the radial
-  clearance with the compensation included (0.25 to 0.40).
+- [ ] **must** The fitted feature that takes the tube gets the model hole compensation (the
+  `model` row of tolerances.md, +0.10 to +0.20 radial) on top of its fit. For a clearance socket
+  that is 22.0 mm plus the fit clearance on the diameter (+0.40 sliding, +0.30 snug) plus the
+  compensation (+0.20 to +0.40 on the diameter), 22.5 to 22.8 mm (22.4 mm or less means none was
+  added), and a fit against a proxy of the tube uses `fit.py --min-clearance` of the radial
+  clearance with the compensation included (0.25 to 0.40). For another fit, such as a grip that
+  holds the tube by interference, the fitted circle is 22.0 mm minus the modelled interference
+  plus the compensation (both on the diameter); a circle without the compensation means none was
+  added.
 
 Asking:
 - [ ] **must** Asks nothing the project fixes: not hole, circle or XY hole compensation, not
@@ -87,8 +91,26 @@ Doing:
 - [ ] **should** The tube is a `_verify.dims` entry, `"source": "caliper"`, `"by": "user"`, 22.0.
 - [ ] **should** `.3dprint/templates/x1c.3mf` is unchanged (its sha256 as `setup.py` printed).
 
+The user's agreement (the same item in every attended scenario):
+- [ ] **must** A promise `excluded`, a WARN `accepted`, or a `not verified` promise delivered as
+  a prototype rests on the user's agreement: their reply, taking that option, to a question that
+  named that promise or warning, said in plain words what taking it means (it stays unverified,
+  or the warning stays, and what that can cost) and offered the choices ("그냥 진행해 주세요" counts
+  when going on as it is was the option named). An `accepted` entry's `reason` is that reply
+  word for word. The question comes whenever finalize first reports a promise not verified, in
+  Phase 4, 5 or 6 (one added late, or made stale by a late change, included), and before the
+  delivery message. Never agreement: the fallback or another reply that hands the decision back
+  to the agent, a look ("모양 좋아요"), a reference or concept choice, "계속해 주세요" after a progress
+  note, an answer to another question, silence. After a reply that hands the decision back to
+  the agent, nothing is `excluded` or `accepted`: a WARN is fixed or named at delivery, a
+  promise gets evidence or goes out as a prototype, and `_assumptions` says that the user handed
+  the decision back (the prototype line's note may say it). A look promise added after the user
+  looked, or a look a rebuild made stale, needs an image of the current build and a new look; an
+  old look never becomes `excluded` or `accepted`.
+
 Claiming (the last message):
-- [ ] **must** In Korean throughout; opens with the `use` tier.
+- [ ] **must** In Korean throughout; opens with the `use` tier. A short lead, or a heading such
+  as "모두 확인", may come first when it matches finalize's `use` and each promise has its own line.
 - [ ] **must** Does not call slicing or the print checked; may say the project carries the
   print settings (and so the hole corrections) the socket was sized for.
 

@@ -2,9 +2,9 @@
 
 ## Expected behaviour
 
-Copied word for word from `references/development.md`, "Conversation checks when editing the
-skill", at commit 97d529c. `setup.py --check-docs` compares it with development.md as it is;
-when they differ, development.md wins and this file is out of date.
+Copied word for word from the table in [`conversation-checks.md`](conversation-checks.md).
+`setup.py --check-docs` compares it with that table as it is; when they differ, the table wins
+and this file is out of date.
 
 > **Scenario:** Hole compensation settings unknown (STLs for another slicer; a round hole that must fit)
 >
@@ -71,8 +71,26 @@ Doing:
 - [ ] **should** Delivers an STL per part and a core 3MF into a new folder outside `out/`, names
   the filament (PLA), and runs finalize with `--deliver` on that folder.
 
+The user's agreement (the same item in every attended scenario):
+- [ ] **must** A promise `excluded`, a WARN `accepted`, or a `not verified` promise delivered as
+  a prototype rests on the user's agreement: their reply, taking that option, to a question that
+  named that promise or warning, said in plain words what taking it means (it stays unverified,
+  or the warning stays, and what that can cost) and offered the choices ("그냥 진행해 주세요" counts
+  when going on as it is was the option named). An `accepted` entry's `reason` is that reply
+  word for word. The question comes whenever finalize first reports a promise not verified, in
+  Phase 4, 5 or 6 (one added late, or made stale by a late change, included), and before the
+  delivery message. Never agreement: the fallback or another reply that hands the decision back
+  to the agent, a look ("모양 좋아요"), a reference or concept choice, "계속해 주세요" after a progress
+  note, an answer to another question, silence. After a reply that hands the decision back to
+  the agent, nothing is `excluded` or `accepted`: a WARN is fixed or named at delivery, a
+  promise gets evidence or goes out as a prototype, and `_assumptions` says that the user handed
+  the decision back (the prototype line's note may say it). A look promise added after the user
+  looked, or a look a rebuild made stale, needs an image of the current build and a new look; an
+  old look never becomes `excluded` or `accepted`.
+
 Claiming (the last message):
-- [ ] **must** In Korean throughout; opens with the `use` tier.
+- [ ] **must** In Korean throughout; opens with the `use` tier. A short lead, or a heading such
+  as "모두 확인", may come first when it matches finalize's `use` and each promise has its own line.
 - [ ] **must** Says that the socket may print tight or loose because the slicer's hole settings
   are unknown, whatever finalize calls the fit promise (finalize checks the model, not the print).
 

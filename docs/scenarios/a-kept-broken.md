@@ -2,9 +2,9 @@
 
 ## Expected behaviour
 
-Copied word for word from `references/development.md`, "Conversation checks when editing the
-skill", at commit 97d529c. `setup.py --check-docs` compares it with development.md as it is;
-when they differ, development.md wins and this file is out of date.
+Copied word for word from the table in [`conversation-checks.md`](conversation-checks.md).
+`setup.py --check-docs` compares it with that table as it is; when they differ, the table wins
+and this file is out of date.
 
 > **Scenario:** A: one promise kept, one broken (a phone holder: the lip-height measurement passes; the USB-C plug, measured by the user, does not clear its gap, so its fit fails)
 >
@@ -67,7 +67,8 @@ Finding and saying the failure:
   is not kept and why (the plug, 13.4 mm, is wider than the 13.0 mm gap between the prongs); the
   other two hold, each with what showed it (the lip height measured on the model; the prong's
   calculation). No script names, check ids or JSON keys in that message; never one verdict for
-  all three.
+  all three (a heading that matches finalize's `use`, with each promise on its own line, is not
+  one).
 
 Going back to Phase 4:
 - [ ] **must** Fixes the design, not the evidence: widens the gap (`notch_w` 13.8 mm or more, for
@@ -86,12 +87,31 @@ Delivering:
   `holder.stl` in a new delivery folder; finalize with `--deliver` on it.
 - [ ] **should** Shows the changed holder before delivering (its width changed).
 
+The user's agreement (the same item in every attended scenario):
+- [ ] **must** A promise `excluded`, a WARN `accepted`, or a `not verified` promise delivered as
+  a prototype rests on the user's agreement: their reply, taking that option, to a question that
+  named that promise or warning, said in plain words what taking it means (it stays unverified,
+  or the warning stays, and what that can cost) and offered the choices ("그냥 진행해 주세요" counts
+  when going on as it is was the option named). An `accepted` entry's `reason` is that reply
+  word for word. The question comes whenever finalize first reports a promise not verified, in
+  Phase 4, 5 or 6 (one added late, or made stale by a late change, included), and before the
+  delivery message. Never agreement: the fallback or another reply that hands the decision back
+  to the agent, a look ("모양 좋아요"), a reference or concept choice, "계속해 주세요" after a progress
+  note, an answer to another question, silence. After a reply that hands the decision back to
+  the agent, nothing is `excluded` or `accepted`: a WARN is fixed or named at delivery, a
+  promise gets evidence or goes out as a prototype, and `_assumptions` says that the user handed
+  the decision back (the prototype line's note may say it). A look promise added after the user
+  looked, or a look a rebuild made stale, needs an image of the current build and a new look; an
+  old look never becomes `excluded` or `accepted`.
+
 Claiming (the last message):
 - [ ] **must** In Korean throughout; the `use` lines first, one per promise, each with its state
   and what showed it; the cable line says it was fixed and how (the gap widened to fit the
-  measured plug).
+  measured plug). A short lead on the change, or a heading such as "세 가지 모두 확인", may come first
+  when it matches finalize's `use` and each promise has its own line.
 - [ ] **must** Never "all checks pass", never one verdict for all three; nothing called verified
-  that finalize does not call verified.
+  that finalize does not call verified. A heading that matches finalize's `use` ("세 가지 모두 확인"
+  when it is `verified`), with each promise on its own line, is not one verdict.
 
 finalize after the run (`--deliver` on the run's delivery folder):
 - [ ] **must** `use` `verified`, `geometry` `verified`; `seat`, `cable-out`, `holds` `verified`.

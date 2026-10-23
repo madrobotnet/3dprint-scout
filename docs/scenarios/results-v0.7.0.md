@@ -1,8 +1,8 @@
 # Conversation scenario results, 0.7.0
 
-The nine scenarios of `references/development.md` ("Conversation checks when editing the
-skill"), each run with Claude and with Codex from the same prompts, as `README.md` in this folder
-describes. One row per run; the columns are development.md's "Recording a run". The full
+The nine scenarios of `conversation-checks.md` ("Conversation checks when editing the skill"),
+each run with Claude and with Codex from the same prompts, as `README.md` in this folder
+describes. One row per run; the columns are the fields of its "Recording a run". The full
 transcript of each run, with its checklist marked, is in `runs/<agent>/<id>.md`
 (`runs/claude/a2-unmeasured.md`, `runs/codex/a2-unmeasured.md`); a row only summarises it.
 
@@ -43,7 +43,9 @@ subagent (claude-opus-5-5) on Linux with Python 3.13 and bpy 5.2.2, web search o
 lead played the user from the scripts, and a separate agent graded the runs. In that harness the
 user saw only the last message of each turn: notes the agents wrote between tool calls (English
 in seven runs) were not shown and are not graded; the English "(Coordinator note …)" blocks in
-holes-unknown were inside messages the user saw and are graded.
+holes-unknown were inside messages the user saw and are graded. Their cause: the lead relayed the
+scripted replies as a coordinator. Later runs played by an agent follow README's rules for that
+("A run played by another agent").
 
 Known confounds, found during the runs (facts, not excuses for a result):
 
@@ -51,7 +53,8 @@ Known confounds, found during the runs (facts, not excuses for a result):
   X2D and Bambu Studio. Codex runs will not.
 - `references/development.md`, which ships with the skill, holds the scenario rows. The
   change-request agent read them (lines 110–140) before acting and cited "the change-request
-  scenario expects a new delivery"; the other eight did not read the file.
+  scenario expects a new delivery"; the other eight did not read the file. The table has since
+  moved to `docs/scenarios/conversation-checks.md`, which is not shipped with the skill.
 - Blender-built STLs were not byte-deterministic at this commit (the triangle order changed
   between identical builds), so a rebuild made `seen` entries and other evidence stale.
   given-answers, holes-unknown, bambu-template and unattended built with Blender; in

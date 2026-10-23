@@ -2,9 +2,9 @@
 
 ## Expected behaviour
 
-Copied word for word from `references/development.md`, "Conversation checks when editing the
-skill", at commit 97d529c. `setup.py --check-docs` compares it with development.md as it is;
-when they differ, development.md wins and this file is out of date.
+Copied word for word from the table in [`conversation-checks.md`](conversation-checks.md).
+`setup.py --check-docs` compares it with that table as it is; when they differ, the table wins
+and this file is out of date.
 
 > **Scenario:** User explicitly requests unattended execution
 >
@@ -57,8 +57,9 @@ Defaults recorded:
 - [ ] **must** `_assumptions` in params.json names each stop taken alone and its default:
   reference choice C, the first concept variant, purpose general, the base shape not reviewed by
   the user, the use list not confirmed by the user; and each skipped fit test or mechanism print.
-- [ ] **must** Each promise still not verified at delivery has its `_assumptions` line
-  `"<id>: delivered as a prototype, not verified"`; none is excluded.
+- [ ] **must** Each promise still not verified at delivery has its prototype line in
+  `_assumptions` (`"<id>: delivered as a prototype, not verified"`, with or without a note of who
+  chose it, such as `(unattended run)`); none is excluded.
 
 Supplied answers kept:
 - [ ] **must** `.3dprint/printers.json`: a Prusa MK4, bed 250 × 210 mm, height 220 mm, slicer
@@ -68,8 +69,9 @@ Supplied answers kept:
   28.0 × 48.0, and params.json holds the same numbers.
 
 Nothing only the user can give:
-- [ ] **must** No `_verify.accepted` entry for a promise; no `seen` entry with `"by": "user"`; no
-  test print entry; `calibration.py add` never run and no `.3dprint/calibration.json` written.
+- [ ] **must** No `_verify.accepted` entry, for a promise or for a check (a WARN is fixed, or
+  left unaccepted and named at delivery); no `seen` entry with `"by": "user"`; no test print
+  entry; `calibration.py add` never run and no `.3dprint/calibration.json` written.
 
 Delivering:
 - [ ] **should** An STL per part and a core 3MF in a new folder outside `out/`, the filament

@@ -24,7 +24,9 @@ hashes to show which files a run left untouched.
 --skill-dir is the skill checkout whose scripts make the state (default: the checkout this file
 is in). Use the same checkout, commit and Python environment the agent will run the skill with:
 a rebuild of an unchanged part then gives the same STL. --check-docs compares the expected
-behaviour quoted in each scenario file with the table in references/development.md.
+behaviour quoted in each scenario file with the table in conversation-checks.md, beside this file
+(docs/ is not shipped with the skill, so an agent under test does not read it there), and checks
+that every attended scenario file carries the same agreement item.
 
 Python 3.9 or newer; the starting states need the skill's Python modeling environment
 (manifold3d, numpy; references/development.md), never bpy. Exit 0 on success, 1 on an error.
@@ -43,12 +45,16 @@ import tempfile
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 FIXTURES = os.path.join(HERE, "fixtures")
+CHECKS = os.path.join(HERE, "conversation-checks.md")   # the scenario table the files quote
 DEFAULT_SKILL = os.path.dirname(os.path.dirname(HERE))
 
-# The nine rows of references/development.md, "Conversation checks when editing the skill", in order.
+# The nine rows of conversation-checks.md (this folder), "Conversation checks when editing the skill", in order.
 SCENARIOS = ("given-answers", "choice-d", "holes-unknown", "bambu-template", "change-request",
              "unattended", "a-kept-broken", "a2-unmeasured", "c-param-changed")
 HOLDER = ("a-kept-broken", "a2-unmeasured", "c-param-changed", "change-request")
+ATTENDED = tuple(sid for sid in SCENARIOS if sid != "unattended")
+# The checklist item every attended scenario file carries word for word (--check-docs compares them).
+AGREEMENT = "The user's agreement (the same item in every attended scenario):\n"
 DELIVERED = "deliver/2026-10-20"           # change-request starts after this delivery
 
 # What finalize.py says about each starting state (the scenario files repeat it): the use and
@@ -285,11 +291,12 @@ def setup(sid, folder, skill):
             "finalize": checked, "files": files}
 
 
-def development_rows(skill):
-    """The scenario table of references/development.md: [(scenario, expected behavior)]."""
-    with open(os.path.join(skill, "references", "development.md"), encoding="utf-8") as f:
+def scenario_rows():
+    """The scenario table of conversation-checks.md: [(scenario, expected behavior)]. It is the
+    file's first table, before "## Recording a run"."""
+    with open(CHECKS, encoding="utf-8") as f:
         text = f.read()
-    section = text.split("## Conversation checks when editing the skill", 1)[1].split("\n### ", 1)[0]
+    section = text.split("# Conversation checks when editing the skill", 1)[1].split("\n## ", 1)[0]
     rows = []
     for line in section.splitlines():
         cells = [c.strip() for c in line.strip().strip("|").split("|")]
@@ -298,12 +305,29 @@ def development_rows(skill):
     return rows
 
 
-def check_docs(skill):
-    """Each scenario file quotes its row word for word; a drift is named."""
-    rows = development_rows(skill)
+def agreement_item(text):
+    """The text of the shared agreement item in a scenario file, or None."""
+    if AGREEMENT not in text:
+        return None
+    rest = text.split(AGREEMENT, 1)[1]
+    return rest.split("\n\n", 1)[0].strip()
+
+
+def check_docs():
+    """Each scenario file quotes its row of conversation-checks.md word for word, and every attended
+    scenario file carries the same agreement item; a drift is named."""
+    rows = scenario_rows()
     problems = []
     if len(rows) != len(SCENARIOS):
-        problems.append("development.md has %d scenario rows, the kit %d" % (len(rows), len(SCENARIOS)))
+        problems.append("conversation-checks.md has %d scenario rows, the kit %d" % (len(rows), len(SCENARIOS)))
+    agreement = {}
+    for sid in ATTENDED:
+        with open(os.path.join(HERE, sid + ".md"), encoding="utf-8") as f:
+            agreement[sid] = agreement_item(f.read())
+        if agreement[sid] is None:
+            problems.append("%s.md has no agreement item" % sid)
+        elif agreement[sid] != agreement[ATTENDED[0]]:
+            problems.append("%s.md words the agreement item differently from %s.md" % (sid, ATTENDED[0]))
     for sid, (scenario, expected) in zip(SCENARIOS, rows):
         with open(os.path.join(HERE, sid + ".md"), encoding="utf-8") as f:
             text = f.read()
@@ -312,9 +336,10 @@ def check_docs(skill):
             m = re.search(r"^> \*\*%s:\*\* (.*)$" % key, text, re.M)
             quoted[key] = m.group(1).strip() if m else None
         if quoted["Scenario"] != scenario:
-            problems.append("%s.md quotes the scenario as %r; development.md: %r" % (sid, quoted["Scenario"], scenario))
+            problems.append("%s.md quotes the scenario as %r; conversation-checks.md: %r"
+                            % (sid, quoted["Scenario"], scenario))
         if quoted["Expected behavior"] != expected:
-            problems.append("%s.md quotes the expected behaviour differently from development.md" % sid)
+            problems.append("%s.md quotes the expected behaviour differently from conversation-checks.md" % sid)
     return problems
 
 
@@ -324,7 +349,7 @@ def main(argv=None):
     ap.add_argument("folder", nargs="?", help="the new project folder")
     ap.add_argument("--skill-dir", default=DEFAULT_SKILL, help="the skill checkout (default: this repository)")
     ap.add_argument("--list", action="store_true", help="list the scenarios and which have a starting state")
-    ap.add_argument("--check-docs", action="store_true", help="compare the quoted rows with development.md")
+    ap.add_argument("--check-docs", action="store_true", help="compare the quoted rows with conversation-checks.md")
     args = ap.parse_args(argv)
     try:
         if args.list:
@@ -332,8 +357,9 @@ def main(argv=None):
                 print("%-16s %s" % (sid, "starting state" if sid in STARTS else "empty folder"))
             return 0
         if args.check_docs:
-            problems = check_docs(args.skill_dir)
-            print("\n".join(problems) if problems else "the nine scenario files quote development.md as it is")
+            problems = check_docs()
+            print("\n".join(problems) if problems else
+                  "the nine scenario files quote conversation-checks.md as it is; the agreement item is the same in all eight attended ones")
             return 1 if problems else 0
         if not (args.scenario and args.folder):
             ap.error("give a scenario id and a new folder (or --list, --check-docs)")
