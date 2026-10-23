@@ -34,6 +34,11 @@ Write one generator script:
   Fusion and a live Blender record only params.json (scope `overrides`), so put the values there
   (`references/parts.md`, `references/engines/python.md`). A derived value (the lip top = seat +
   lip height) is not recorded: check it with a measurement in Phase 4.
+- Read no data file of your own from the generator (a JSON or CSV of sizes, an SVG outline):
+  the build hashes the generator and what it imports (Python modules, OpenSCAD includes, the
+  Blender library), not files it opens, so a changed data file would not make the build stale
+  and the source bundle would rebuild without it. Put those numbers in the parameter block or
+  params.json; a shape from a file the user gave is measured (`measure.py`), not loaded.
 - **Z-up: Z = 0 is the print bed.** Model in the orientation it will print in.
 - Each build regenerates everything from scratch in a safe order (fillets before cuts). Phases are
   review points, not build steps.

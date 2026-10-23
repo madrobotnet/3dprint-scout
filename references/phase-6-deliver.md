@@ -109,8 +109,19 @@ STLs again first; REPRODUCE.md lists them. A file `_verify` names that is missin
 the bundle: it is left out and listed in `bundle_missing` and in REPRODUCE.md; make it again and
 bundle into a new folder, or say it is missing.
 
+Bundle a build that is the project as it is now: the bundle rebuilds the parts, so a verdict
+that says the build differs from the project (an STL or a source changed since, the settings,
+grouping or material changed since, a part not built, or finalize run with other settings than
+the build) is refused: build again (`build.py run`, with `--printer`), re-check, then bundle.
+It also refuses a carried file that the rebuild writes again (a core 3MF a measurement read,
+for example) or a file at a name the bundle writes itself (`build.json`, `REPRODUCE.md`, ...).
+A generator that reads a data file of its own (not a Python import, an OpenSCAD include or a
+Blender library) is rebuilt without it: neither the freshness check nor the bundle tracks such a
+file, so keep those numbers in DEFAULTS / PARAMETERS or params.json (Phase 3).
+
 The bundle refuses any file it would carry, or the `--deliver` folder, outside the project
-folder, and any carried text file that holds a path of this machine: keep the user's files,
+folder (a part STL or the core 3MF too, and a link inside the folder to a file outside it),
+and any carried text file that holds a path of this machine: keep the user's files,
 photos and reports in the project folder (`ref/plug.stl`, `photos/notch.jpg`), run the scripts
 from there with relative paths (Phase 4), move a source in and build again, and put a name, not
 a path, in a source or `params.json`. The bundle carries the user's own files, photos and the
