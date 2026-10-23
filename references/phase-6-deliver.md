@@ -67,7 +67,8 @@ Write it in the user's language and in plain words, at every delivery, also afte
 script names, check ids, JSON keys or lines pasted from the report anywhere in it, the `open`
 list and `_assumptions` included. In this order:
 
-0. **Unattended runs only, before any result:** what was decided alone (each stop taken alone
+0. **Unattended runs only, before any result** (not even "the files are ready and every check
+   passed"): what was decided alone (each stop taken alone
    and each default in `_assumptions`, the base-shape look among them) and every promise not
    verified. Item 1 then gives the other promises.
 1. **The `use` tier.** One line per promise in `promises`: its `text` in the user's

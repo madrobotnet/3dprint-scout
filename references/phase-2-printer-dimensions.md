@@ -78,7 +78,8 @@ test prints and the delivered print file are compared with it (`references/check
 
 ## 2. Purpose and the use list
 
-Decorative, general, or load-bearing. Default: general.
+Decorative, general, or load-bearing. Default: general, recorded in `_assumptions` when the user
+did not say.
 
 Then make the **use list** with the user: what they will do with the part, under which
 conditions, and what counts as success. Start from the request and the chosen concept's
@@ -202,11 +203,13 @@ would have shown up with half the member thickness and a sixth of the material.
 
 ## 4. Compensation lives in one place
 
-Use the `slicer / model / unknown` table in `references/tolerances.md`, and record the state in
-`compensation.holes` and `compensation.elephant_foot`. What counts is the setting the part will
-be printed with: a Bambu project the skill delivers carries its settings
-(`references/bambu-process.md`, "Constraints"); STLs sliced with a preset nobody has seen stay
-`"unknown"`.
+Use the `slicer / model / unknown` table in `references/tolerances.md`, and write the state into
+the printer's entry in `printers.json`: `compensation.holes` and `compensation.elephant_foot`,
+added when missing (the other fields stay as they are), with the reason in
+`compensation.source`. What counts is the setting the part will be printed with: a Bambu project
+the skill delivers carries its settings, so a generated template means holes `"model"` and
+elephant foot `"slicer"` (`references/bambu-process.md`, "Constraints"); STLs sliced with a
+preset nobody has seen stay `"unknown"`.
 
 ## 5. Show the use list and the parameter table, and stop
 
