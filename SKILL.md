@@ -135,10 +135,9 @@ who already chose D with a specific model goes straight to its handoff.
 
 Read `references/phase-2-printer-dimensions.md` now (required).
 
-Goal: know the printer, the slicer, the purpose, what the user will do with the part and every
-real-world dimension with its source; show the use list and the parameter table and **stop** for
-new or changed design decisions. Do not ask the user to approve unchanged dimensions they
-already confirmed.
+Goal: know the printer, the slicer, the purpose, the use list and every real-world dimension with
+its source; show the use list and the parameter table and **stop** for new or changed design
+decisions. Do not ask the user to approve unchanged dimensions they already confirmed.
 
 - Read `.3dprint/printers.json` (an envelope: schema, bed sources and the defaults are in the
   phase file). Reuse confirmed answers; ask only for an unknown printer or slicer: "Which printer do you have, and which
@@ -216,6 +215,8 @@ printed.
   (`finalize.py`). Name each one not verified to the user and decide it together: measure or
   test print; go on assumed; a prototype (it stays not verified and leads the delivery); or the
   user excludes it in their words (`_verify.accepted`, `"by": "user"`), never in unattended runs.
+  A `failed` promise is never excluded or accepted away: go back to the phase of the evidence that
+  failed (G7); if the user wants the files anyway, the failure is the delivery's first line.
 
 ## Phase 5 — Gate and process tuning (review point)
 
@@ -227,7 +228,8 @@ decided with evidence, print settings chosen with a reason.
 - Re-run the Phase 3 build (or `record`), its JSON saved (`> out/build.json`); `validate.py` once
   per part with the build's `--source` list. Into `_verify`: saved fit, strength and measure
   reports, accepted WARNs, the user's look at an image (`seen`, `image_sha256` from its sidecar),
-  test prints (parts' sha256 and material, printer, `"as built"`, preset); promises name them.
+  test prints (parts' sha256 and material, printer, `"as built"`, preset, `photos`); promises name
+  them. A user's file or photo stays inside the project folder: `--bundle` refuses one outside.
 - Decide `not_covered`: F3 with `fit.py` (one run per joint), F1, F2, R1, R2 and R4 yourself with
   evidence; P6 (not in that list, still yours) from the preview image or the generator and its log.
 - Hard FAIL → the phase in the table below, fix the cause, rebuild, re-validate (G7). Soft WARN →
@@ -243,9 +245,11 @@ Read `references/phase-6-deliver.md` now (required).
 Goal: new files outside `out/` the user can open in their slicer, with every verdict and
 assumption repeated.
 
-- First `finalize.py --build out/build.json` (`--deliver` checks the copies, `--bundle` the
-  sources): call verified only what it does; at every delivery say the `use` tier first, with
-  each promise not verified by name, then the other tiers and the `open` list.
+- First `finalize.py --build out/build.json`, always with `--deliver` (the files, each part's
+  filament, the process preset: without it a promise can read verified on another material) and
+  `--bundle` (the sources and the evidence); call verified only what it does. The message opens
+  with the `use` tier: each promise's state and, if not verified, why; a failure, or a
+  prototype's unproven promises, come first; then the other tiers and `open`.
 - Files by the slicer saved in Phase 2 (the phase file's table): Bambu project 3MF plus STL per
   part, or STL per part plus the core 3MF; every STL named after its part.
 - Then: the parameter table and "anything to change?"; the print settings with their reasons;
@@ -298,8 +302,8 @@ In this mode, take the default at each stop (reference choice C, the first
 concept variant, purpose general; at the Phase 3 stop, go on with the base shape as built and put
 its preview, sizes and verdicts at the top of the next message), record every assumption and every
 stop taken alone in `_assumptions` in `params.json`, and repeat them at the top of the deliverable
-with every promise that is not verified. Nobody can agree to leave a promise unproven: never
-exclude one. If the printer and slicer are unknown, deliver STL per part plus a core 3MF, mark D2
+with every promise not verified; never exclude a promise (nobody can agree). If the printer and
+slicer are unknown, deliver STL per part plus a core 3MF, mark D2
 UNVERIFIED, and say at the top that the printer was not confirmed. A skipped fit test or
 mechanism-first print goes into `_assumptions` like any other stop; `calibration.py add` is never
 run, nobody said yes. G9 still applies: the updates go into the progress notes. Two exceptions: if a dimension the part must fit cannot be sourced, stop
@@ -318,7 +322,7 @@ Scripts, run as `python3 "$SKILL_DIR/scripts/<name>.py"`:
 | `scripts/measure.py` | Measure a supplied STL / 3MF: objects and parts, slices with circle and corner fits, ray depth maps of a wall; `--expect PATH=VALUE` keeps a number as evidence (a size of the user's file, or a hand-calculated size on the built part) |
 | `scripts/strength.py` | Hand calculations for pins, beams, links, pin walls, a knuckle hinge (`hinge`, with the P7 floors per duty) and a snap arm (`snap`: strain, insertion and release forces) from Bambu Lab data-sheet values and a cited hand-force table; `--from-build out/build.json --part NAME --param INPUT=PARAM` takes sizes, choices and the material from the build (the only report that can verify a `use`) |
 | `scripts/calibration.py` | The user's own print results per printer and material in `.3dprint/calibration.json`: `add`, `show`, `lookup`; lookup recommends only from entries under the query's nozzle, layer, load, orientation and process (others are `reference`), `--kind` keeps floors to the same kind of member, `worked_set` is one print's values |
-| `scripts/finalize.py` | Phase 6 (and the promise check that ends Phase 4): the final verification report from the saved build, the fit, strength and measure reports and `_verify`: the use tier (each promise's state), geometry verified or not, shape by direction, slicing and print unverified, the `open` list; `--deliver` (also the filament and preset of a Bambu project), `--bundle` |
+| `scripts/finalize.py` | Phase 6 (and the promise check that ends Phase 4): the final verification report from the saved build, the fit, strength and measure reports and `_verify`: the use tier (each promise by its own evidence), geometry verified or not, shape by direction, slicing and print unverified, the `open` list; `--deliver` (copies, filament, preset), `--bundle` (sources and evidence) |
 | `scripts/preview.py`, `scripts/render.py` | Iso / front / right / top PNG of one or more STLs: numpy only with the G4 image check, or through Blender (Workbench, filament colours) when it is there, same JSON and check; each writes a sidecar `<image>.png.json` (the image's and the STLs' sha256) that ties a user's look to the parts; `render.py --lang ko` draws the view names in Korean |
 | `scripts/fit.py` | F3: overlap, play, gap and contact between two placed STLs, verdict JSON with both STLs' sha256; `--sweep-*` for a rotating part; `--check REPORT` for a stale report |
 | `scripts/fit_test.py` | Fit-test pieces of a mating profile in clearance steps, marked 1/2/3 |
@@ -338,7 +342,7 @@ References, read when the line says so (phase files on entering the phase):
 | `references/phase-3-base-shape.md` | Phase 3: generator script rules, `params.json`, `build.py run` / `record`, the `out/` folder, the look stop |
 | `references/phase-4-features-joints.md` | Phase 4: `fit.py` and the sweep, P7 with `strength.py --from-build`, `measure.py --expect` on the built part, printing the mechanism first, `fit_test.py`, the promises decided before leaving |
 | `references/phase-5-gate.md` | Phase 5: re-validation, `not_covered`, FAIL and WARN handling, print settings, the `_verify` declarations |
-| `references/phase-6-deliver.md` | Phase 6: `finalize.py` and the `use` tier first, files per slicer, the delivery list, the bundle and the calibration offer |
+| `references/phase-6-deliver.md` | Phase 6: `finalize.py` and the use tier, the print file check, files per slicer, the delivery message, the bundle, the calibration offer |
 | `references/engines/fusion.md`, `references/engines/openscad.md`, `references/engines/python.md`, `references/engines/blender.md` | Phase 3, the engine in use only: its rules and pitfalls; `references/engines/fusion_builder.py` is the Builder to paste into Fusion scripts, `references/engines/blender_builder.py` the helper a Blender generator imports (binary, `bpy` module or a live Blender, and `render.py`'s renderer) |
 | `references/design.md` | Phase 3 and 4: design for FDM (chamfers, overhangs, walls, orientation, snap fits, screws and inserts, mechanisms that carry load, part seams, print-in-place, text), with sources |
 | `references/tolerances.md` | Phase 2 to 4: fits and clearances, each marked radial or diameter |
@@ -347,4 +351,4 @@ References, read when the line says so (phase files on entering the phase):
 | `references/materials.md` | Phase 2 (the material keys) and 4, a member that carries load: data-sheet values and hand forces behind `strength.py`, inputs from the build, with sources and what the model does not see |
 | `references/calibration.md` | Phase 2 (read the log) and 6 (offer to write it): when to read, when to ask, the schema |
 | `references/bambu-process.md` | Phase 2 (template question) and 5, slicer Bambu Studio: templates, where settings live, allowed keys, tuning rules |
-| `references/checks.md` | Phase 4 to 6: the JSON of `validate.py`, `fit.py` and `finalize.py`, exit codes, `not_covered`, the `_verify` declarations and the promise states |
+| `references/checks.md` | Phase 4 to 6: the JSON of `validate.py`, `fit.py` and `finalize.py`, exit codes, `not_covered`, the `_verify` declarations, how to read the use tier |

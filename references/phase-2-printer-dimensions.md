@@ -175,7 +175,9 @@ notch:
 - `user-file`: measured on a file the user gave (a maker's model of the plug, a scan). `from`
   names, for each parameter, its saved `measure.py --expect` report in `_verify.measurements`
   (one report per parameter, one `=` expectation), and `tol` is how far the measured value may
-  differ: `"from": {"plug_w": "plug head width"}, "tol": 0.2` (`references/measure.md`).
+  differ: `"from": {"plug_w": "plug head width"}, "tol": 0.2` (`references/measure.md`). Keep
+  the file inside the project folder (`ref/plug.stl`): `finalize.py --bundle` copies it and
+  refuses one outside.
 - `assumed`: everything else: a typical size, a value from secondary sources (two that agree
   are still `assumed`; put their links in `note`), a guess.
 
