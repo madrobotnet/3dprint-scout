@@ -800,6 +800,14 @@ def _leaf_names(d: dict, prefix: str = "") -> list:
     return out
 
 
+def _finite(v) -> bool:
+    """A real, finite number; an integer too large for a float (10**400 in edited JSON) is not."""
+    try:
+        return isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)
+    except OverflowError:
+        return False
+
+
 def link_value(case: str, inp: str, param: str, raw):
     """A build parameter's value as the input `inp` takes it, checked as its option is checked:
     a finite number that is not a bool, above zero for a size, zero allowed where the option
@@ -808,10 +816,10 @@ def link_value(case: str, inp: str, param: str, raw):
     if len(shown) > 60:
         shown = shown[:57] + "..."
     where = f"--param {inp}={param}: the build has {param} = {shown}; {inp} takes"
-    number = isinstance(raw, (int, float)) and not isinstance(raw, bool)
+    number = _finite(raw)
     kind = INPUT_KIND[inp]
     if kind in ("size", "positive", "non_negative"):
-        if not number or not math.isfinite(raw):
+        if not number:
             raise StrengthError(f"{where} a finite number")
         if kind == "non_negative" and raw < 0:
             raise StrengthError(f"{where} zero or a positive number")
@@ -819,7 +827,7 @@ def link_value(case: str, inp: str, param: str, raw):
             raise StrengthError(f"{where} a positive number" + (" (mm)" if kind == "size" else ""))
         return float(raw)                                   # as the option's type=float gives it
     if kind == "whole":
-        if not isinstance(raw, int) or isinstance(raw, bool):
+        if not isinstance(raw, int) or isinstance(raw, bool) or not _finite(raw):
             raise StrengthError(f"{where} a whole number (a JSON integer)")
         return raw
     if kind == "flag":
@@ -831,7 +839,7 @@ def link_value(case: str, inp: str, param: str, raw):
         if not isinstance(raw, str) or raw not in choices:
             raise StrengthError(f"{where} one of {', '.join(choices)}")
         return raw
-    if number and math.isfinite(raw) and raw > 0:           # load: a force in N or a hand-force key
+    if number and raw > 0:                                  # load: a force in N or a hand-force key
         return raw
     if isinstance(raw, str) and raw.strip().lower() in LOADS:
         return raw

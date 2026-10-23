@@ -947,6 +947,14 @@ class FromBuild(unittest.TestCase):
             self.assertIn("load takes a positive force in N or one of finger_push", out["errors"][0])
         code, out = value("pin", "load", "Grasp", *pin_noload)
         self.assertEqual((code, out["load_N"]), (0, strength.LOADS["grasp"]["design_N"]))
+        # An integer too large for a float (valid JSON) is refused as JSON, not a traceback (Codex, PR #21).
+        for case, inp, argv, word in (("beam", "h", beam, "h takes a finite number"),
+                                      ("hinge", "knuckles", hinge, "knuckles takes a whole number"),
+                                      ("pin", "load", pin_noload, "load takes a positive force")):
+            code, out = value(case, inp, 10 ** 400, *argv)
+            self.assertEqual(code, 1, inp)
+            self.assertIn(word, out["errors"][0])
+            self.assertIn("the build has v = 1000000", out["errors"][0])       # shown cut short
 
     def test_build_path_as_given(self):
         self.build()
