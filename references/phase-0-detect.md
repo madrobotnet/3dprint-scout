@@ -115,7 +115,11 @@ python3 "$SKILL_DIR/scripts/render.py" out/body.stl -o out/render.png --color "b
 ```
 
 Same JSON and `sane` check; `preview.py` stays the fallback and the G4 check
-(`references/engines/blender.md`, "Renders").
+(`references/engines/blender.md`, "Renders"). For a user who reads Korean, `--lang ko` draws the
+view names in Korean (preview.py's bitmap font keeps them in English). Both write a sidecar next
+to the image (`<image>.png.json`: its sha256, the views, each STL's sha256); keep it with the
+image, because a user's judgement of the image is tied to the parts through it
+(`references/checks.md`, `_verify.seen`).
 
 ## 4. Printer
 

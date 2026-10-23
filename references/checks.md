@@ -92,6 +92,8 @@ The final report of Phase 6 (`references/phase-6-deliver.md`), schema `3dprint-s
               "measured": ["box", "lid"], "result": "passed"}],
   "strength": [{"name": "latch arm", "report": "out/strength_latch.json", "gate": "PASS", "case": "pin",
                 "manual": true, "result": "passed"}],
+  "seen": [{"name": "front look", "image": "out/look.png", "by": "user", "result": "passed", "promises": ["wave"],
+            "state": "fresh", "shows": ["box", "lid"]}],
   "measurements": [{"name": "lip height", "report": "out/m_lip.json", "file": "out/sled.stl", "measured": ["sled"],
                     "expect": [{"path": "levels[0].loops[0].size[1]", "op": ">=", "target": 7.5, "value": 8.1,
                                 "state": "PASS"}], "result": "passed"}],
@@ -153,8 +155,29 @@ proof, never over a failure. The tier is the worst state of all promises in anot
 nobody agreed to leave unproven weighs more than one the user did. It is `not declared` when
 there is no promise list or it is empty, and `error` when any dims or accepted entry is
 declared wrongly (`promise_errors`).
-Evidence by kind: a `use` takes joints, members and measurements, a `feature` joints and
-measurements, a `look` nothing that is read yet.
+Evidence by kind: a `use` takes joints, members, measurements and test prints, a `feature`
+joints, measurements and test prints, a `look` seen images and test prints.
+
+A seen image (`_verify.seen`) is a person's judgement of a preview: `{"name", "image",
+"image_sha256", "by": "user" | "agent", "promises": [ids], "result": "passed" | "failed"}`.
+`image_sha256` is the digest of the image they looked at. The entry stands while the image is
+still those bytes, its sidecar (`<image>.png.json`, written by `preview.py` and `render.py`)
+describes those bytes, and every STL the sidecar lists is a part of this build as it is now;
+otherwise it is `stale` or `missing` and a promise on it is not verified. Only the user's
+judgement verifies (`by: "agent"` is not verified), `failed` fails the promise, and a promise
+may name it only when its id is in `promises`.
+
+A test print stands as evidence when it lists `promises` (the promise must be one of them),
+`parts` (each printed part's sha256 from the build JSON handed over, and the `material` it was
+printed in, a strength.py key), `printer`, `orientation` and `by`, and `preset` when one was
+used. It verifies only when every part is the part of this build now, each material is the
+part's own (`_parts.<name>.material`, else `_material`), the printer is the build's, the
+orientation is `"as built"`, `by` is the user, the status is `passed`, and the preset is the
+delivered one (`_print.preset` in params.json; when none is recorded the print is `assumed`).
+A failed print fails the promise; a skipped, offered or pending one leaves it not verified. A
+0.6 entry without `promises` stays in the print tier and is not evidence. `_material`,
+`_parts.<name>.material` and `_print` are checked as declared (an unknown material key is a
+declaration error).
 
 A measurement is a saved `measure.py ... --expect` report (`references/measure.md`). Its
 `result` is `missing` (no readable report with expectations, or one whose values, states and

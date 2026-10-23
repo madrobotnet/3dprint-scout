@@ -17,6 +17,11 @@ Prints one JSON document with the files written and the G4 sanity check of each 
 (non-empty file, valid PNG header, and some foreground pixels). Exit 0 = rendered and sane,
 2 = an image came out blank (G4), 1 = usage or file error. Refuses to overwrite unless
 --overwrite is given (out/ is the working folder, so pass it there).
+
+Next to every image it writes a sidecar, `<image>.png.json` (schema 3dprint-scout.image/1):
+the image's own sha256, the views, and each STL drawn with its sha256. finalize.py ties a
+person's judgement of the image (`_verify.seen`) to the parts by it. The view names stay in
+English: the 5x7 font has no other script (render.py --lang draws them in Korean).
 """
 from __future__ import annotations
 
@@ -34,6 +39,7 @@ sys.path.insert(0, HERE)
 from validate import ArtifactError, read_stl  # noqa: E402
 
 SCHEMA = "3dprint-scout.preview/1"
+IMAGE_SCHEMA = "3dprint-scout.image/1"
 VIEWS = {
     # name: (camera direction, i.e. from the scene towards the eye; world up)
     "iso": ((1.0, -1.0, 0.8), (0.0, 0.0, 1.0)),
@@ -404,6 +410,35 @@ def write_png(path, img):
                 + chunk(b"IDAT", zlib.compress(raw, 6)) + chunk(b"IEND", b""))
 
 
+def sidecar_path(image):
+    return image + ".json"
+
+
+def stl_hashes(stls):
+    """{path: sha256} of the inputs, taken before they are read for drawing."""
+    from validate import file_sha256
+    return {s: file_sha256(s) if os.path.isfile(s) else None for s in stls}   # a missing one fails when read
+
+
+def write_sidecar(image, stls, views, renderer, lang="en", hashes=None):
+    """`<image>.json`: what the image shows and the very bytes it is, so a judgement of it can be
+    tied to the parts (finalize.py `_verify.seen`). Written after the image, from its bytes;
+    `hashes` are the STLs' digests taken before drawing, and an STL that changed while it was
+    drawn (rebuilt meanwhile) leaves the image without a sidecar: the image may show the old
+    bytes, so nothing ties it to the new ones."""
+    from validate import file_sha256
+    hashes = hashes or stl_hashes(stls)
+    changed = [s for s in stls if file_sha256(s) != hashes[s]]
+    if changed:
+        raise ValueError(f"{', '.join(changed)} changed while the image was drawn; draw it again (no sidecar written)")
+    data = {"schema": IMAGE_SCHEMA, "image": os.path.basename(image), "image_sha256": file_sha256(image),
+            "views": list(views), "lang": lang, "renderer": renderer,
+            "stls": [{"path": s, "sha256": hashes[s]} for s in stls]}
+    with open(sidecar_path(image), "w", encoding="utf-8") as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
+    return sidecar_path(image)
+
+
 def png_sane(path, fg_fraction):
     """G4 for images: a real PNG with pixels, and something drawn in it."""
     try:
@@ -442,13 +477,14 @@ def run(args) -> dict:
         raise PreviewError("--size WIDTHxHEIGHT, e.g. 1600x1200")
     if width < 200 or height < 200 or width * height > MAX_PIXELS:
         raise PreviewError("--size between 200x200 and 4096x4096")
+    hashes = stl_hashes(args.stl)                     # before reading: the sidecar names the bytes drawn
     meshes = load_meshes(args.stl)
     stem, ext = os.path.splitext(args.out)
     if ext.lower() != ".png":
         raise PreviewError("-o must end in .png")
     targets = [f"{stem}_{v}.png" for v in views] if args.separate else [args.out]
     if not args.overwrite:
-        for t in targets:
+        for t in targets + [sidecar_path(t) for t in targets]:
             if os.path.exists(t):
                 raise PreviewError(f"{t} already exists; pass --overwrite for a working file in out/, or choose a new name")
     os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)
@@ -463,15 +499,17 @@ def run(args) -> dict:
     t0 = time.time()
     images = render(meshes, views, width, height, caption, args.separate)
     files, all_sane = [], True
+    renderer = "numpy z-buffer (orthographic, flat shading, outlines)"
     for (view, img, fg), path in zip(images, targets):
         write_png(path, img)
         sane, note = png_sane(path, fg)
         all_sane &= sane
-        files.append({"path": path, "views": views if view == "grid" else [view], "sane": sane, "note": note,
-                      "bytes": os.path.getsize(path)})
+        shown = views if view == "grid" else [view]
+        files.append({"path": path, "views": shown, "sane": sane, "note": note, "bytes": os.path.getsize(path),
+                      "sidecar": write_sidecar(path, args.stl, shown, renderer, hashes=hashes)})
     return {"files": files, "parts": [{"name": m[0], "triangles": int(len(m[2])),
                                        "colour": "#%02x%02x%02x" % PALETTE[i % len(PALETTE)]} for i, m in enumerate(meshes)],
-            "size_mm": size_mm, "renderer": "numpy z-buffer (orthographic, flat shading, outlines)",
+            "size_mm": size_mm, "renderer": renderer,
             "seconds": round(time.time() - t0, 2), "sane": all_sane}
 
 

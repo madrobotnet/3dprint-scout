@@ -52,6 +52,10 @@ class CommandLine(Base):
         self.assertNotIn("--overwrite", cmd)
         cmd = render.render_command([self.stl], self.png, ["iso"], (400, 300), "cycles", [], python="/x/python")
         self.assertEqual(cmd[:3], ["/x/python", render.BUILDER, "--"])
+        self.assertNotIn("--lang", cmd)
+        cmd = render.render_command([self.stl], self.png, ["iso"], (400, 300), "workbench", [], python="/x/python",
+                                    lang="ko")
+        self.assertEqual(cmd[-2:], ["--lang", "ko"])
         self.assertTrue(os.path.isfile(render.BUILDER))
 
     def test_no_blender_is_a_clear_error(self):
@@ -77,6 +81,8 @@ class CommandLine(Base):
             self.assertIn("unknown view", out["errors"][0])
             code, out = run(self.stl, "-o", os.path.join(self.d, "y.png"), "--engine", "octane")
             self.assertIn("--engine", out["errors"][0])
+            code, out = run(self.stl, "-o", os.path.join(self.d, "y.png"), "--lang", "fr")
+            self.assertIn("--lang must be one of en, ko", out["errors"][0])
             empty = os.path.join(self.d, "empty.stl")
             open(empty, "wb").close()
             code, out = run(empty, "-o", os.path.join(self.d, "y.png"))          # G4 on the input
@@ -158,6 +164,18 @@ class WithBlender(Base):
             code, out = run(self.stl, "-o", self.png, "--views", "iso", "--size", "400x300", "--overwrite",
                             "--blender-python", sys.executable)
         self.assertEqual((code, out["sane"], out["files"][0]["views"]), (0, True, ["iso"]))
+        # 0.7.0 step 3: Korean view names, and the sidecar that ties the image to its parts.
+        import validate
+        ko = os.path.join(self.d, "out", "ko.png")
+        with mock.patch.object(build, "find_blender", return_value=None):
+            code, out = run(self.stl, "-o", ko, "--views", "iso,top", "--size", "400x300", "--lang", "ko",
+                            "--blender-python", sys.executable)
+        self.assertEqual((code, out["sane"]), (0, True), out.get("errors"))
+        with open(out["files"][0]["sidecar"], encoding="utf-8") as fh:
+            side = json.load(fh)
+        self.assertEqual((side["lang"], side["views"]), ("ko", ["iso", "top"]))
+        self.assertEqual(side["image_sha256"], validate.file_sha256(ko))
+        self.assertEqual(side["stls"], [{"path": self.stl, "sha256": validate.file_sha256(self.stl)}])
 
 
 if __name__ == "__main__":

@@ -23,6 +23,11 @@ the colour drawn: very light and very dark filaments are moved a little off the 
 and off black), the size in mm and the renderer. Exit 0 = rendered and sane, 2 = image not
 usable (blank, or no background), 1 = usage, file or Blender error. Refuses to overwrite
 unless --overwrite is given.
+
+`--lang ko` draws the view names in Korean (등각, 앞, 오른쪽, 위, ...), for a user who reads
+Korean; the caption takes any text Blender's fonts can draw. Next to the image it writes the
+same sidecar as preview.py (`<image>.png.json`: the image's sha256, the views, each STL with its
+sha256), which ties a person's judgement of the image to the parts (finalize.py).
 """
 from __future__ import annotations
 
@@ -43,6 +48,7 @@ from validate import ArtifactError, read_stl  # noqa: E402
 SCHEMA = "3dprint-scout.render/1"
 BUILDER = os.path.join(build.ENGINES_DIR, "blender_builder.py")
 ENGINES = ("workbench", "eevee", "cycles")
+LANGS = ("en", "ko")                    # the view names drawn in the image (blender_builder.VIEW_LABELS)
 
 
 def builder_module():
@@ -62,7 +68,8 @@ class _JsonArgParser(argparse.ArgumentParser):
         raise RenderError(f"usage error: {message}")
 
 
-def render_command(stls, out, views, size, engine, colors, label=None, exe=None, python=None, overwrite=False):
+def render_command(stls, out, views, size, engine, colors, label=None, exe=None, python=None, overwrite=False,
+                   lang="en"):
     """The command line: the blender binary running blender_builder.py as a script, or the bpy
     Python running it; the renderer's own arguments follow `--`."""
     args = ["--", "render", *[os.path.abspath(s) for s in stls], "-o", os.path.abspath(out),
@@ -71,6 +78,8 @@ def render_command(stls, out, views, size, engine, colors, label=None, exe=None,
         args += ["--color", c]
     if label is not None:
         args += ["--label", label]
+    if lang != "en":
+        args += ["--lang", lang]
     if overwrite:
         args.append("--overwrite")
     if exe:
@@ -101,6 +110,7 @@ def run(args) -> dict:
     if args.engine not in ENGINES:
         raise RenderError(f"--engine must be one of {', '.join(ENGINES)}")
     names = []
+    hashes = preview.stl_hashes(args.stl)              # before Blender reads them: the sidecar names the bytes drawn
     for path in args.stl:
         try:
             read_stl(path)                                       # G4 on the input, before Blender starts
@@ -114,12 +124,15 @@ def run(args) -> dict:
         raise RenderError(str(exc))
     if not args.out.lower().endswith(".png"):
         raise RenderError("-o must end in .png")
-    if os.path.exists(args.out) and not args.overwrite:
-        raise RenderError(f"{args.out} already exists; pass --overwrite for a working file in out/, or choose a new name")
+    if args.lang not in LANGS:
+        raise RenderError(f"--lang must be one of {', '.join(LANGS)}")
+    for t in (args.out, preview.sidecar_path(args.out)):
+        if os.path.exists(t) and not args.overwrite:
+            raise RenderError(f"{t} already exists; pass --overwrite for a working file in out/, or choose a new name")
     exe, python, version = choose_blender(args.blender_python)
     os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)
     cmd = render_command(args.stl, args.out, views, (width, height), args.engine, args.color, args.label, exe, python,
-                         overwrite=args.overwrite)
+                         overwrite=args.overwrite, lang=args.lang)
     env = dict(os.environ, PYTHONIOENCODING="utf-8")
     t0 = time.time()
     try:
@@ -135,10 +148,15 @@ def run(args) -> dict:
     sane, note = preview.png_sane(rep["path"], rep["fg"])      # a real PNG with pixels, something drawn
     if sane:
         sane, note = bb.fg_sane(rep["fg"], rep.get("fg_views"))  # a background behind it, every view drawn
+    renderer = rep["renderer"] + (" (binary)" if exe else " (bpy module)")
+    try:
+        sidecar = preview.write_sidecar(args.out, args.stl, views, renderer, args.lang, hashes=hashes)
+    except ValueError as exc:
+        raise RenderError(str(exc))
     return {"files": [{"path": args.out, "views": views, "sane": sane, "note": note, "fg": rep["fg"],
-                       "fg_views": rep.get("fg_views"), "bytes": os.path.getsize(args.out)}],
+                       "fg_views": rep.get("fg_views"), "bytes": os.path.getsize(args.out), "sidecar": sidecar}],
             "parts": rep["parts"], "size_mm": rep["size_mm"], "colour_note": rep.get("colour_note", bb.COLOUR_TABLE_NOTE),
-            "renderer": rep["renderer"] + (" (binary)" if exe else " (bpy module)"),
+            "renderer": renderer,
             "seconds": round(time.time() - t0, 2), "sane": sane,
             "warnings": warnings + [w for w in rep.get("warnings", []) if w not in warnings]}
 
@@ -156,6 +174,7 @@ def main(argv=None):
                         help="part=filament name or #rrggbb, e.g. lid=\"Jade White\" (repeatable; default palette; "
                              "an unknown name gives neutral grey and a warning)")
         ap.add_argument("--label", help="caption text (default: the size in mm)")
+        ap.add_argument("--lang", default="en", help="language of the view names: en (default) or ko")
         ap.add_argument("--blender-python", help="Python with the bpy module (forces the bpy path)")
         ap.add_argument("--timeout", type=int, default=600, help="seconds (default 600)")
         ap.add_argument("--overwrite", action="store_true")

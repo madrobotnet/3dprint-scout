@@ -733,7 +733,9 @@ class FinalizePromises(Workspace):
              "'box M1' is a check of a part: it proves the part, not a promise"),
             ("the same id twice", [seat, dict(seat)], None, "the id is used more than once"),
             ("no such joint", [dict(seat, evidence=[{"joint": "nope"}])], None, "there is no joint 'nope' in _verify.joints"),
-            ("evidence not read yet", [dict(seat, evidence=[{"seen": "out/x.png"}])], None, "unknown evidence kind 'seen'"),
+            ("a viewing for a use", [dict(seat, evidence=[{"seen": "out/x.png"}])], None,
+             "seen is not evidence for a use promise (it takes joint, strength, measurement, test_print)"),
+            ("evidence not read", [dict(seat, evidence=[{"photo": "out/x.jpg"}])], None, "unknown evidence kind 'photo'"),
             ("two kinds in one item", [dict(seat, evidence=[{"joint": "lid on box", "strength": "x"}])], None,
              "must name one of joint, strength"),
             ("a use without conditions", [{k: v for k, v in seat.items() if k != "conditions"}], None,
@@ -741,7 +743,7 @@ class FinalizePromises(Workspace):
             ("a feature without success", [dict(feature, success="", evidence=[{"joint": "lid on box"}])], None,
              "a feature promise needs success"),
             ("strength for a feature", [dict(feature, evidence=[{"strength": "x"}])], None,
-             "strength is not evidence for a feature promise (it takes joint, measurement)"),
+             "strength is not evidence for a feature promise (it takes joint, measurement, test_print)"),
             ("a typo in a field", [dict(seat, evidance=[])], None, "unknown field evidance"),
             ("a measurement for a look", [{"id": "look", "kind": "look", "text": "a wave",
                                            "evidence": [{"measurement": "m"}]}], None,
@@ -1172,6 +1174,104 @@ class FinalizePromises(Workspace):
                            values=dict(values, plug_w=40))
         self.assertEqual(out["dims"][0]["problems"], ["plug_w: measurement 'plug width' read box, a part of this build, "
                                                       "not the user's file"])
+
+    @unittest.skipUnless(HAS_NP, "numpy not installed")
+    def test_a_look_is_judged_on_an_image_of_these_parts(self):
+        """0.7.0 step 3: a look promise is verified by the user's judgement of an image whose
+        sidecar ties it to the parts as they are now, and only for the promises they judged."""
+        import preview
+        import validate
+
+        def draw(*extra):
+            code, rep = run(preview, "out/box.stl", "out/lid.stl", "-o", "out/look.png", "--size", "400x300", *extra)
+            self.assertEqual(code, 0, rep["errors"])
+            return validate.file_sha256("out/look.png")
+
+        wave = {"id": "wave", "kind": "look", "text": "the lid sits flush", "evidence": [{"seen": "front look"}]}
+        judged = {"name": "front look", "image": "out/look.png", "by": "user", "promises": ["wave"], "result": "passed"}
+
+        def judge(**change):
+            return self.run_use(self.verify([wave], dims=[], seen=[dict(judged, **change)]))
+
+        sha = draw()
+        judged["image_sha256"] = sha
+        out = judge()
+        self.assertEqual((out["use"], out["seen"][0]["shows"]), ("verified", ["box", "lid"]))
+        self.assertEqual(self.promise(judge(by="agent"), "wave")["reasons"], ["seen 'front look': only the agent looked at it"])
+        self.assertEqual(self.promise(judge(result="failed"), "wave")["state"], "failed")
+        out = judge(promises=["other"])
+        self.assertEqual(self.promise(out, "wave")["reasons"], ["seen 'front look' does not list this promise (its promises "
+                                                                 "are what it checked)"])
+        out = judge(by="robot")
+        self.assertEqual(out["use"], "error")
+        self.assertIn('seen \'front look\': by must be "user" or "agent" (who looked)', out["promise_errors"])
+        shutil.copyfile("out/look.png", "out/look_judged.png")
+        draw("--size", "500x300", "--overwrite")                                # drawn again at the same path
+        self.assertIn("the image is not the one that was judged", self.promise(judge(), "wave")["reasons"][0])
+        shutil.copyfile("out/look_judged.png", "out/look.png")                 # the old pixels next to the new sidecar
+        self.assertIn("describes another image", self.promise(judge(), "wave")["reasons"][0])
+        sha = draw("--overwrite")
+        write_stl("out/lid.stl", box(40, 30, 3, 0, 0, 31))                    # the lid changed after the drawing
+        out = judge(image_sha256=sha)
+        self.assertIn("it shows out/lid.stl, not a part of this build as it is now", self.promise(out, "wave")["reasons"][0])
+        os.remove("out/look.png.json")
+        out = judge(image_sha256=sha)
+        self.assertIn("no sidecar (out/look.png.json) says what it shows", self.promise(out, "wave")["reasons"][0])
+
+    def test_a_test_print_stands_for_the_parts_it_printed(self):
+        """0.7.0 step 3: a print verifies the promises it lists, for the parts as they are now, in
+        their material, on this printer, as built and under the delivered preset."""
+        import validate
+        self.record()
+        lid = validate.file_sha256("out/lid.stl")
+        printed = {"name": "lid fit", "status": "passed", "promises": ["seat"], "printer": "x2d",
+                   "orientation": "as built", "by": "user", "preset": "0.20mm Standard",
+                   "parts": {"lid": {"sha256": lid, "material": "pla_basic"}}}
+        seat = dict(self.SEAT, evidence=[{"test_print": "lid fit"}])
+        contract = {"_material": "pla_basic", "_print": {"preset": "0.20mm Standard"}}
+
+        def judge(change=None, **extra):
+            return self.run_use(self.verify([seat], dims=[], test_prints=[dict(printed, **(change or {}))]),
+                                **dict(contract, **extra))
+
+        out = judge()
+        self.assertEqual((out["use"], self.promise(out, "seat")["state"]), ("verified", "verified"))
+        self.assertEqual(self.promise(out, "seat")["evidence"], [{"test_print": "lid fit", "result": "passed"}])
+        for change, extra, state, reason in (
+                ({}, {"_print": {}}, "assumed", "the delivered preset is not recorded (_print.preset)"),
+                ({"parts": {"lid": {"sha256": lid, "material": "pla_matte"}}}, {}, "not verified",
+                 "lid was printed in pla_matte, the part is pla_basic"),
+                ({}, {"_parts": {"box": {"expect": [40, 30, 20]}, "lid": {"expect": [40, 30, 3], "material": "petg_hf"}}},
+                 "not verified", "lid was printed in pla_basic, the part is petg_hf"),
+                ({}, {"_material": None}, "not verified", "no material is declared for lid"),
+                ({"printer": "p1s"}, {}, "not verified", "printed on p1s, the build is for x2d"),
+                ({"orientation": "on its side"}, {}, "not verified", "printed on its side, not as built"),
+                ({"preset": "0.12mm Fine"}, {}, "not verified", 'printed with preset "0.12mm Fine"'),
+                ({"by": "agent"}, {}, "not verified", 'only the user prints'),
+                ({"status": "skipped"}, {}, "not verified", "test print 'lid fit': skipped"),
+                ({"status": "failed"}, {}, "failed", "test print 'lid fit' failed"),
+                ({"parts": {"lid": {"sha256": "0" * 64, "material": "pla_basic"}}}, {}, "not verified",
+                 "it printed lid as they were then")):
+            with self.subTest(change=change, extra=extra):
+                if extra.get("_material", "") is None:
+                    out = self.run_use(self.verify([seat], dims=[], test_prints=[printed]), _print=contract["_print"])
+                else:
+                    out = judge(change, **extra)
+                promise = self.promise(out, "seat")
+                self.assertEqual(promise["state"], state, promise["reasons"])
+                self.assertTrue(any(reason in r for r in promise["reasons"]), promise["reasons"])
+        for change, message in (({"promises": ["other"]}, "does not list this promise"),
+                                ({"parts": {"lid": {"sha256": lid}}}, "has a declaration error"),
+                                ({"orientation": ""}, "has a declaration error")):
+            with self.subTest(change=change):
+                out = judge(change)
+                self.assertEqual((out["use"], self.promise(out, "seat")["state"]), ("error", "error"))
+                self.assertTrue(any(message in r for r in self.promise(out, "seat")["reasons"]))
+        old = {"name": "lid fit", "status": "passed"}                                 # a 0.6 entry
+        out = self.run_use(self.verify([seat], dims=[], test_prints=[old]), **contract)
+        self.assertIn("lists no promises", self.promise(out, "seat")["reasons"][0])
+        out = judge(None, _material="pla")
+        self.assertIn("_material must be a strength.py material key", " ".join(out["promise_errors"]))
 
     def test_the_tier_is_the_worst_promise(self):
         nothing = {"id": "label", "kind": "look", "text": "the name on the front"}
