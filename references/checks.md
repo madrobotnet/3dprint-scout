@@ -85,13 +85,16 @@ The final report of Phase 6 (`references/phase-6-deliver.md`), schema `3dprint-s
                     "verified_from": ["front", "top"], "not_verified_from": ["back", "..."]}},
   "slicing": "unverified", "print": "unverified (test prints passed: hinge coupon; ...)",
   "settings": {"printer": ".3dprint/printers.json", "printer_id": null, "tools": "1", "tol": null, "...": "...", "wall_check": true},
-  "settings_drift": [],
+  "settings_drift": [], "material_drift": ["lid: material changed since the build (pla_basic -> petg_hf)"],
   "parts": [{"name": "lid", "stl": "out/lid.stl", "sha256": "…", "same_as_build": true, "gate": "PASS", "checks": {"R3": "PASS", "...": "..."}}],
   "objects": [{"name": "box", "gate": "PASS", "parts": ["box", "lid"]}],
   "joints": [{"name": "lid on box", "report": "out/fit_box_lid.json", "fresh": "PASS", "checks": {"F3": "PASS"},
               "measured": ["box", "lid"], "result": "passed"}],
-  "strength": [{"name": "latch arm", "report": "out/strength_latch.json", "gate": "PASS", "case": "pin",
-                "manual": true, "result": "passed"}],
+  "strength": [{"name": "ribbon", "report": "out/strength_ribbon.json", "gate": "PASS", "case": "beam",
+                "linked": true, "part": "sled", "parameters": {"h": "ribbon_t", "b": "ribbon_w"},
+                "manual": ["length"], "result": "passed"},
+               {"name": "latch arm", "report": "out/strength_latch.json", "gate": "PASS", "case": "pin",
+                "linked": false, "manual": ["d", "engagement", "load", "material", "sf"], "result": "passed"}],
   "seen": [{"name": "front look", "image": "out/look.png", "by": "user", "result": "passed", "promises": ["wave"],
             "state": "fresh", "shows": ["box", "lid"]}],
   "measurements": [{"name": "lip height", "report": "out/m_lip.json", "file": "out/sled.stl", "measured": ["sled"],
@@ -107,7 +110,9 @@ The final report of Phase 6 (`references/phase-6-deliver.md`), schema `3dprint-s
   "test_prints": [{"name": "hinge coupon", "status": "skipped", "note": "…"}],
   "accepted": [{"check": "body P2", "reason": "…"}],
   "delivered": [{"file": "deliver/2026-10-21/lid.stl", "kind": "stl", "part": "lid", "same_as_verified": true},
-                {"file": "deliver/2026-10-21/box.3mf", "kind": "3mf", "manifest": true, "parts": ["box", "lid"], "same_as_verified": true}],
+                {"file": "deliver/2026-10-21/box.3mf", "kind": "3mf", "manifest": true, "parts": ["box", "lid"], "same_as_verified": true,
+                 "filaments": {"box": {"slot": 1, "settings": "Bambu PLA Basic @BBL X1C", "material": "pla_basic"}, "lid": {"...": "..."}},
+                 "preset": "0.20mm Standard @BBL X1C"}],
   "bundle": ["deliver/2026-10-21/source/REPRODUCE.md", "..."],
   "open": ["promise 'cable-out' (use) assumed: rests on 'usb-c-plug' …", "joint 'lid on box': F3_fresh FAIL: STALE: …",
            "assumption: …"],
@@ -127,7 +132,8 @@ other printer, printer id, tools or tolerance given here, and printers.json unch
 build), so its object checks stand, every declared joint's
 report is fresh and its F3 / F3_sweep PASS against the delivered parts (or a declared proxy;
 F3 must be in it, and F3_sweep too for a joint marked `"sweep": true`),
-every declared member's `strength.py` gate is PASS, no WARN is left unaccepted, the delivered
+every declared member's `strength.py` gate is PASS (and a `--from-build` report is still of this
+build: see below), no WARN is left unaccepted, the delivered
 copies (with `--deliver`) are the verified files, and `joints` and `strength` were declared at
 all. Paths are relative to the folder it ran in. Exit 0 when it ran, 1 on a usage or file error
 (a missing or wrong `--build`, a bad `_verify`, an existing `--bundle` folder, a source outside
@@ -144,8 +150,8 @@ gets one state:
 | `error` | Declared wrongly: no id or the same id twice, an unknown field or kind, no `text`, a `use` without `conditions` and `success` or a `feature` without `success`, an evidence item that names no declared joint or member, names a part's own check (`box M1`) or a kind the promise does not take, or a dims entry that is missing or declared wrongly (a `caliper` value without `"by": "user"`, a `spec` without its `url` or without `where` (the place in the spec of each parameter's number), a `user-file` value without `from` for each parameter or without `tol`, or naming a measurement that is not declared, values that differ from params.json) |
 | `failed` | A joint or member it names failed, even if the user took the promise |
 | `excluded` | The user took it without verifying it (`{"promise": id, "reason": …, "by": "user"}` in `_verify.accepted`); its other reasons stay listed |
-| `not verified` | No evidence yet, a missing or stale report, a measurement of a file that is not a part of this build, a dims entry not backed by its measurements, a fit report without F3 (or without F3_sweep for a joint marked `"sweep": true`), a joint that fitted a part whose own checks FAIL, a proxy whose params file changed since it was built or that was built from other values than its dims declare, a check that is neither PASS nor an accepted WARN, or a member whose inputs were typed in (every strength.py report for now) |
-| `assumed` | Everything passed, but it rests on a dims entry with `source: "assumed"`, or on a proxy joint that names no dims or no `proxy_build` (the saved JSON of the `build.py run --proxy` that generated the proxy from its own params file; a proxy taken in with `build.py record` is not tied), or a proxy built from numbers its dims do not declare, or not given numbers they do |
+| `not verified` | No evidence yet, a missing or stale report, a measurement of a file that is not a part of this build, a dims entry not backed by its measurements, a fit report without F3 (or without F3_sweep for a joint marked `"sweep": true`), a joint that fitted a part whose own checks FAIL, a proxy whose params file changed since it was built or that was built from other values than its dims declare, a check that is neither PASS nor an accepted WARN, a member with an input typed in (any report not made with `strength.py --from-build`) or whose `--from-build` report is stale or of a part whose own checks FAIL, or material-dependent evidence (a `--from-build` member, a test print) of a part whose material changed since the build or that the delivered Bambu project prints in another filament |
+| `assumed` | Everything passed, but it rests on a dims entry with `source: "assumed"`, or on a proxy joint that names no dims or no `proxy_build` (the saved JSON of the `build.py run --proxy` that generated the proxy from its own params file; a proxy taken in with `build.py record` is not tied), or a proxy built from numbers its dims do not declare, or not given numbers they do; or, with `--deliver`, material-dependent evidence of a part whose filament in the print file cannot be read (a filament name finalize does not know, or no Bambu project: another slicer) |
 | `accepted` | Everything passed with a WARN the user accepted |
 | `verified` | None of the above |
 
@@ -173,7 +179,10 @@ printed in, a strength.py key), `printer`, `orientation` and `by`, and `preset` 
 used. It verifies only when every part is the part of this build now, each material is the
 part's own (`_parts.<name>.material`, else `_material`), the printer is the build's, the
 orientation is `"as built"`, `by` is the user, the status is `passed`, and the preset is the
-delivered one (`_print.preset` in params.json; when none is recorded the print is `assumed`).
+delivered one: `_print.preset` in params.json and, with `--deliver`, the process preset of every
+delivered Bambu project the printed parts are in (without `_print.preset` that project's preset is
+the one compared; when neither is recorded the print is `assumed`). The material must also be
+the one the build recorded, and with `--deliver` the one the print file selects (below).
 A failed print fails the promise; a skipped, offered or pending one leaves it not verified. A
 0.6 entry without `promises` stays in the print tier and is not evidence. `_material`,
 `_parts.<name>.material` and `_print` are checked as declared (an unknown material key is a
@@ -191,3 +200,42 @@ it was read from, and a `tol`: each measurement must be fresh and passed, read n
 build, hold one `=` expectation and have measured the params value within `tol`; otherwise the
 entry is `unbacked` and lists its `problems`, and a promise resting on it is not verified. Every promise that is not verified is the first thing in `open`; a dims entry taken
 from a spec is listed there too, with its URL and places, because finalize does not read the spec.
+
+A member is evidence of a `use` promise only from a report written with `strength.py
+--from-build out/build.json --part NAME --param INPUT=PARAM ...`. Such a report names the part,
+its sha256 and material in that build, and each input it took from the build's `parameters`
+(`from_build`), and says where every input came from (`inputs_from`: `param:<name>`,
+`table:<key>`, `build:material`, `default:<input>` or `manual`). finalize keeps it fresh only
+while NAME is a part of this build whose STL has the sha256 it read ("calculated for an earlier
+sled"), every parameter it took has the same value in this build JSON's `parameters.values` (a
+dotted path for a nested one: "h was ribbon_t = 4.5, now 5.0", "ribbon_t is not in the build's
+parameters"), its material is the part's material now (`_parts.<name>.material`, else
+`_material`), and its inputs, origins and `from_build` agree. A stale report is a geometry reason
+("run strength.py --from-build again", like a stale fit report) and leaves its promises not
+verified; a FAIL of a stale report is not a failure of this design. `manual` lists the inputs
+typed on the command line (every input of a report made without `--from-build`): the geometry
+only notes them, as before, but a promise on that member is not verified, by their names (a
+custom safety factor belongs in params.json too, linked with `--param sf=...`). `table:`,
+`default:` and `build:` origins are not typed in. The member is not verified either while the
+part's own checks FAIL (params.json changed and the part was not built again).
+
+The build JSON records each part's material (`parts[].material`). A material is not an engine
+parameter, so changing `_material` or `_parts.<name>.material` leaves every STL fresh; finalize
+compares the recorded material with params.json now and lists each difference in
+`material_drift` and `open` ("lid: material changed since the build (pla_basic -> petg_hf)").
+It is not a geometry reason, but the material-dependent evidence of that part (a test print of
+it; a `--from-build` member of it is stale already) is not verified until the build is made
+again. A build JSON from before 0.7.0 records no material, and nothing is said.
+
+With `--deliver`, a delivered Bambu project's manifest (written by `bambu3mf.py`) names each
+part's filament slot and settings name (`filaments`) and the process preset (`process`); each
+3MF entry of `delivered` repeats them, with the material key of each filament
+(`strength.material_of_filament`: "Bambu PLA Basic @BBL X1C" is `pla_basic`). A filament of
+another material than the part's is an `open` line and leaves the part's material-dependent
+evidence (a `--from-build` member of it, a test print of it) not verified; a filament name
+finalize does not know, or none, is an `open` line ("the slicer's filament for lid is not
+checked") and leaves that evidence `assumed`; so does a part in no delivered Bambu project (STLs,
+or a core 3MF of build.py, for another slicer: "the print file's material is not checked (no
+Bambu project)"). A process preset other than a declared `_print.preset` is an `open` line and
+keeps the test prints of that project's parts from verifying. None of these is a geometry reason.
+Without `--deliver` nothing of the print file is read.

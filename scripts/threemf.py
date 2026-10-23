@@ -17,6 +17,10 @@ parent. A slicer that understands components shows one object with several parts
 This is the slicer-neutral 3MF. Bambu Studio project files (plates, filaments,
 per-object settings) are produced by bambu3mf.py from a template instead.
 
+Next to the 3MF goes `<file>.3mf.manifest.json` (write_3mf_manifest): the 3MF's sha256 and
+each part STL's. A core 3MF selects no filament or process preset, so its manifest has no
+`filaments` or `process` key; a Bambu project's manifest has both.
+
 Usage: python3 threemf.py out.3mf body.stl lid.stl      (prints one JSON document)
 """
 from __future__ import annotations
@@ -35,12 +39,22 @@ from validate import WELD_Q, ArtifactError, convex_hull, fit_rect, file_sha256, 
 MANIFEST_SCHEMA = "3dprint-scout.3mf-manifest/1"
 
 
-def write_3mf_manifest(path, parts):
+def write_3mf_manifest(path, parts, filaments=None, process=None):
     """`<path>.manifest.json` next to a 3MF: its own sha256 and the sha256 of every part STL it
     was written from, so finalize.py can tell a delivered 3MF holds the verified STLs. Copy it
-    along with the 3MF (it says nothing about edits made in a slicer afterwards)."""
+    along with the 3MF (it says nothing about edits made in a slicer afterwards).
+
+    A slicer project that selects filaments and a process preset (bambu3mf.py) also passes
+    `filaments`, {part: {"slot": 1-based filament slot, "settings": that slot's filament preset
+    name or None}}, and `process`, {"settings": the process preset name or None}; finalize.py
+    --deliver compares them with each part's declared material and _print.preset. Each key is
+    written only when given: the core 3MF selects neither, so its manifest has neither."""
     data = {"schema": MANIFEST_SCHEMA, "artifact_sha256": file_sha256(path),
             "parts": {name: file_sha256(stl) for name, stl in parts}}
+    if filaments is not None:
+        data["filaments"] = filaments
+    if process is not None:
+        data["process"] = process
     with open(path + ".manifest.json", "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2)
     return data

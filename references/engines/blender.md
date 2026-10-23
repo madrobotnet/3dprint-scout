@@ -193,6 +193,8 @@ if __name__ == "__main__":
 
 - The first line is the engine marker. `PARAMETERS` holds every dimension with its source;
   `params.json` overrides by key (keys starting with `_` never arrive).
+- The build JSON records the merged `PARAMETERS` (`parameters`, scope `merged`, `parts.md`); a
+  params.json key `PARAMETERS` lacks is a warning (a typo?).
 - `build(p)` returns `{part_name: Object}`, names exactly as `_parts`; parts of one object share
   a frame, so the STLs hold the assembled positions (`parts.md`).
 - Rebuilt from scratch on every run: never read state from a previous run or from the file.

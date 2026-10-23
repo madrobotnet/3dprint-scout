@@ -145,6 +145,12 @@ python3 "$SKILL_DIR/scripts/bambu3mf.py" job.json
 - Next to the project it writes `<out>.manifest.json` (the project's sha256 and each part STL's),
   replacing a stale one of that name: `finalize.py --deliver` takes the project as verified only
   with it. Write the project straight into the delivery folder, or copy the sidecar along.
+- The manifest also records what the project selects: `filaments`, each part's filament slot and
+  the template's filament preset name for that slot (`filament_settings_id`), and `process`, the
+  template's process preset name (`print_settings_id`); a name the template does not give is
+  `null`. `finalize.py --deliver` compares them with each part's declared material (`_material`,
+  `_parts.<name>.material`) and `_print.preset`. A core 3MF selects neither, so its manifest has
+  neither key.
 
 ## Where settings live
 

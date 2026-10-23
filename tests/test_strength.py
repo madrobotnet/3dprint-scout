@@ -5,6 +5,7 @@ import json
 import math
 import os
 import sys
+import tempfile
 import unittest
 from contextlib import redirect_stdout
 
@@ -635,6 +636,339 @@ class FieldComparison(unittest.TestCase):
                     "--support", "through", "--load", self.LOAD, "--material", "pla_basic", "--orientation", "xy")[1]
         self.assertEqual(loose["checks"]["bending"]["state"], "WARN")
         self.assertAlmostEqual(loose["checks"]["bending"]["sf_achieved"], 1.39, places=2)
+
+
+class FromBuild(unittest.TestCase):
+    """--from-build, --part, --param and the report's inputs_from / from_build (contract 2 of
+    0.7.0 step 4). The build JSONs are synthetic, in the shape build.py writes: top-level
+    "parameters" {"scope", "values"}, parts with name, sha256 and material."""
+
+    SHA = "ab" * 32
+    VALUES = {"ribbon_t": 3, "ribbon_w": 6, "arm": 20.0, "plug": {"w": 13.0, "t": 2.5}, "dir": "xy", "pin": 2.4,
+              "knuckle": 7.4, "count": 5, "hinge_len": 36, "gap": 0.3, "zero": 0, "often": False, "across": True,
+              "pull": "finger_pull", "force": 70}
+
+    def setUp(self):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        self.dir = tmp.name
+
+    def build(self, values=None, scope="merged", parts=None, schema="3dprint-scout.build/1", name="build.json",
+              parameters=True):
+        doc = {"schema": schema, "params": "params.json",
+               "parts": parts if parts is not None else
+               [{"name": "sled", "stl": "out/sled.stl", "sha256": self.SHA, "material": "petg_basic"},
+                {"name": "lid", "stl": "out/lid.stl", "sha256": "cd" * 32, "material": "pla_basic"}]}
+        if parameters:
+            doc["parameters"] = {"scope": scope, "values": self.VALUES if values is None else values}
+        path = os.path.join(self.dir, name)
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(doc, f)                                   # allow_nan: a NaN in a build reaches the check
+        return path
+
+    def ok(self, *argv):
+        code, out = run(*argv)
+        self.assertEqual(code, 0, out["errors"])
+        self.assertEqual(set(out["inputs_from"]), set(out["inputs"]))
+        return out
+
+    def err(self, *argv):
+        code, out = run(*argv)
+        self.assertEqual(code, 1, argv)
+        self.assertFalse(out["ran"])
+        self.assertEqual(len(out["errors"]), 1, out["errors"])
+        self.assertNotIn("inputs_from", out)
+        return out["errors"][0]
+
+    # ------------------------------------------------------------------ linked values
+    def test_linked_inputs_drive_the_calculation(self):
+        b = self.build()
+        linked = self.ok("beam", "--from-build", b, "--part", "sled", "--param", "h=ribbon_t", "--param", "b=ribbon_w",
+                         "--length", "20", "--load", "70", "--orientation", "xy")
+        typed = self.ok("beam", "--h", "3", "--b", "6", "--length", "20", "--load", "70", "--material", "petg_basic",
+                        "--orientation", "xy")
+        self.assertEqual(linked["checks"], typed["checks"])                       # 70 x 20 x 1.5 / 13.5 = 155.56 MPa
+        self.assertAlmostEqual(linked["checks"]["bending"]["stress_mpa"], 155.56, places=2)
+        self.assertEqual(linked["inputs"], typed["inputs"])                       # 3 -> 3.0, as --h 3 gives it
+        self.assertEqual(linked["material"]["key"], "petg_basic")                 # the build's part
+        for key in ("deflection_mm", "moment_nmm", "I_mm4", "gate", "worst", "next_step", "assumptions"):
+            self.assertEqual(linked[key], typed[key], key)
+        # The build's number replaces the command line's: another value in the build gives another stress.
+        b4 = self.build(values=dict(self.VALUES, ribbon_t=4), name="b4.json")
+        four = self.ok("beam", "--from-build", b4, "--part", "sled", "--param", "h=ribbon_t", "--param", "b=ribbon_w",
+                       "--length", "20", "--load", "70", "--orientation", "xy")
+        self.assertAlmostEqual(four["checks"]["bending"]["stress_mpa"], 1400 * 2 / (6 * 64 / 12), places=2)
+        self.assertEqual(four["from_build"]["parameters"]["h"], {"param": "ribbon_t", "value": 4})
+        # A hinge from its build: the SD-card case numbers of the Hinge tests.
+        lid = self.ok("hinge", "--from-build", b, "--part", "lid", "--param", "pin_d=pin", "--param", "knuckle_d=knuckle",
+                      "--param", "knuckles=count", "--param", "length=hinge_len", "--param", "gap=gap",
+                      "--param", "orientation=dir", "--param", "load=pull", "--clearance", "0.3", "--duty", "lid")
+        self.assertAlmostEqual(lid["checks"]["pin_shear"]["sf_achieved"], 2.49, places=2)
+        self.assertAlmostEqual(lid["checks"]["pin_bending"]["sf_achieved"], 3.1, places=2)
+        self.assertEqual(lid["load_N"], 98.0)
+        self.assertEqual(lid["inputs"]["knuckles"], 5)
+        self.assertEqual(lid["inputs_from"]["load"], "param:pull")               # a linked load key is a param, not table
+        self.assertEqual(lid["from_build"]["material"], "pla_basic")
+        # A linked number load is used as a force in N.
+        force = self.ok("beam", "--from-build", b, "--part", "sled", "--param", "load=force", "--h", "3", "--b", "6",
+                        "--length", "20", "--orientation", "xy")
+        self.assertEqual(force["load_N"], 70.0)
+        self.assertEqual(force["checks"], typed["checks"])
+
+    def test_dotted_params(self):
+        b = self.build()
+        out = self.ok("link", "--from-build", b, "--part", "sled", "--param", "b=plug.w", "--param", "h=plug.t",
+                      "--load", "40", "--orientation", "xy")
+        self.assertAlmostEqual(out["checks"]["tension"]["stress_mpa"], round(40 / (13 * 2.5), 2))
+        self.assertEqual(out["inputs_from"]["b"], "param:plug.w")
+        self.assertEqual(out["from_build"]["parameters"]["b"], {"param": "plug.w", "value": 13.0})
+        # A key that has a dot in it is taken as it is before the path (finalize.lookup's rule).
+        b2 = self.build(values={"plug.w": 5, "plug": {"w": 13.0}}, name="dot.json")
+        out = self.ok("link", "--from-build", b2, "--part", "sled", "--param", "b=plug.w", "--h", "2", "--load", "40")
+        self.assertEqual(out["inputs"]["b"], 5.0)
+        self.assertEqual(strength.param_value({"plug": {"w": 13}}, "plug.w"), (True, 13))
+        self.assertEqual(strength.param_value({"plug": {"w": 13}}, "plug.t"), (False, None))
+        self.assertEqual(strength.param_value({"plug": 13}, "plug.w"), (False, None))     # not an object
+        self.assertEqual(strength.param_value({"plug": {"w": 13}}, "plug"), (True, {"w": 13}))
+        # A path to an object is not a number.
+        self.assertIn("takes a finite number", self.err("link", "--from-build", b, "--part", "sled", "--param", "b=plug",
+                                                        "--h", "2", "--load", "40"))
+
+    # ------------------------------------------------------------------ origins
+    def test_inputs_from_every_origin(self):
+        b = self.build()
+        out = self.ok("pin", "--from-build", b, "--part", "sled", "--param", "d=pin", "--engagement", "4",
+                      "--load", "finger_push")
+        self.assertEqual(out["inputs_from"], {"load": "table:finger_push", "material": "build:material",
+                                              "orientation": "default:orientation", "sf": "default:sf",
+                                              "d": "param:pin", "engagement": "manual", "gap": "default:gap",
+                                              "shear": "default:shear", "support": "default:support"})
+        self.assertEqual(out["inputs"]["orientation"], "z")
+        self.assertEqual(out["from_build"], {"build": b, "part": "sled", "sha256": self.SHA, "material": "petg_basic",
+                                             "parameters": {"d": {"param": "pin", "value": 2.4}}})
+        # Without a build: a material key is table:<key> (normalised), a number load and every typed value manual,
+        # even one equal to its default (--sf 2, --gap 0); no from_build.
+        out = self.ok("pin", "--d", "3", "--engagement", "4", "--gap", "0", "--sf", "2", "--load", "70",
+                      "--material", "PLA-Basic", "--orientation", "z")
+        self.assertEqual(out["inputs_from"], {"load": "manual", "material": "table:pla_basic", "orientation": "manual",
+                                              "sf": "manual", "d": "manual", "engagement": "manual", "gap": "manual",
+                                              "shear": "default:shear", "support": "default:support"})
+        self.assertNotIn("from_build", out)
+        out = self.ok("pin", "--d", "3", "--engagement", "4", "--load", " Finger_Pull ", "--material", "abs",
+                      "--shear", "double", "--support", "stub", "--load-across-layers")
+        self.assertEqual(out["inputs_from"]["load"], "table:finger_pull")
+        self.assertEqual((out["inputs_from"]["shear"], out["inputs_from"]["support"]), ("manual", "manual"))
+        self.assertEqual(out["inputs_from"]["load_across_layers"], "manual")
+        # The defaults strength.py fills per case.
+        link = self.ok("link", "--b", "2", "--h", "2", "--load", "10", "--material", "abs")
+        self.assertEqual(link["inputs_from"]["bow"], "default:bow")
+        beam = self.ok("beam", "--b", "2", "--h", "2", "--length", "5", "--load", "10", "--material", "abs")
+        self.assertEqual(beam["inputs_from"]["support"], "default:support")
+        hinge = self.ok("hinge", "--pin-d", "2.4", "--knuckle-d", "7.4", "--knuckles", "5", "--length", "36",
+                        "--load", "finger_pull", "--material", "pla_basic", "--duty", "lid")
+        self.assertEqual({k: hinge["inputs_from"][k] for k in ("gap", "clearance", "hole", "pin", "knuckles", "duty")},
+                         {"gap": "default:gap", "clearance": "default:clearance", "hole": "default:hole",
+                          "pin": "default:pin", "knuckles": "manual", "duty": "manual"})
+        snap = self.ok("snap", "--length", "16", "--h", "1.6", "--b", "6", "--undercut", "0.8", "--material", "pla_basic",
+                       "--friction", "0.2", "--repeated")
+        self.assertEqual({k: snap["inputs_from"][k] for k in ("q", "entry_angle", "retention_angle", "friction", "repeated",
+                                                              "material")},
+                         {"q": "default:q", "entry_angle": "default:entry_angle",
+                          "retention_angle": "default:retention_angle", "friction": "manual", "repeated": "manual",
+                          "material": "table:pla_basic"})
+        self.assertNotIn("load", snap["inputs_from"])
+        # The tables carry no inputs and no origins.
+        for case in ("materials", "loads", "duties"):
+            self.assertNotIn("inputs_from", run(case)[1])
+
+    def test_linked_flags_and_choices(self):
+        b = self.build()
+        # A linked flag that is false stays in the inputs, so its origin is recorded; true acts as the option.
+        snap = self.ok("snap", "--from-build", b, "--part", "lid", "--param", "repeated=often", "--length", "16",
+                       "--h", "1.6", "--b", "6", "--undercut", "0.8")
+        self.assertEqual((snap["inputs"]["repeated"], snap["inputs_from"]["repeated"]), (False, "param:often"))
+        self.assertEqual(snap["snap"]["limit"], 0.01)
+        pin = self.ok("pin", "--from-build", b, "--part", "sled", "--param", "load_across_layers=across",
+                      "--param", "orientation=dir", "--d", "4", "--engagement", "3", "--shear", "double", "--support", "stub",
+                      "--load", "100")
+        self.assertAlmostEqual(pin["checks"]["shear"]["strength_mpa"], 0.58 * 35, places=2)   # Z, as --load-across-layers
+        self.assertEqual(pin["inputs_from"]["load_across_layers"], "param:across")
+        self.assertFalse(any("conservative default" in a for a in pin["assumptions"]))          # orientation linked
+        # A support linked by name, checked against the case's own choices.
+        sup = self.build(values={"s": "simple"}, name="sup.json")
+        beam = self.ok("beam", "--from-build", sup, "--part", "sled", "--param", "support=s", "--b", "6", "--h", "3",
+                       "--length", "20", "--load", "60", "--orientation", "xy")
+        self.assertAlmostEqual(beam["checks"]["bending"]["stress_mpa"], 133.33 / 4, places=2)
+        self.assertIn("takes one of through, stub", self.err("pin", "--from-build", sup, "--part", "sled", "--param",
+                                                             "support=s", "--d", "3", "--engagement", "4", "--load", "10"))
+
+    def test_input_kinds_cover_every_input(self):
+        every = set().union(*(strength.linkable_inputs(c) for c in strength.CASE_INPUTS))
+        self.assertEqual(set(strength.INPUT_KIND), every)
+        self.assertNotIn("material", every)
+        self.assertNotIn("load", strength.linkable_inputs("snap"))
+        self.assertEqual(set(strength.CHOICES["duty"]), set(strength.DUTIES))
+
+    # ------------------------------------------------------------------ errors
+    def test_build_and_part_errors(self):
+        b = self.build()
+        beam = ["--b", "6", "--h", "3", "--length", "20", "--load", "70"]
+        self.assertIn("no such file", self.err("beam", "--from-build", os.path.join(self.dir, "nope.json"), "--part", "sled", *beam))
+        wrong = self.build(schema="3dprint-scout.fit/1", name="fit.json")
+        self.assertIn("not a build.py report (schema 3dprint-scout.build/1", self.err("beam", "--from-build", wrong, "--part", "sled", *beam))
+        for text, name in (("[1, 2]", "list.json"), ("{not json", "broken.json")):
+            path = os.path.join(self.dir, name)
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(text)
+            self.assertIn(f"--from-build {path}", self.err("beam", "--from-build", path, "--part", "sled", *beam))
+        self.assertIn("part 'bracket' is not in", self.err("beam", "--from-build", b, "--part", "bracket", *beam))
+        self.assertIn("its parts: sled, lid", self.err("beam", "--from-build", b, "--part", "bracket", *beam))
+        for part in ({"name": "sled", "material": "pla_basic"}, {"name": "sled", "sha256": None, "material": "pla_basic"}):
+            nosha = self.build(parts=[part], name="nosha.json")
+            self.assertIn("part 'sled' in", self.err("beam", "--from-build", nosha, "--part", "sled", *beam))
+            self.assertIn("has no sha256", self.err("beam", "--from-build", nosha, "--part", "sled", *beam))
+        for part in ({"name": "sled", "sha256": self.SHA, "material": None}, {"name": "sled", "sha256": self.SHA}):
+            nomat = self.build(parts=[part], name="nomat.json")
+            self.assertEqual(self.err("beam", "--from-build", nomat, "--part", "sled", *beam),
+                             "no material recorded for sled: set _material or _parts.sled.material and build again")
+        odd = self.build(parts=[{"name": "sled", "sha256": self.SHA, "material": "PLA Basic"}], name="odd.json")
+        self.assertIn("not a strength.py material key", self.err("beam", "--from-build", odd, "--part", "sled", *beam))
+        self.assertIn("--material does not go with --from-build",
+                      self.err("beam", "--from-build", b, "--part", "sled", "--material", "petg_basic", *beam))
+        self.assertIn("--from-build needs --part", self.err("beam", "--from-build", b, *beam))
+        self.assertIn("need --from-build", self.err("beam", "--part", "sled", "--material", "abs", *beam))
+        self.assertIn("need --from-build", self.err("beam", "--param", "h=ribbon_t", "--material", "abs", "--b", "6",
+                                                    "--length", "20", "--load", "70"))
+        self.assertIn("not to materials", self.err("materials", "--from-build", b, "--part", "sled"))
+        # A build with no parameters still gives the part and its material; linking needs the parameters.
+        old = self.build(parameters=False, name="old.json")
+        out = self.ok("beam", "--from-build", old, "--part", "sled", *beam)
+        self.assertEqual(out["from_build"]["parameters"], {})
+        self.assertIn("records no parameters", self.err("beam", "--from-build", old, "--part", "sled", "--param",
+                                                        "h=ribbon_t", "--b", "6", "--length", "20", "--load", "70"))
+
+    def test_link_errors(self):
+        b = self.build()
+        base = ["--from-build", b, "--part", "sled", "--length", "20", "--load", "70"]
+        self.assertIn("h is given twice, as --h and as --param h=ribbon_t",
+                      self.err("beam", *base, "--h", "3", "--param", "h=ribbon_t", "--b", "6"))
+        self.assertIn("load is given twice", self.err("beam", *base, "--param", "load=force", "--h", "3", "--b", "6"))
+        self.assertIn("h is linked twice", self.err("beam", *base, "--param", "h=ribbon_t", "--param", "h=arm", "--b", "6"))
+        for bad, word in (("foo=ribbon_t", "'foo' is not an input of the beam case"),
+                          ("pin_d=pin", "'pin_d' is not an input of the beam case"),
+                          ("gap=gap", "'gap' is not an input of the beam case"),
+                          ("pin-d=pin", "is not an input"),
+                          ("material=dir", "the material is not a parameter"),
+                          ("h", "--param takes INPUT=PARAM"), ("h=", "--param takes INPUT=PARAM"),
+                          ("=ribbon_t", "--param takes INPUT=PARAM")):
+            self.assertIn(word, self.err("beam", *base, "--param", bad, "--b", "6"), bad)
+        self.assertIn("'load' is not an input of the snap case",
+                      self.err("snap", "--from-build", b, "--part", "sled", "--param", "load=force", "--length", "16",
+                               "--h", "1.6", "--b", "6", "--undercut", "0.8"))
+        # A parameter the build does not have: merged lists what it has, overrides says the default is not recorded.
+        msg = self.err("beam", *base, "--param", "h=ribbon_h", "--b", "6")
+        self.assertIn("'ribbon_h' is not in the build's parameters (scope merged", msg)
+        self.assertIn("plug.w", msg)
+        self.assertNotIn("put it in params.json", msg)
+        over = self.build(scope="overrides", values={"ribbon_w": 6}, name="over.json")
+        msg = self.err("beam", "--from-build", over, "--part", "sled", "--param", "h=ribbon_t", "--param", "b=ribbon_w",
+                       "--length", "20", "--load", "70")
+        self.assertIn("default is not recorded", msg)
+        self.assertIn("put it in params.json", msg)
+        self.assertIn("plug.x", self.err("beam", *base, "--param", "h=plug.x", "--b", "6"))
+        self.assertIn("scope overrides", msg)
+
+    def test_value_errors(self):
+        def value(case, inp, raw, *argv):
+            b = self.build(values={"v": raw}, name="v.json")
+            return run(case, "--from-build", b, "--part", "sled", "--param", f"{inp}=v", *argv)
+
+        beam = ["--b", "6", "--length", "20", "--load", "70"]
+        for raw, word in ((float("nan"), "a finite number"), (float("inf"), "a finite number"),
+                          (float("-inf"), "a finite number"), (True, "a finite number"), (False, "a finite number"),
+                          ("3", "a finite number"), (None, "a finite number"), ([3], "a finite number"),
+                          (0, "a positive number (mm)"), (0.0, "a positive number (mm)"), (-3, "a positive number (mm)")):
+            code, out = value("beam", "h", raw, *beam)
+            self.assertEqual(code, 1, raw)
+            self.assertIn(f"--param h=v: the build has v = {json.dumps(raw)}; h takes {word}", out["errors"][0])
+        # Zero where the option allows it: a pin's gap, a link's bow, a hinge's clearance, a snap's friction.
+        pin = ["--d", "3", "--engagement", "4", "--load", "10"]
+        for case, inp, argv in (("pin", "gap", pin), ("link", "bow", ["--b", "2", "--h", "2", "--load", "10"]),
+                                ("hinge", "clearance", ["--pin-d", "2.4", "--knuckle-d", "7.4", "--knuckles", "5",
+                                                        "--length", "36", "--load", "10"]),
+                                ("snap", "friction", ["--length", "16", "--h", "1.6", "--b", "6", "--undercut", "0.8"])):
+            code, out = value(case, inp, 0, *argv)
+            self.assertEqual(code, 0, (case, out["errors"]))
+            self.assertEqual((out["inputs"][inp], out["inputs_from"][inp]), (0.0, "param:v"))
+            code, out = value(case, inp, -0.1, *argv)
+            self.assertIn(f"{inp} takes zero or a positive number", out["errors"][0])
+            code, out = value(case, inp, True, *argv)
+            self.assertIn(f"{inp} takes a finite number", out["errors"][0])
+        # Other positive inputs: an angle, q, sf.
+        snap = ["--length", "16", "--h", "1.6", "--b", "6", "--undercut", "0.8"]
+        for inp in ("q", "entry_angle", "retention_angle", "undercut"):
+            argv = [a for i, a in enumerate(snap) if not (a == f"--{inp}" or (i and snap[i - 1] == f"--{inp}"))]
+            code, out = value("snap", inp, 0, *argv)
+            self.assertIn(f"{inp} takes a positive number", out["errors"][0], inp)
+        code, out = value("beam", "sf", 3, "--h", "3", *beam)
+        self.assertEqual((code, out["checks"]["bending"]["sf_required"]), (0, 3.0))
+        code, out = value("beam", "sf", 0.5, "--h", "3", *beam)
+        self.assertIn("--sf must be a number of at least 1.0", out["errors"][0])     # the option's own rule still applies
+        # knuckles: a JSON integer.
+        hinge = ["--pin-d", "2.4", "--knuckle-d", "7.4", "--length", "36", "--load", "10"]
+        for raw in (4.5, 5.0, "5", True, None):
+            code, out = value("hinge", "knuckles", raw, *hinge)
+            self.assertEqual(code, 1, raw)
+            self.assertIn("knuckles takes a whole number (a JSON integer)", out["errors"][0])
+        code, out = value("hinge", "knuckles", 1, *hinge)
+        self.assertIn("--knuckles must be a whole number of at least 2", out["errors"][0])
+        # Choices: strength.py's own.
+        for case, inp, raw, argv in (("beam", "orientation", "XY", ["--h", "3", *beam]),
+                                     ("beam", "orientation", "yz", ["--h", "3", *beam]),
+                                     ("pin", "shear", "triple", pin), ("pin", "support", "cantilever", pin),
+                                     ("beam", "support", "stub", ["--h", "3", *beam]),
+                                     ("hinge", "hole", 3, ["--knuckles", "5", *hinge]),
+                                     ("hinge", "pin", "glued", ["--knuckles", "5", *hinge]),
+                                     ("hinge", "duty", "lever", ["--knuckles", "5", *hinge]),
+                                     ("hinge", "duty", None, ["--knuckles", "5", *hinge])):
+            code, out = value(case, inp, raw, *argv)
+            self.assertEqual(code, 1, (inp, raw))
+            self.assertIn(f"{inp} takes one of", out["errors"][0])
+        code, out = value("hinge", "duty", "latch", "--knuckles", "5", *hinge)
+        self.assertEqual((code, out["minimums"]["duty"]), (0, "latch"))
+        # Flags take true or false; a load a positive force or a hand-force key.
+        for raw in (1, "true", None):
+            code, out = value("pin", "load_across_layers", raw, *pin)
+            self.assertIn("load_across_layers takes true or false", out["errors"][0])
+        pin_noload = ["--d", "3", "--engagement", "4"]
+        for raw in (0, -5, float("nan"), True, "thumb", None):
+            code, out = value("pin", "load", raw, *pin_noload)
+            self.assertEqual(code, 1, raw)
+            self.assertIn("load takes a positive force in N or one of finger_push", out["errors"][0])
+        code, out = value("pin", "load", "Grasp", *pin_noload)
+        self.assertEqual((code, out["load_N"]), (0, strength.LOADS["grasp"]["design_N"]))
+        # An integer too large for a float (valid JSON) is refused as JSON, not a traceback (Codex, PR #21).
+        for case, inp, argv, word in (("beam", "h", beam, "h takes a finite number"),
+                                      ("hinge", "knuckles", hinge, "knuckles takes a whole number"),
+                                      ("pin", "load", pin_noload, "load takes a positive force")):
+            code, out = value(case, inp, 10 ** 400, *argv)
+            self.assertEqual(code, 1, inp)
+            self.assertIn(word, out["errors"][0])
+            self.assertIn("the build has v = 1000000", out["errors"][0])       # shown cut short
+
+    def test_build_path_as_given(self):
+        self.build()
+        here = os.getcwd()
+        os.chdir(self.dir)
+        try:
+            out = self.ok("bearing", "--from-build", "build.json", "--part", "lid", "--d", "3", "--t", "5", "--edge", "2",
+                          "--load", "30")
+        finally:
+            os.chdir(here)
+        self.assertEqual(out["from_build"]["build"], "build.json")
+        self.assertEqual(out["from_build"]["sha256"], "cd" * 32)
+        self.assertEqual(out["inputs"]["material"], "pla_basic")
+        self.assertEqual(out["inputs_from"]["material"], "build:material")
 
 
 if __name__ == "__main__":

@@ -53,8 +53,15 @@ proxy names the dims it is built from and, as proxy_build, the saved JSON of the
 `build.py run --proxy` that made it from its own params file; the numbers in that file must be
 exactly the ones the dims declare. An empty list says the design has no joint. strength: strength.py reports
 (saved JSON), their gate must PASS (a WARN the user accepted as "member <name>" counts as
-accepted); their inputs are numbers from the dimension table, not read
-from the model, so the report says to keep them equal. test_prints: coupons and mechanism-first
+accepted). A report made with `strength.py --from-build out/build.json --part NAME --param
+INPUT=PARAM` (from_build, inputs_from) stands while NAME is a part of this build with the
+sha256 it read, every parameter it took has the same value in this build's `parameters`
+(a dotted path for a nested one), and its material is the part's material now; otherwise it is
+stale, by name ("h was ribbon_t = 4.5, now 5.0"), and the geometry is not verified. An input
+typed on the command line (origin `manual`; every input of a report made without --from-build)
+is a number from the dimension table, not read from the model, so the report says to keep them
+equal. The build records each part's material: one that differs from params.json now is open
+("<part>: material changed since the build"). test_prints: coupons and mechanism-first
 prints (status passed, failed, skipped, offered or pending). accepted: WARNs the user accepted,
 named "<part> <check>" or "object <name> <check>", with their reason; any other WARN is open
 ("<part> D1" also accepts a D1 whose expect was copied from the model, when no intended size
@@ -73,8 +80,10 @@ failed, and image_sha256, the digest they looked at); it stands while the image 
 its sidecar says so, and every STL the sidecar lists is a part of this build now; only the
 user's judgement verifies. A test print that lists promises stands for them when it printed the
 parts as they are now (parts: name -> sha256, material), in each part's material (_material,
-_parts.<name>.material: strength.py keys), on the build's printer, as built, under the delivered
-preset (_print.preset; none recorded leaves it assumed), by the user. measurements:
+_parts.<name>.material: strength.py keys) unchanged since the build, on the build's printer, as
+built, under the delivered preset (_print.preset, and with --deliver the process preset of the
+Bambu project the part is in; none recorded leaves it assumed), by the user. A member is
+evidence of a use only from a --from-build report with nothing typed in. measurements:
 saved `measure.py ... --expect` reports, each fresh while the file it read is unchanged (its
 sha256), passed when every expectation passed (finalize runs the report's command again on the
 file and reads each value itself); as evidence it must have read a part of this
@@ -88,8 +97,9 @@ dims its evidence names (and on its own `assumes`); a proxy joint that names non
 proxy_build, or built from numbers its dims do not declare, rests on undeclared sizes. Each promise gets one state: error (declared wrongly),
 failed (its evidence failed, whatever else), excluded (the user took it unverified), not
 verified (no evidence, stale evidence, evidence on a part whose checks FAIL, a proxy built from
-other values, a member's inputs typed in), assumed (it passed on an unmeasured size),
-accepted (it passed with a WARN the user accepted) or verified.
+other values, a member's inputs typed in, a material changed since the build or another in the
+delivered print file), assumed (it passed on an unmeasured size, or on a print file whose
+material cannot be read), accepted (it passed with a WARN the user accepted) or verified.
 
 The report has five tiers and never folds them into one PASS:
   use       the worst state of its promises (error, failed, not verified, excluded, assumed,
@@ -105,7 +115,14 @@ unverified dimension and assumption, in plain lines for the delivery message.
 --deliver DIR checks the delivery folder: every STL in it must be one of the verified STLs,
 every 3MF must carry a manifest (`<file>.3mf.manifest.json`, written by build.py and bambu3mf.py
 next to the 3MF; copy it along) that lists exactly the verified STLs, and every part must be
-delivered in one or the other; a malformed manifest is a reason, not an error. --bundle DIR
+delivered in one or the other; a malformed manifest is a reason, not an error. A Bambu
+project's manifest (bambu3mf.py) also names each part's filament and the process preset: a
+filament of another material than the part's leaves the part's material-dependent evidence (a
+--from-build member of it, a test print of it) not verified, one finalize cannot name
+(strength.material_of_filament) leaves it assumed, as does a part in no Bambu project (another
+slicer: the print file's material is not checked); a process preset other than _print.preset
+keeps test prints of its parts from verifying, and without _print.preset it is the delivered
+preset they are compared with; a project that names no process preset leaves them assumed. These are open lines, not geometry reasons. --bundle DIR
 writes a new folder with the generator sources (not the skill's own libraries) at their places
 relative to the folder the build ran in (lib/helper.py stays lib/helper.py, so imports, includes
 and loaded files still resolve), params.json, the printers.json the build used, this report and
@@ -619,10 +636,68 @@ def measured_parts(rparts, by_sha):
     return names
 
 
-def check_strength(verify, taken=frozenset()):
-    """Every declared member's strength.py report; `result` as for joints (missing, failed, open,
-    accepted: a WARN gate the user accepted as "member <name>", passed) and `manual`: its inputs
-    were typed in, not taken from the build."""
+def effective_material(params, specs, name):
+    """A part's material as params.json declares it now: _parts.<name>.material, else _material."""
+    return (specs.get(name) or {}).get("material") or params.get("_material")
+
+
+LINKED_ORIGINS = ("param:", "table:", "default:", "build:")    # strength.py inputs_from that nobody typed in
+
+
+def strength_link(rep, inputs, parts, build, params, specs):
+    """How a strength.py report is tied to this build. A report written with --from-build names
+    the part, its sha256 and material in the build it read, and each input it took from that
+    build's parameters (from_build), and says where every input came from (inputs_from). It
+    stands while the part is the same STL now, every parameter it took has the same value in
+    this build's parameters, and the material is the part's material now. Returns
+    {linked, manual: the inputs typed in (every input of a report not made with --from-build),
+    part, parameters: {input: param}, stale: why it does not stand}."""
+    fb, origins = rep.get("from_build"), rep.get("inputs_from")
+    if not isinstance(fb, dict) or not isinstance(origins, dict):
+        return {"linked": False, "manual": list(inputs)}
+    manual = [k for k in inputs if not (isinstance(origins.get(k), str) and origins[k].startswith(LINKED_ORIGINS))]
+    part, sha, mat, links = fb.get("part"), fb.get("sha256"), fb.get("material"), fb.get("parameters")
+    if not (isinstance(part, str) and part and isinstance(sha, str) and isinstance(links, dict)
+            and all(isinstance(v, dict) and isinstance(v.get("param"), str) and "value" in v for v in links.values())):
+        return {"linked": True, "manual": manual, "stale": ["its from_build is not a strength.py --from-build record"]}
+    out = {"linked": True, "manual": manual, "part": part, "parameters": {k: v["param"] for k, v in links.items()}}
+    stale = []
+    current = next((p for p in parts if p.get("name") == part), None)
+    if current is None:
+        stale.append(f"calculated for {part}, which is not a part of this build")
+    elif current.get("sha256") != sha:
+        stale.append(f"calculated for an earlier {part}")
+    tied = {k for k, o in origins.items() if isinstance(o, str) and o.startswith("param:")}
+    loose = sorted(k for k in tied | set(links) if k not in links or k not in inputs
+                   or origins.get(k) != f"param:{links[k]['param']}" or not same_value(inputs[k], links[k]["value"]))
+    if loose:
+        stale.append(f"its inputs_from and from_build do not agree on {', '.join(loose)}")
+    bp = build.get("parameters")
+    values = bp.get("values") if isinstance(bp, dict) else None
+    if links and not isinstance(values, dict):
+        stale.append("the build JSON records no parameters to compare with (built before 0.7.0): build again")
+    for k, link in links.items() if isinstance(values, dict) else ():
+        found, now = lookup(values, link["param"])
+        if not found:
+            stale.append(f"{link['param']} is not in the build's parameters")
+        elif not same_value(now, link["value"]):
+            stale.append(f"{k} was {link['param']} = {json.dumps(link['value'])}, now {json.dumps(now)}")
+    rep_mat = rep.get("material").get("key") if isinstance(rep.get("material"), dict) else mat
+    eff = effective_material(params, specs, part)
+    if rep_mat != mat:
+        stale.append(f"it was calculated in {rep_mat}, not in the material its build recorded ({mat})")
+    elif mat != eff:
+        stale.append(f"calculated in {mat}, " + (f"{part} is {eff} now" if eff else f"no material is declared for {part} now"))
+    if stale:
+        out["stale"] = stale
+    return out
+
+
+def check_strength(verify, taken=frozenset(), parts=(), build=None, params=None, specs=None):
+    """Every declared member's strength.py report; `result` as for joints (missing, stale: a
+    --from-build report that no longer matches this build (strength_link), failed, open,
+    accepted: a WARN gate the user accepted as "member <name>", passed), `linked` (made with
+    --from-build) and `manual`: the inputs typed in, not taken from the build."""
     if "strength" not in verify:
         return [], ["members not declared (_verify.strength): P7 is not counted; list each member's strength.py "
                     "report, or [] when nothing carries load"], []
@@ -637,17 +712,28 @@ def check_strength(verify, taken=frozenset()):
             rep = load_json(report, "strength report")
             if not isinstance(rep, dict) or rep.get("schema") != "3dprint-scout.strength/1":
                 raise FinalizeError(f"{report}: not a strength.py report")
-            entry.update(gate=rep.get("gate"), case=rep.get("case"), worst=rep.get("worst"), inputs=rep.get("inputs"),
-                         manual=True)
+            inputs = rep.get("inputs") if isinstance(rep.get("inputs"), dict) else {}
+            entry.update(gate=rep.get("gate"), case=rep.get("case"), worst=rep.get("worst"), inputs=rep.get("inputs"))
+            entry.update(strength_link(rep, inputs, parts, build or {}, params or {}, specs or {}))
             entry["result"] = {"PASS": "passed", "FAIL": "failed"}.get(rep.get("gate"), "open")
+            if entry.get("stale"):
+                entry["result"] = "stale"             # a FAIL of an earlier part says nothing of this one
+                reasons.append(f"member '{name}': {'; '.join(entry['stale'])}: run strength.py --from-build again")
             if rep.get("gate") == "WARN" and norm(f"member {name}") in taken:
-                entry["result"], entry["accepted"] = "accepted", ["WARN"]
+                if not entry.get("stale"):
+                    entry["result"] = "accepted"
+                entry["accepted"] = ["WARN"]
             elif rep.get("gate") != "PASS":
                 reasons.append(f"member '{name}': strength.py {rep.get('case')} {rep.get('gate')} (worst: "
                                f"{rep.get('worst')})")
-            notes.append(f"member '{name}': strength.py took its sizes from the numbers it was given "
-                         f"({json.dumps(rep.get('inputs'), separators=(',', ':'))}), not from the model: they must "
-                         "be the dimension table's")
+            if not entry["linked"]:
+                notes.append(f"member '{name}': strength.py took its sizes from the numbers it was given "
+                             f"({json.dumps(rep.get('inputs'), separators=(',', ':'))}), not from the model: they must "
+                             "be the dimension table's")
+            elif entry["manual"]:
+                notes.append(f"member '{name}': " + ", ".join(f"{k} = {json.dumps(inputs[k])}" for k in entry["manual"])
+                             + f" {'was' if len(entry['manual']) == 1 else 'were'} typed in, not taken from the build's "
+                             "parameters (strength.py --param): they must be the dimension table's")
         entries.append(entry)
     return entries, reasons, notes
 
@@ -940,18 +1026,23 @@ def current_printer(settings):
         return None
 
 
-def check_print_evidence(verify, parts, params, specs, printer_id):
+def check_print_evidence(verify, parts, params, specs, printer_id, material_evidence=None, delivered_presets=None):
     """The test prints that list promises, as their evidence: {name: info}, declaration errors.
     A print stands for a promise only when it printed the parts as they are now (each part's
     sha256), in each part's material (_parts.<name>.material, else _material; strength.py keys),
-    on the build's printer, as built (orientation), under the delivered preset (_print.preset;
-    none recorded leaves it assumed), reported by the user. A 0.6 entry (no promises) is left to
-    the print tier."""
+    on the build's printer, as built (orientation), under the delivered preset, reported by the
+    user. The delivered preset is _print.preset and, with --deliver, the process preset of each
+    Bambu project a printed part is delivered in (delivered_presets: {part: [(file, preset)]});
+    with neither, the print is assumed. material_evidence ({part: {notver, assumed}}) adds what
+    is known of each printed part's material since the build and in the delivered print file.
+    A 0.6 entry (no promises) is left to the print tier."""
     import strength
     mats = sorted(strength.MATERIALS)
     by_name = {p.get("name"): p.get("sha256") for p in parts}
     pr_cfg = params.get("_print")
     preset = pr_cfg.get("preset") if isinstance(pr_cfg, dict) else None
+    preset = preset if isinstance(preset, str) and preset.strip() else None
+    material_evidence, delivered_presets = material_evidence or {}, delivered_presets or {}
     out, errors = {}, []
     for t in verify.get("test_prints") or []:
         name = t.get("name")
@@ -983,21 +1074,30 @@ def check_print_evidence(verify, parts, params, specs, printer_id):
         if t["by"] != "user":
             notver.append("only the user prints: by must be \"user\"")
         for n, v in pp.items():
-            eff = (specs.get(n) or {}).get("material") or params.get("_material")
+            eff = effective_material(params, specs, n)
             if eff is None:
                 notver.append(f"no material is declared for {n} (_material, or _parts.{n}.material)")
             elif eff != v["material"]:
                 notver.append(f"{n} was printed in {v['material']}, the part is {eff}")
+            for key, into in (("notver", notver), ("assumed", assumed)):
+                into += [r for r in (material_evidence.get(n) or {}).get(key, []) if r not in into]
         if printer_id is None:
             notver.append("the build names no printer to compare with")
         elif t["printer"] != printer_id:
             notver.append(f"printed on {t['printer']}, the build is for {printer_id}")
         if t["orientation"] != "as built":
             notver.append(f"printed {t['orientation']}, not as built")
-        if not isinstance(preset, str) or not preset.strip():
+        targets = [preset] if preset else []
+        for n in pp:
+            targets += [p for _f, p in delivered_presets.get(n, []) if p is not None and p not in targets]
+        if not targets or (not preset and any(n not in delivered_presets for n in pp)):
             assumed.append("the delivered preset is not recorded (_print.preset)")
-        elif t.get("preset") != preset:
-            notver.append(f"printed with preset {json.dumps(t.get('preset'))}, the delivery uses {json.dumps(preset)}")
+        unnamed = sorted({rel(f) for n in pp for f, p in delivered_presets.get(n, []) if p is None})
+        if unnamed:                                        # the project's own preset is unknown: _print.preset alone is no proof
+            assumed.append(f"the delivered project names no process preset ({', '.join(unnamed)})")
+        for p in targets:
+            if t.get("preset") != p:
+                notver.append(f"printed with preset {json.dumps(t.get('preset'))}, the delivery uses {json.dumps(p)}")
         info.update(state="stale" if stale else "fresh", notver=notver, assumed=assumed)
     return out, errors
 
@@ -1017,6 +1117,25 @@ def check_material_contract(params, specs):
                                    and ("preset" not in params["_print"] or text_field(params["_print"], "preset"))):
         errors.append("_print must be an object whose preset is the slicer's process preset name")
     return errors
+
+
+def check_material_drift(build, params, specs):
+    """Each part's material as the build recorded it (parts[].material) against params.json now.
+    A material is not an engine parameter, so changing it leaves the STLs fresh; but what was
+    calculated or printed for the recorded material is not evidence for another. A build JSON
+    from before 0.7.0 records none, and nothing is said. Returns (open lines, {part: {notver,
+    assumed}})."""
+    lines, evidence = [], {}
+    for p in build.get("parts") or []:
+        if not isinstance(p, dict) or "material" not in p:
+            continue
+        name, was = p.get("name"), p["material"]
+        now = effective_material(params, specs, name)
+        if was != now:
+            line = f"{name}: material changed since the build ({was or 'none'} -> {now or 'none'})"
+            lines.append(line)
+            evidence[name] = {"notver": [line], "assumed": []}
+    return lines, evidence
 
 
 def check_measurements(verify, parts):
@@ -1134,11 +1253,14 @@ def promise_state(errs, failed, notver, excluded, assumed, accepted):
     return "verified"
 
 
-def check_promises(verify, params, joints, strength, parts, measurements=(), seen=(), prints=None):
+def check_promises(verify, params, joints, strength, parts, measurements=(), seen=(), prints=None,
+                   material_evidence=None):
     """The use tier: each promise made to the user, judged by its own evidence. A promise is
     verified only when it says under which conditions it holds and what counts as success, its
     evidence is of a kind allowed for it, of the current parts and passed, and nothing it rests
-    on is an unmeasured size. Returns a dict with tier, promises, counts, dims, errors, open."""
+    on is an unmeasured size. A member verifies only from a --from-build report with no input
+    typed in, of a part whose own checks pass, whose material (material_evidence: {part:
+    {notver, assumed}}) holds. Returns a dict with tier, promises, counts, dims, errors, open."""
     dims, errors = check_dims(verify, params, measurements)
     prints = prints or {}
     out = {"tier": "not declared", "promises": [], "counts": {}, "dims": list(dims.values()), "errors": errors,
@@ -1280,6 +1402,7 @@ def check_promises(verify, params, joints, strength, parts, measurements=(), see
                 notver.append(f"{what}: no report" + (f" ({entry['note']})" if entry.get("note") else ""))
             elif res == "stale":
                 notver.append(f"{what}: the file it measured has changed since, or is gone" if k == "measurement" else
+                              f"{what}: {'; '.join(entry.get('stale') or [])}" if k == "strength" else
                               f"{what}: its fit report is not of the current parts")
             elif res == "failed":
                 failed.append(f"{what} failed" + (": " + "; ".join(
@@ -1290,8 +1413,6 @@ def check_promises(verify, params, joints, strength, parts, measurements=(), see
                               f"{what}: strength.py gate {entry.get('gate')}")
             elif res == "accepted":
                 acc.append(f"{what}: passed apart from WARNs the user accepted ({', '.join(entry['accepted'])})")
-                if k == "strength" and entry.get("manual"):
-                    notver.append(f"{what}: its inputs were typed in, not taken from the build's parameters")
             if k == "joint":
                 bad = [n for n in entry.get("measured") or [] if gate.get(n) == "FAIL"]
                 if bad:
@@ -1328,8 +1449,18 @@ def check_promises(verify, params, joints, strength, parts, measurements=(), see
                 bad = [n for n in entry.get("measured") or [] if gate.get(n) == "FAIL"]
                 if bad:
                     notver.append(f"{what} read {', '.join(bad)}, whose own checks FAIL")
-            elif res == "passed" and entry.get("manual"):
-                notver.append(f"{what}: its inputs were typed in, not taken from the build's parameters")
+            elif k == "strength" and res in ("passed", "accepted"):
+                manual = entry.get("manual") or []
+                if not entry.get("linked"):
+                    notver.append(f"{what}: its inputs were typed in, not taken from the build's parameters")
+                elif manual:
+                    notver.append(f"{what}: {', '.join(manual)} {'was' if len(manual) == 1 else 'were'} typed in, not "
+                                  "taken from the build's parameters")
+                if entry.get("linked") and gate.get(entry.get("part")) == "FAIL":
+                    notver.append(f"{what} is calculated for {entry['part']}, whose own checks FAIL")
+                for key, into in (("notver", notver), ("assumed", assumed)):
+                    into += [f"{what}: {r}" for r in ((material_evidence or {}).get(entry.get("part")) or {}).get(key, [])
+                             if entry.get("linked") and f"{what}: {r}" not in into]
             jd = raw.get("dims")
             if isinstance(jd, list):
                 rests += [(d, what) for d in jd if isinstance(d, str)]
@@ -1442,10 +1573,12 @@ def threemf_manifests(folders):
 
 
 def check_delivered(deliver, parts, build):
-    """Every STL and 3MF in the delivery folder against the verified STLs."""
-    entries, reasons = [], []
+    """Every STL and 3MF in the delivery folder against the verified STLs. Returns (entries,
+    reasons, projects): projects are (3MF path, its entry, its manifest) for every delivered 3MF
+    with a sound manifest, for check_delivered_print."""
+    entries, reasons, projects = [], [], []
     if not os.path.isdir(deliver):
-        return [], [f"delivery folder {rel(deliver)} not found"]
+        return [], [f"delivery folder {rel(deliver)} not found"], []
     by_sha = {}
     for p in parts:
         if p.get("sha256"):
@@ -1489,11 +1622,81 @@ def check_delivered(deliver, parts, build):
                                    f"({', '.join(stale)}): write it again from the verified STLs")
                 else:
                     covered.update(n if n in by_sha[s] else by_sha[s][0] for n, s in m["parts"].items())
+                projects.append((path, entry, m))
             entries.append(entry)
     for p in parts:
         if p.get("sha256") and p["name"] not in covered:
             reasons.append(f"{p['name']}: not in the delivery ({rel(deliver)}) as an STL or in a 3MF")
-    return entries, reasons
+    return entries, reasons, projects
+
+
+NO_PROJECT = "the print file's material is not checked (no Bambu project)"
+
+
+def check_delivered_print(projects, part_names, params, specs):
+    """The slicer settings a delivered Bambu project carries (its manifest's `filaments` and
+    `process`, written by bambu3mf.py) against what params.json declares. Each part's filament
+    (strength.material_of_filament of its settings name) must be the part's material: another
+    material leaves the part's material-dependent evidence (a --from-build strength report, a
+    test print of it) not verified, a filament finalize cannot name leaves it assumed, and so
+    does a part in no Bambu project (another slicer: its filament cannot be read). A project's
+    process preset must be _print.preset when one is declared; without one it is the delivered
+    preset test prints are compared with. Returns (open lines, {part: {notver, assumed}},
+    {part: [(file, preset)]})."""
+    import strength
+    lines, evidence, presets = [], {}, {}
+    declared = (params.get("_print") or {}).get("preset") if isinstance(params.get("_print"), dict) else None
+    checked = set()
+    for path, entry, m in projects:
+        fil, proc = m.get("filaments"), m.get("process")
+        if isinstance(fil, dict):                          # a core 3MF (build.py) has no slicer settings
+            entry["filaments"] = {}
+        for n in sorted(set(entry.get("parts") or []) | set(fil)) if isinstance(fil, dict) else ():
+            if n not in part_names:
+                continue
+            checked.add(n)
+            f = fil.get(n) if isinstance(fil.get(n), dict) else {}
+            settings = f.get("settings") if isinstance(f.get("settings"), str) else None
+            key, eff = strength.material_of_filament(settings), effective_material(params, specs, n)
+            entry["filaments"][n] = {"slot": f.get("slot"), "settings": settings, "material": key}
+            ev = evidence.setdefault(n, {"notver": [], "assumed": []})
+            if key is None:
+                why = (f"{json.dumps(settings)} is not a filament of a known material" if settings else
+                       "the project names no filament for its slot")
+                lines.append(f"{rel(path)}: the slicer's filament for {n} is not checked ({why}); set it to "
+                             f"{eff or 'the part material'} in the slicer")
+                ev["assumed"].append(f"the slicer's filament for {n} is not checked")
+            elif eff is None:
+                lines.append(f"{rel(path)}: {n} is printed in {settings} ({key}), and no material is declared for {n} "
+                             f"(_material, or _parts.{n}.material) to compare it with")
+                ev["notver"].append(f"no material is declared for {n} to compare the print file's filament with")
+            elif key != eff:
+                lines.append(f"{rel(path)}: {n} is printed in {settings} ({key}), the part is {eff}: choose the "
+                             "filament of its material in the project, or change the part's material and build again")
+                ev["notver"].append(f"the print file prints {n} in {key}, the part is {eff}")
+        p = proc.get("settings") if isinstance(proc, dict) else None
+        if isinstance(p, str) and p.strip():
+            entry["preset"] = p
+            for n in entry.get("parts") or []:
+                presets.setdefault(n, []).append((path, p))
+            if isinstance(declared, str) and declared.strip() and p != declared:
+                lines.append(f"{rel(path)}: its process preset is {json.dumps(p)}, not _print.preset "
+                             f"{json.dumps(declared)}: a test print under one does not stand for the other")
+        elif "filaments" in m or "process" in m:           # a Bambu project that names no process preset
+            entry["preset"] = None
+            for n in entry.get("parts") or []:
+                presets.setdefault(n, []).append((path, None))
+            lines.append(f"{rel(path)}: the project names no process preset, so a test print cannot be compared "
+                         "with it" + (f": choose {json.dumps(declared)} in the slicer"
+                                      if isinstance(declared, str) and declared.strip() else ""))
+    unchecked = [n for n in part_names if n not in checked]
+    for n in unchecked:
+        evidence.setdefault(n, {"notver": [], "assumed": []})["assumed"].append(NO_PROJECT)
+    if unchecked:
+        lines.append(f"{NO_PROJECT}" + (f" for {', '.join(unchecked)}" if checked else "") + ": set the slicer's "
+                     "filament to " + ", ".join(f"{n}: {effective_material(params, specs, n) or 'its material'}"
+                                                for n in unchecked))
+    return lines, evidence, presets
 
 
 def own_sources(build):
@@ -1633,7 +1836,7 @@ def finalize(args):
     out["joints"] = joints
     reasons += r
     out["warnings"] += notes
-    strength, r, notes = check_strength(verify, taken)
+    strength, r, notes = check_strength(verify, taken, parts, build, params, specs)
     out["strength"] = strength
     reasons += r
     out["warnings"] += notes
@@ -1643,8 +1846,21 @@ def finalize(args):
     out["measurements"] = measurements
     seen, seen_errors = check_seen(verify, parts)
     out["seen"] = seen
-    print_info, print_errors = check_print_evidence(verify, parts, params, specs, current_printer(settings))
-    use = check_promises(verify, params, joints, strength, parts, measurements, seen, print_info)
+    material_lines, material_evidence = check_material_drift(build, params, specs)
+    out["material_drift"] = material_lines
+    delivery_lines, presets = [], {}
+    if args.deliver:
+        delivered, r, projects = check_delivered(args.deliver, parts, build)
+        out["delivered"] = delivered
+        reasons += r
+        delivery_lines, ev, presets = check_delivered_print(projects, [p.get("name") for p in parts], params, specs)
+        for n, e in ev.items():
+            mine = material_evidence.setdefault(n, {"notver": [], "assumed": []})
+            mine["notver"] += e["notver"]
+            mine["assumed"] += e["assumed"]
+    print_info, print_errors = check_print_evidence(verify, parts, params, specs, current_printer(settings),
+                                                    material_evidence, presets)
+    use = check_promises(verify, params, joints, strength, parts, measurements, seen, print_info, material_evidence)
     extra = seen_errors + print_errors + check_material_contract(params, specs)
     if extra:
         use["errors"] += extra
@@ -1655,10 +1871,6 @@ def finalize(args):
     out["promise_errors"] = use["errors"]
     open_warns = [f"{who} WARN: {note}".rstrip(": ") for who, note in warns if norm(who) not in taken]
     reasons += [text for who, text in copied if norm(who) not in taken]
-    if args.deliver:
-        delivered, r = check_delivered(args.deliver, parts, build)
-        out["delivered"] = delivered
-        reasons += r
     shape, shape_lines = check_references(verify, [o["name"] for o in build.get("objects") or []])
     out["shape"] = shape
     geometry_ok = not reasons and not open_warns
@@ -1668,7 +1880,7 @@ def finalize(args):
                     if passed else "unverified")
     out["open"] = (use["open"] + reasons
                    + [f"open warning (not accepted in _verify.accepted): {w}" for w in open_warns]
-                   + to_decide + print_lines + shape_lines
+                   + material_lines + delivery_lines + to_decide + print_lines + shape_lines
                    + [f"unverified: {u}" for u in out["unverified_dimensions"]]
                    + [f"assumption: {a}" for a in out["assumptions"]])
     unlinked = len(out["assumptions"]) + len(out["unverified_dimensions"])

@@ -619,6 +619,31 @@ def strength_report(path, gate):
                    "worst": "bending", "inputs": {"h": 4.5, "b": 12}}, f)
 
 
+def linked_report(path, gate="PASS", part="lid", material="pla_basic", sha=None, links=None, typed=None, **change):
+    """A strength.py --from-build report as contract 2 of step 4 writes it: the inputs in links
+    (input -> (param, value)) taken from the build's parameters, the load from the table, sf by
+    default, the material from the build's part, and typed ({input: value}) given on the command
+    line. Written directly, so the test says what finalize reads."""
+    import validate
+    links = {"h": ("ribbon_t", 4.5), "b": ("ribbon_w", 12), "length": ("ribbon_l", 30)} if links is None else links
+    inputs = {k: v for k, (_p, v) in links.items()}
+    origins = {k: f"param:{p}" for k, (p, _v) in links.items()}
+    inputs.update(load="finger_pull", material=material, sf=2.0)
+    origins.update(load="table:finger_pull", material="build:material", sf="default:sf")
+    for k, v in (typed or {}).items():
+        inputs[k], origins[k] = v, "manual"
+    rep = {"schema": "3dprint-scout.strength/1", "ran": True, "gate": gate, "case": "beam",
+           "worst": {"check": "bending", "sf_achieved": 2.6}, "inputs": inputs, "inputs_from": origins,
+           "material": {"key": material},
+           "from_build": {"build": "out/build.json", "part": part,
+                          "sha256": sha or validate.file_sha256(os.path.join("out", part + ".stl")), "material": material,
+                          "parameters": {k: {"param": p, "value": v} for k, (p, v) in links.items()}}}
+    rep.update(change)
+    with open(path, "w") as f:
+        json.dump(rep, f)
+    return rep
+
+
 class FinalizePromises(Workspace):
     """0.7.0: what the user was promised is judged by its own evidence (the use tier), apart
     from the geometry."""
@@ -1284,6 +1309,356 @@ class FinalizePromises(Workspace):
             {"promise": "badge", "reason": "the user judges it on the print", "by": "user"}]))
         self.assertEqual([p["state"] for p in out["promises"]], ["verified", "assumed", "not verified", "excluded"])
         self.assertEqual(out["use"], "not verified")             # an unagreed gap weighs more than an agreed one
+
+    # 0.7.0 step 4: strength inputs taken from the build, the material the build recorded, and the
+    # filament and preset of the delivered Bambu project.
+
+    RIBBON = {"ribbon_t": 4.5, "ribbon_w": 12, "ribbon_l": 30}
+    HOLDS = {"id": "holds", "kind": "use", "text": "the ribbon holds the phone", "conditions": "a 240 g phone pulled by a finger",
+             "success": "safety factor 2", "evidence": [{"strength": "ribbon"}]}
+    STANDS = {"id": "stands", "kind": "use", "text": "the box stands on the desk", "conditions": "empty box on a desk",
+              "success": "it does not tip", "evidence": [{"test_print": "box print"}]}
+    BAMBU_PLA = "Bambu PLA Basic @BBL X1C"
+    STANDARD = "0.20mm Standard @BBL X1C"
+
+    def linked_verify(self, promises=None, members=True, **more):
+        """The seat joint, the ribbon member (when members) and the promises (holds by default)."""
+        return self.verify([self.HOLDS] if promises is None else promises, dims=[],
+                           joints=[{"name": "lid on box", "report": "out/fit_seat.json"}],
+                           strength=[{"name": "ribbon", "report": "out/strength_ribbon.json"}] if members else [], **more)
+
+    def stamp(self, built=None, materials=None):
+        """The saved build JSON as build.py records it from 0.7.0 (contract 1 of step 4): the
+        parameters it was built from and each part's material. built=False or materials=False
+        leave the field out, as a build JSON from before 0.7.0."""
+        with open("out/build.json") as f:
+            b = json.load(f)
+        if built is False:
+            b.pop("parameters", None)                                          # build.py records it now
+        else:
+            b["parameters"] = {"scope": "overrides", "values": built}
+        for p in b["parts"]:
+            if materials is False:
+                p.pop("material", None)
+            else:
+                p["material"] = (materials or {}).get(p["name"], "pla_basic")
+        with open("out/build.json", "w") as f:
+            json.dump(b, f)
+
+    def run_linked(self, verify, values=None, built=None, materials=None, deliver=None, **extra):
+        """params.json (verify, the ribbon's numbers or values, _material pla_basic unless given;
+        None leaves it out), recorded, the build JSON stamped with built (default: the values) and
+        the materials, then finalized (with --deliver when given)."""
+        values = dict(self.RIBBON if values is None else values)
+        extra.setdefault("_material", "pla_basic")
+        if extra["_material"] is None:
+            del extra["_material"]
+        self.params(verify, **dict(values, **extra))
+        self.record()
+        self.stamp(values if built is None else built, materials)
+        code, out = self.finalize(*(("--deliver", deliver) if deliver else ()))
+        self.assertEqual(code, 0, out.get("errors"))
+        return out
+
+    def test_a_strength_report_from_the_build_verifies_a_use(self):
+        linked_report("out/strength_ribbon.json")
+        out = self.run_linked(self.linked_verify())
+        self.assertEqual((out["use"], self.promise(out, "holds")["state"]), ("verified", "verified"))
+        self.assertEqual(out["geometry"], "verified", out["open"])
+        member = out["strength"][0]
+        self.assertEqual((member["linked"], member["manual"], member["part"], member["result"]), (True, [], "lid", "passed"))
+        self.assertEqual(member["parameters"], {"h": "ribbon_t", "b": "ribbon_w", "length": "ribbon_l"})
+        self.assertFalse(any("member 'ribbon'" in w for w in out["warnings"]), out["warnings"])  # nothing typed in
+        self.assertEqual(out["material_drift"], [])
+        linked_report("out/strength_ribbon.json", links={"h": ("ribbon.t", 4.5), "b": ("ribbon.w", 12),
+                                                         "length": ("ribbon_l", 30)})
+        out = self.run_linked(self.linked_verify(), values={"ribbon": {"t": 4.5, "w": 12}, "ribbon_l": 30})
+        self.assertEqual(self.promise(out, "holds")["state"], "verified", out["open"])     # a dotted path
+        out = self.run_linked(self.linked_verify(), values={"ribbon": {"t": 4.5, "w": 12.5}, "ribbon_l": 30})
+        self.assertIn("member 'ribbon': b was ribbon.w = 12, now 12.5", self.promise(out, "holds")["reasons"])
+
+    def test_typed_strength_inputs_are_named(self):
+        """Reverse: a number typed on the command line keeps a member from verifying a use, by
+        name; the geometry only notes it, as in 0.6."""
+        linked_report("out/strength_ribbon.json", links={"h": ("ribbon_t", 4.5), "b": ("ribbon_w", 12)},
+                      typed={"length": 30})
+        out = self.run_linked(self.linked_verify())
+        holds = self.promise(out, "holds")
+        self.assertEqual(holds["state"], "not verified")
+        self.assertEqual(holds["reasons"], ["member 'ribbon': length was typed in, not taken from the build's parameters"])
+        self.assertEqual(out["strength"][0]["manual"], ["length"])
+        self.assertEqual(out["geometry"], "verified", out["open"])
+        self.assertIn("member 'ribbon': length = 30 was typed in, not taken from the build's parameters (strength.py "
+                      "--param): they must be the dimension table's", out["warnings"])
+        linked_report("out/strength_ribbon.json", links={"h": ("ribbon_t", 4.5), "b": ("ribbon_w", 12)},
+                      typed={"length": 30, "load": 60})
+        out = self.run_linked(self.linked_verify())
+        self.assertIn("member 'ribbon': load, length were typed in, not taken from the build's parameters",
+                      self.promise(out, "holds")["reasons"])
+        rep = linked_report("out/strength_ribbon.json")
+        for drop in ("from_build", "inputs_from"):                             # not made with --from-build
+            with self.subTest(drop=drop):
+                with open("out/strength_ribbon.json", "w") as f:
+                    json.dump({k: v for k, v in rep.items() if k != drop}, f)
+                out = self.run_linked(self.linked_verify())
+                self.assertEqual(self.promise(out, "holds")["reasons"],
+                                 ["member 'ribbon': its inputs were typed in, not taken from the build's parameters"])
+                self.assertEqual((out["strength"][0]["linked"], out["strength"][0]["manual"]),
+                                 (False, ["h", "b", "length", "load", "material", "sf"]))
+                self.assertEqual(out["geometry"], "verified", out["open"])
+                self.assertTrue(any(w.startswith("member 'ribbon': strength.py took its sizes from the numbers it was "
+                                                 "given") for w in out["warnings"]), out["warnings"])
+
+    def test_a_parameter_changed_since_the_calculation_is_named(self):
+        """Plan C, done criterion 3: ribbon_t changed and the member was not calculated again."""
+        linked_report("out/strength_ribbon.json")
+        out = self.run_linked(self.linked_verify(), values=dict(self.RIBBON, ribbon_t=5.0))
+        holds = self.promise(out, "holds")
+        self.assertEqual((out["use"], holds["state"]), ("not verified", "not verified"))
+        self.assertEqual(holds["reasons"], ["member 'ribbon': h was ribbon_t = 4.5, now 5.0"])
+        self.assertEqual(out["strength"][0]["result"], "stale")
+        self.assertEqual(out["geometry"], "not verified")                      # like a stale fit report
+        self.assertIn("member 'ribbon': h was ribbon_t = 4.5, now 5.0: run strength.py --from-build again", out["open"])
+        out = self.run_linked(self.linked_verify(), built={"ribbon_w": 12, "ribbon_l": 30})
+        self.assertEqual(self.promise(out, "holds")["reasons"], ["member 'ribbon': ribbon_t is not in the build's parameters"])
+        out = self.run_linked(self.linked_verify(), built=False)                # a build JSON from before 0.7.0
+        self.assertEqual(self.promise(out, "holds")["reasons"], ["member 'ribbon': the build JSON records no parameters "
+                                                                  "to compare with (built before 0.7.0): build again"])
+        linked_report("out/strength_ribbon.json", gate="FAIL")
+        out = self.run_linked(self.linked_verify(), values=dict(self.RIBBON, ribbon_t=5.0))
+        self.assertEqual(self.promise(out, "holds")["state"], "not verified")  # a FAIL of other numbers is no failure here
+        self.assertTrue(any(o.startswith("member 'ribbon': strength.py beam FAIL") for o in out["open"]), out["open"])
+        out = self.run_linked(self.linked_verify())
+        self.assertEqual(self.promise(out, "holds")["state"], "failed")        # of these numbers it is
+
+    def test_a_calculation_of_another_part_or_material_does_not_stand(self):
+        linked_report("out/strength_ribbon.json")
+        write_stl("out/lid.stl", box(40, 30, 4, 0, 0, 30))                    # the lid built again since
+        fit_report("out/fit_seat.json", "out/box.stl", "out/lid.stl")
+        out = self.run_linked(self.linked_verify())
+        self.assertEqual(self.promise(out, "holds")["reasons"], ["member 'ribbon': calculated for an earlier lid"])
+        self.assertIn("member 'ribbon': calculated for an earlier lid: run strength.py --from-build again", out["open"])
+        linked_report("out/strength_ribbon.json", part="hinge", sha="0" * 64)
+        out = self.run_linked(self.linked_verify())
+        self.assertEqual(self.promise(out, "holds")["reasons"],
+                         ["member 'ribbon': calculated for hinge, which is not a part of this build"])
+        linked_report("out/strength_ribbon.json")
+        parts = {"box": {"expect": [40, 30, 20]}, "lid": {"expect": [40, 30, 3], "material": "petg_hf"}}
+        for extra, materials, why in (
+                ({"_material": "petg_hf"}, {"box": "petg_hf", "lid": "petg_hf"}, "lid is petg_hf now"),
+                ({"_parts": parts}, {"lid": "petg_hf"}, "lid is petg_hf now"),
+                ({"_material": None}, {"box": None, "lid": None}, "no material is declared for lid now")):
+            with self.subTest(extra=extra):                                    # built again in it, not calculated again
+                out = self.run_linked(self.linked_verify(), materials=materials, **extra)
+                self.assertEqual(self.promise(out, "holds")["reasons"], [f"member 'ribbon': calculated in pla_basic, {why}"])
+                self.assertEqual(out["geometry"], "not verified")
+                self.assertEqual(out["material_drift"], [])
+
+    def test_a_linked_member_on_a_failing_part_or_with_an_accepted_warn(self):
+        linked_report("out/strength_ribbon.json")
+        self.run_linked(self.linked_verify())
+        self.params(self.linked_verify(), **dict(self.RIBBON, ribbon_t=5.0), _material="pla_basic")  # not built again
+        code, out = self.finalize()
+        self.assertEqual(out["strength"][0]["result"], "passed")               # true of the build it read
+        self.assertIn("member 'ribbon' is calculated for lid, whose own checks FAIL", self.promise(out, "holds")["reasons"])
+        self.assertEqual(self.promise(out, "holds")["state"], "not verified")
+        linked_report("out/strength_ribbon.json", gate="WARN")
+        out = self.run_linked(self.linked_verify())
+        self.assertEqual(self.promise(out, "holds")["reasons"], ["member 'ribbon': strength.py gate WARN"])
+        out = self.run_linked(self.linked_verify(accepted=[{"check": "member ribbon", "reason": "the user prints it first"}]))
+        self.assertEqual((out["use"], self.promise(out, "holds")["state"]), ("accepted", "accepted"))
+        self.assertEqual(out["geometry"], "verified", out["open"])
+
+    def test_a_report_that_disagrees_with_itself_does_not_stand(self):
+        """Reverse: the inputs, their origins and from_build are written together; one edited
+        apart from the others is not a calculation of the build."""
+        cases = (({"inputs": {"h": 5.0, "b": 12, "length": 30, "load": "finger_pull", "material": "pla_basic", "sf": 2.0}},
+                  "its inputs_from and from_build do not agree on h"),
+                 ({"inputs_from": {"h": "manual", "b": "param:ribbon_w", "length": "param:ribbon_l"}},
+                  "its inputs_from and from_build do not agree on h"),
+                 ({"material": {"key": "petg_hf"}}, "it was calculated in petg_hf, not in the material its build recorded "
+                                                   "(pla_basic)"),
+                 ({"from_build": {"part": "lid", "parameters": []}}, "its from_build is not a strength.py --from-build record"))
+        for change, why in cases:
+            with self.subTest(why=why, change=change):
+                rep = dict(linked_report("out/strength_ribbon.json"), **change)
+                with open("out/strength_ribbon.json", "w") as f:
+                    json.dump(rep, f)
+                out = self.run_linked(self.linked_verify())
+                holds = self.promise(out, "holds")
+                self.assertEqual(holds["state"], "not verified")
+                self.assertIn(why, holds["reasons"][0])
+                self.assertEqual(out["geometry"], "not verified")
+
+    def test_a_material_changed_since_the_build(self):
+        """Plan C: a material is no engine parameter, so the STLs stay fresh; what was printed
+        for the material the build recorded is not evidence for another."""
+        import validate
+        lid = validate.file_sha256("out/lid.stl")
+        printed = {"name": "lid fit", "status": "passed", "promises": ["seat"], "printer": "x2d",
+                   "orientation": "as built", "by": "user", "preset": self.STANDARD,
+                   "parts": {"lid": {"sha256": lid, "material": "petg_hf"}}}
+        seat = dict(self.SEAT, evidence=[{"test_print": "lid fit"}])
+        v = self.linked_verify([seat], members=False, test_prints=[printed])
+        out = self.run_linked(v, _material="petg_hf", _print={"preset": self.STANDARD})   # built in pla_basic
+        self.assertEqual(out["material_drift"], ["box: material changed since the build (pla_basic -> petg_hf)",
+                                                 "lid: material changed since the build (pla_basic -> petg_hf)"])
+        self.assertIn("lid: material changed since the build (pla_basic -> petg_hf)", out["open"])
+        self.assertEqual(self.promise(out, "seat")["reasons"],
+                         ["test print 'lid fit': lid: material changed since the build (pla_basic -> petg_hf)"])
+        self.assertEqual(out["geometry"], "verified", out["open"])             # the shape did not change
+        out = self.run_linked(v, _material="petg_hf", _print={"preset": self.STANDARD},
+                              materials={"box": "petg_hf", "lid": "petg_hf"})  # built again
+        self.assertEqual((out["material_drift"], self.promise(out, "seat")["state"]), ([], "verified"))
+        out = self.run_linked(v, _material="petg_hf", _print={"preset": self.STANDARD}, materials=False)
+        self.assertEqual((out["material_drift"], self.promise(out, "seat")["state"]), ([], "verified"))  # before 0.7.0
+        out = self.run_linked(v, _material="petg_hf", _print={"preset": self.STANDARD}, materials={"box": None, "lid": None})
+        self.assertIn("lid: material changed since the build (none -> petg_hf)", out["material_drift"])
+        self.assertEqual(self.promise(out, "seat")["state"], "not verified")
+        out = self.run_linked(v, _material=None, _print={"preset": self.STANDARD}, materials={"box": None, "lid": None})
+        self.assertEqual(out["material_drift"], [])                            # none then, none now
+
+    def bambu_project(self, filaments=None, process=STANDARD, parts=("box", "lid"), name="set.3mf"):
+        """A delivered Bambu project and its manifest as bambu3mf.py writes it (contract 3 of step
+        4): the parts' sha256, each part's filament slot and settings name, the process preset.
+        filaments=False or process=False leave the key out, as a core 3MF of build.py."""
+        import validate
+        os.makedirs("deliver", exist_ok=True)
+        path = os.path.join("deliver", name)
+        with open(path, "wb") as f:
+            f.write(b"PK a Bambu project: " + name.encode())
+        m = {"schema": finalize.MANIFEST_3MF, "artifact_sha256": validate.file_sha256(path),
+             "parts": {n: validate.file_sha256(os.path.join("out", n + ".stl")) for n in parts}}
+        if filaments is not False:
+            fil = dict({n: self.BAMBU_PLA for n in parts}, **(filaments or {}))
+            m["filaments"] = {n: {"slot": i + 1, "settings": s} for i, (n, s) in enumerate(sorted(fil.items()))}
+        if process is not False:
+            m["process"] = {"settings": process}
+        with open(path + ".manifest.json", "w") as f:
+            json.dump(m, f)
+
+    def delivered_verify(self, preset=STANDARD):
+        """holds (the ribbon member, of the lid), seat (a print of the lid), stands (a print of the box)."""
+        import validate
+        prints = []
+        for name, part, pid in (("lid fit", "lid", "seat"), ("box print", "box", "stands")):
+            prints.append({"name": name, "status": "passed", "promises": [pid], "printer": "x2d",
+                           "orientation": "as built", "by": "user", "preset": preset,
+                           "parts": {part: {"sha256": validate.file_sha256(os.path.join("out", part + ".stl")),
+                                            "material": "pla_basic"}}})
+        linked_report("out/strength_ribbon.json")
+        return self.linked_verify([self.HOLDS, dict(self.SEAT, evidence=[{"test_print": "lid fit"}]), self.STANDS],
+                                  test_prints=prints)
+
+    def states(self, out):
+        return {p["id"]: p["state"] for p in out["promises"]}
+
+    def test_the_delivered_bambu_project_prints_each_part_in_its_material(self):
+        v = self.delivered_verify()
+        self.bambu_project()
+        out = self.run_linked(v, deliver="deliver", _print={"preset": self.STANDARD})
+        self.assertEqual(self.states(out), {"holds": "verified", "seat": "verified", "stands": "verified"}, out["open"])
+        self.assertEqual(out["geometry"], "verified", out["open"])
+        self.assertEqual(out["delivered"][0]["filaments"]["lid"], {"slot": 2, "settings": self.BAMBU_PLA,
+                                                                   "material": "pla_basic"})
+        self.assertEqual(out["delivered"][0]["preset"], self.STANDARD)
+        self.assertFalse(any("print file" in o or "filament" in o for o in out["open"]), out["open"])
+        self.bambu_project({"lid": "Bambu PETG HF @BBL X1C"})                  # the wrong slot for the lid
+        out = self.run_linked(v, deliver="deliver", _print={"preset": self.STANDARD})
+        self.assertEqual(self.states(out), {"holds": "not verified", "seat": "not verified", "stands": "verified"})
+        self.assertIn("member 'ribbon': the print file prints lid in petg_hf, the part is pla_basic",
+                      self.promise(out, "holds")["reasons"])
+        self.assertIn("test print 'lid fit': the print file prints lid in petg_hf, the part is pla_basic",
+                      self.promise(out, "seat")["reasons"])
+        self.assertTrue(any(o.startswith("deliver/set.3mf: lid is printed in Bambu PETG HF @BBL X1C (petg_hf), the part "
+                                         "is pla_basic") for o in out["open"]), out["open"])
+        self.assertEqual(out["geometry"], "verified", out["open"])             # a filament is not a shape
+        out = self.run_linked(v, _print={"preset": self.STANDARD})             # without --deliver: not read
+        self.assertEqual(self.states(out), {"holds": "verified", "seat": "verified", "stands": "verified"})
+        self.assertFalse(any("print file" in o or "filament" in o for o in out["open"]), out["open"])
+
+    def test_a_filament_finalize_cannot_name_leaves_the_part_assumed(self):
+        v = self.delivered_verify()
+        for settings, why in (("Generic PLA @BBL X1C", '"Generic PLA @BBL X1C" is not a filament of a known material'),
+                              ("Bambu PLA Basic Gradient @BBL X1C", "is not a filament of a known material"),
+                              (None, "the project names no filament for its slot")):
+            with self.subTest(settings=settings):
+                self.bambu_project({"lid": settings})
+                out = self.run_linked(v, deliver="deliver", _print={"preset": self.STANDARD})
+                self.assertEqual(self.states(out), {"holds": "assumed", "seat": "assumed", "stands": "verified"})
+                self.assertEqual(self.promise(out, "holds")["reasons"],
+                                 ["member 'ribbon': the slicer's filament for lid is not checked"])
+                self.assertEqual(self.promise(out, "seat")["reasons"],
+                                 ["test print 'lid fit': the slicer's filament for lid is not checked"])
+                self.assertTrue(any(o.startswith("deliver/set.3mf: the slicer's filament for lid is not checked") and why in o
+                                    for o in out["open"]), out["open"])
+
+    def test_without_a_bambu_project_the_print_files_material_is_assumed(self):
+        v = self.delivered_verify()
+        os.makedirs("deliver")
+        for n in ("box", "lid"):
+            shutil.copyfile(os.path.join("out", n + ".stl"), os.path.join("deliver", n + ".stl"))
+        out = self.run_linked(v, deliver="deliver", _print={"preset": self.STANDARD})
+        self.assertEqual(self.states(out), {"holds": "assumed", "seat": "assumed", "stands": "assumed"})
+        self.assertEqual(self.promise(out, "holds")["reasons"],
+                         ["member 'ribbon': the print file's material is not checked (no Bambu project)"])
+        self.assertIn("the print file's material is not checked (no Bambu project): set the slicer's filament to box: "
+                      "pla_basic, lid: pla_basic", out["open"])
+        self.assertEqual(out["geometry"], "verified", out["open"])
+        for n in ("box", "lid"):
+            os.remove(os.path.join("deliver", n + ".stl"))
+        self.bambu_project(filaments=False, process=False)                     # a core 3MF names no filament
+        out = self.run_linked(v, deliver="deliver", _print={"preset": self.STANDARD})
+        self.assertEqual(self.states(out), {"holds": "assumed", "seat": "assumed", "stands": "assumed"})
+        os.remove("deliver/set.3mf")
+        os.remove("deliver/set.3mf.manifest.json")
+        self.bambu_project(parts=("lid",))                                     # the lid in a project, the box as an STL
+        shutil.copyfile("out/box.stl", "deliver/box.stl")
+        out = self.run_linked(v, deliver="deliver", _print={"preset": self.STANDARD})
+        self.assertEqual(self.states(out), {"holds": "verified", "seat": "verified", "stands": "assumed"})
+        self.assertIn("the print file's material is not checked (no Bambu project) for box: set the slicer's filament to "
+                      "box: pla_basic", out["open"])
+
+    def test_the_delivered_process_preset(self):
+        v = self.delivered_verify()
+        self.bambu_project(process="0.16mm Optimal @BBL X1C")
+        out = self.run_linked(v, deliver="deliver", _print={"preset": self.STANDARD})
+        self.assertEqual(self.states(out), {"holds": "verified", "seat": "not verified", "stands": "not verified"})
+        self.assertEqual(self.promise(out, "seat")["reasons"], ['test print \'lid fit\': printed with preset "0.20mm '
+                                                                'Standard @BBL X1C", the delivery uses "0.16mm Optimal @BBL '
+                                                                'X1C"'])
+        self.assertTrue(any(o.startswith('deliver/set.3mf: its process preset is "0.16mm Optimal @BBL X1C", not '
+                                         '_print.preset "0.20mm Standard @BBL X1C"') for o in out["open"]), out["open"])
+        self.bambu_project()                                                   # no _print.preset: the project's is the one
+        out = self.run_linked(v, deliver="deliver")
+        self.assertEqual(self.states(out), {"holds": "verified", "seat": "verified", "stands": "verified"}, out["open"])
+        out = self.run_linked(v)                                               # without --deliver, as before
+        self.assertEqual(self.states(out), {"holds": "verified", "seat": "assumed", "stands": "assumed"})
+        self.assertIn("test print 'lid fit': the delivered preset is not recorded (_print.preset)",
+                      self.promise(out, "seat")["reasons"])
+        self.bambu_project(process="0.12mm Fine @BBL X1C")
+        out = self.run_linked(v, deliver="deliver")
+        self.assertEqual(self.states(out), {"holds": "verified", "seat": "not verified", "stands": "not verified"})
+        self.assertIn('test print \'lid fit\': printed with preset "0.20mm Standard @BBL X1C", the delivery uses '
+                      '"0.12mm Fine @BBL X1C"', self.promise(out, "seat")["reasons"])
+        self.bambu_project(process=None)                                       # the template names no process
+        out = self.run_linked(v, deliver="deliver")
+        self.assertEqual(self.states(out), {"holds": "verified", "seat": "assumed", "stands": "assumed"})
+        # Reverse (Codex, PR #21): _print.preset does not stand in for a project that names none.
+        out = self.run_linked(v, deliver="deliver", _print={"preset": self.STANDARD})
+        self.assertEqual(self.states(out), {"holds": "verified", "seat": "assumed", "stands": "assumed"})
+        self.assertEqual(self.promise(out, "seat")["reasons"],
+                         ["test print 'lid fit': the delivered project names no process preset (deliver/set.3mf)"])
+        self.assertIn('deliver/set.3mf: the project names no process preset, so a test print cannot be compared with '
+                      'it: choose "0.20mm Standard @BBL X1C" in the slicer', out["open"])
+        self.assertIsNone([d for d in out["delivered"] if d["kind"] == "3mf"][0]["preset"])
+        self.bambu_project(filaments={}, process="")                           # a blank name is no name
+        out = self.run_linked(v, deliver="deliver", _print={"preset": self.STANDARD})
+        self.assertEqual(self.states(out)["seat"], "assumed")
+        self.bambu_project(filaments=False, process=False)                     # a core 3MF: no slicer settings at all
+        out = self.run_linked(v, deliver="deliver", _print={"preset": self.STANDARD})
+        self.assertFalse(any("names no process preset" in o for o in out["open"]), out["open"])
+        self.assertNotIn("preset", [d for d in out["delivered"] if d["kind"] == "3mf"][0])
 
 
 if __name__ == "__main__":

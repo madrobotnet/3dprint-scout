@@ -3,6 +3,7 @@ import io
 import json
 import os
 import re
+import shutil
 import sys
 import tempfile
 import unittest
@@ -14,10 +15,14 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, "..", "scripts"))
 sys.path.insert(0, HERE)
 import bambu3mf  # noqa: E402
+import build    # noqa: E402
+import threemf  # noqa: E402
+import validate  # noqa: E402
 from test_validate import box, write_stl  # noqa: E402
 
 NS = {"m": bambu3mf.CORE_NS, "p": bambu3mf.PROD_NS}
 PNG = b"\x89PNG\r\n\x1a\n" + b"\0" * 32
+DROP = object()     # make_template(key=DROP) leaves that key out of the template's settings
 
 
 def make_template(path, extra_entries=None, model_extra="", **cfg_over):
@@ -27,6 +32,8 @@ def make_template(path, extra_entries=None, model_extra="", **cfg_over):
            "wall_loops": "2", "sparse_infill_density": "15%", "layer_height": "0.2", "brim_type": "auto_brim",
            "brim_width": "5", "enable_support": "0", "outer_wall_speed": ["200", "200"]}
     cfg.update(cfg_over)
+    for key in [k for k, v in cfg.items() if v is DROP]:
+        del cfg[key]
     settings = json.dumps(cfg, indent=4).replace("\n", "\r\n").encode()      # CRLF like Bambu Studio
     model = ('<?xml version="1.0" encoding="UTF-8"?>\n<model unit="millimeter" xml:lang="en-US" '
              f'xmlns="{bambu3mf.CORE_NS}" xmlns:BambuStudio="{bambu3mf.BBS_NS}" xmlns:p="{bambu3mf.PROD_NS}" '
@@ -411,6 +418,132 @@ class Privacy(Base):
         self.assertTrue(any("not an empty project" in w for w in res["warnings"]))
         files = self.read()
         self.assertEqual(files["3D/3dmodel.model"].decode().count("<item "), 1)         # only our part
+
+
+class Manifest(Base):
+    """The manifest next to a Bambu project records each part's filament slot with the template's
+    filament preset name for it, and the process preset name (contract 3 of 0.7.0 step 4), so
+    finalize.py --deliver can compare them with the declared material and _print.preset."""
+
+    def manifest(self, path=None):
+        with open((path or self.out) + ".manifest.json", encoding="utf-8") as f:
+            return json.load(f)
+
+    def test_filaments_per_part_and_process_from_the_template(self):
+        lid = os.path.join(self.d, "lid3.stl"); write_stl(lid, box(60, 40, 3, 100, 100, 0))
+        label = os.path.join(self.d, "label.stl"); write_stl(label, box(30, 10, 1, 115, 115, 3))
+        latch = os.path.join(self.d, "latch.stl"); write_stl(latch, box(10, 6, 2, 125, 140.3, 0))
+        bambu3mf.build(self.job([{"name": "lid", "stl": lid},                     # no filament: slot 1
+                                 {"name": "label", "stl": label, "object": "lid", "filament": 3},
+                                 {"name": "latch", "stl": latch, "object": "lid"},   # takes the lid's
+                                 {"name": "box", "stl": self.box, "filament": 2}]))
+        m = self.manifest()
+        self.assertEqual(m["schema"], threemf.MANIFEST_SCHEMA)
+        self.assertEqual(m["artifact_sha256"], validate.file_sha256(self.out))
+        self.assertEqual(m["filaments"], {"lid": {"slot": 1, "settings": "PLA A"},
+                                          "label": {"slot": 3, "settings": "PLA C"},
+                                          "latch": {"slot": 1, "settings": "PLA A"},
+                                          "box": {"slot": 2, "settings": "PLA B"}})
+        self.assertEqual(m["process"], {"settings": "Test Process"})
+        self.assertEqual(set(m["filaments"]), set(m["parts"]))                  # one entry per part STL
+        self.assertEqual(m["parts"]["box"], validate.file_sha256(self.box))
+        # The slot follows a parent object recoloured from params.json (_parts.<name>.filament).
+        prm = os.path.join(self.d, "params.json")
+        with open(prm, "w") as f:
+            json.dump({"_parts": {"lid": {"filament": 4}, "label": {"object": "lid", "filament": 2},
+                                  "latch": {"object": "lid"}}}, f)
+        out2 = os.path.join(self.d, "out2.3mf")
+        bambu3mf.build({"template": self.template, "out": out2, "params": prm, "parts": [
+            {"name": "lid", "stl": lid}, {"name": "label", "stl": label}, {"name": "latch", "stl": latch}]})
+        self.assertEqual(self.manifest(out2)["filaments"], {"lid": {"slot": 4, "settings": "PLA D"},
+                                                            "label": {"slot": 2, "settings": "PLA B"},
+                                                            "latch": {"slot": 4, "settings": "PLA D"}})
+
+    def test_names_the_template_does_not_give_are_null(self):
+        # No filament_settings_id: the slot count comes from filament_colour, no slot has a name.
+        make_template(self.template, filament_settings_id=DROP, filament_colour=["#FFFFFF", "#000000"])
+        bambu3mf.build(self.job([{"name": "box", "stl": self.box, "filament": 2}, {"name": "lid", "stl": self.lid}]))
+        m = self.manifest()
+        self.assertEqual(m["filaments"], {"box": {"slot": 2, "settings": None}, "lid": {"slot": 1, "settings": None}})
+        self.assertEqual(m["process"], {"settings": "Test Process"})
+        with open(self.out + ".manifest.json", encoding="utf-8") as f:
+            self.assertIn('"settings": null', f.read())                         # JSON null, not "None" or ""
+        # An empty name in the list is no name, and never another slot's.
+        os.remove(self.out)
+        make_template(self.template, filament_settings_id=["PLA A", "", "  "])
+        bambu3mf.build(self.job([{"name": "box", "stl": self.box, "filament": 2},
+                                 {"name": "lid", "stl": self.lid, "filament": 3}]))
+        self.assertEqual(self.manifest()["filaments"], {"box": {"slot": 2, "settings": None},
+                                                        "lid": {"slot": 3, "settings": None}})
+        # Neither the template's one-slot default nor a missing, null or empty process name gives a name.
+        for over, name in (({"print_settings_id": DROP, "filament_settings_id": DROP}, None),
+                           ({"print_settings_id": None}, "PLA A"), ({"print_settings_id": ""}, "PLA A")):
+            os.remove(self.out)
+            make_template(self.template, **over)
+            bambu3mf.build(self.job([{"name": "box", "stl": self.box}]))
+            m = self.manifest()
+            self.assertEqual(m["process"], {"settings": None}, over)
+            self.assertEqual(m["filaments"], {"box": {"slot": 1, "settings": name}}, over)
+
+    def test_a_slot_past_the_template_list_has_no_name(self):
+        """read_parts keeps a part's slot within the template's filament count, which is the length
+        of filament_settings_id whenever the list is there; the manifest still never takes a name
+        from another slot (the last one, or a character of a single string) for a slot past it."""
+        objects = [{"parts": [{"name": "a", "filament": 1}, {"name": "b", "filament": 3}]}]
+        filaments, process = bambu3mf.manifest_presets(objects, {"filament_settings_id": ["PLA A", "PLA B"],
+                                                                 "print_settings_id": "P"})
+        self.assertEqual(filaments, {"a": {"slot": 1, "settings": "PLA A"}, "b": {"slot": 3, "settings": None}})
+        self.assertEqual(process, {"settings": "P"})
+        filaments, process = bambu3mf.manifest_presets(objects, {"filament_settings_id": "PLA A",
+                                                                 "print_settings_id": ["P"]})
+        self.assertEqual(filaments, {"a": {"slot": 1, "settings": None}, "b": {"slot": 3, "settings": None}})
+        self.assertEqual(process, {"settings": None})
+        filaments, _ = bambu3mf.manifest_presets(objects, {"filament_settings_id": ["PLA A", 7, "PLA C"]})
+        self.assertEqual(filaments["b"], {"slot": 3, "settings": "PLA C"})
+        self.assertEqual(bambu3mf.manifest_presets([{"parts": [{"name": "a", "filament": 2}]}],
+                                                   {"filament_settings_id": ["PLA A", 7]})[0]["a"]["settings"], None)
+
+    def test_generated_template(self):
+        """A names-only template from bambu_template.py names its system presets the same way."""
+        make_template(self.template, filament_settings_id=["Bambu PLA Basic @BBL X2D", "Bambu PETG HF @BBL X2D"],
+                      print_settings_id="0.20mm Standard @BBL X2D", layer_height=DROP, wall_loops=DROP)
+        res = bambu3mf.build(self.job([{"name": "box", "stl": self.box, "filament": 2}, {"name": "lid", "stl": self.lid}]))
+        self.assertIn("preset names", res["template_kind"])
+        m = self.manifest()
+        self.assertEqual(m["filaments"], {"box": {"slot": 2, "settings": "Bambu PETG HF @BBL X2D"},
+                                          "lid": {"slot": 1, "settings": "Bambu PLA Basic @BBL X2D"}})
+        self.assertEqual(m["process"], {"settings": "0.20mm Standard @BBL X2D"})
+
+    def test_core_3mf_manifests_carry_neither_key(self):
+        core = os.path.join(self.d, "core.3mf")
+        threemf.write_core_3mf([("box", self.box), ("lid", self.lid)], core)
+        self.assertEqual(set(self.manifest(core)), {"schema", "artifact_sha256", "parts"})
+        buf = io.StringIO()                                                      # threemf.py on the command line
+        with redirect_stdout(buf):
+            self.assertEqual(threemf.main([os.path.join(self.d, "cli.3mf"), self.box]), 0)
+        self.assertEqual(set(self.manifest(os.path.join(self.d, "cli.3mf"))), {"schema", "artifact_sha256", "parts"})
+        # build.py (record writes the same core 3MF as run).
+        src = os.path.join(self.d, "gen_fusion.py")
+        with open(src, "w") as f:
+            f.write("def run(context=None):\n    pass\n")
+        stl = os.path.join(self.d, "part.stl"); write_stl(stl, box(20, 20, 20))
+        buf = io.StringIO()
+        with redirect_stdout(buf):
+            code = build.main(["record", stl, "--source", src, "--out", os.path.join(self.d, "rec"), "--no-wall-check"])
+        out = json.loads(buf.getvalue())
+        self.assertEqual(code, 0, out.get("errors"))
+        m = self.manifest(out["threemf"])
+        self.assertEqual(set(m), {"schema", "artifact_sha256", "parts"})
+        self.assertEqual(list(m["parts"]), ["part"])
+        # The keys appear only when given, as given.
+        path = os.path.join(self.d, "given.3mf")
+        shutil.copyfile(core, path)
+        data = threemf.write_3mf_manifest(path, [("box", self.box)], filaments={"box": {"slot": 1, "settings": None}})
+        self.assertNotIn("process", data)
+        self.assertEqual(self.manifest(path)["filaments"], {"box": {"slot": 1, "settings": None}})
+        data = threemf.write_3mf_manifest(path, [("box", self.box)], process={"settings": "P"})
+        self.assertNotIn("filaments", data)
+        self.assertEqual(self.manifest(path), data)
 
 
 class Safety(Base):
