@@ -49,7 +49,8 @@ Asking:
 - [ ] **must** Stops for the concept pick: 2–3 variants, each with an image and one line on what
   differs (choice C is followed by a concepts stop).
 - [ ] **must** Stops for the base-shape look: the preview with the size and the verdicts, before
-  holes, pockets or other features are built on it.
+  anything is built on it. The caddy is one body with no mechanism, so the preview may already
+  show its pockets (0.8.0: only several bodies or a mechanism show the shell alone first).
 - [ ] **should** May show the four-model table; does not stop to ask for the choice.
 - [ ] **should** At Phase 2 it stops only for new decisions (the use list, derived sizes, the
   pocket clearance), not to have the given sizes approved again or to ask where they were taken
@@ -73,7 +74,7 @@ The user's agreement (the same item in every attended scenario):
   named that promise or warning, said in plain words what taking it means (it stays unverified,
   or the warning stays, and what that can cost) and offered the choices ("그냥 진행해 주세요" counts
   when going on as it is was the option named). An `accepted` entry's `reason` is that reply
-  word for word. The question comes whenever finalize first reports a promise not verified, in
+  word for word, and so is the note of a prototype line the user agreed to. The question comes whenever finalize first reports a promise not verified, in
   Phase 4, 5 or 6 (one added late, or made stale by a late change, included), and before the
   delivery message; a question asked earlier about the same named promise counts. Never agreement: the fallback or another reply that hands the decision back
   to the agent, a look ("모양 좋아요"), a reference or concept choice, "계속해 주세요" after a progress

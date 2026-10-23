@@ -81,7 +81,7 @@ The user's agreement (the same item in every attended scenario):
   named that promise or warning, said in plain words what taking it means (it stays unverified,
   or the warning stays, and what that can cost) and offered the choices ("그냥 진행해 주세요" counts
   when going on as it is was the option named). An `accepted` entry's `reason` is that reply
-  word for word. The question comes whenever finalize first reports a promise not verified, in
+  word for word, and so is the note of a prototype line the user agreed to. The question comes whenever finalize first reports a promise not verified, in
   Phase 4, 5 or 6 (one added late, or made stale by a late change, included), and before the
   delivery message; a question asked earlier about the same named promise counts. Never agreement: the fallback or another reply that hands the decision back
   to the agent, a look ("모양 좋아요"), a reference or concept choice, "계속해 주세요" after a progress
