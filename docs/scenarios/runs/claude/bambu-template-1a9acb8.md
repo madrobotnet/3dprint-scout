@@ -14,8 +14,8 @@ First pass, graded at skill 1a9acb8 and kit 8a663aa; the re-run at e2f7953 is [`
 
 Confounds of this run (facts; none of them changes a mark below):
 
-- The run agent had the skill owner's account memory in its context (it names a Bambu Lab X2D
-  and Bambu Studio). This run used the X1 Carbon saved in the folder. Codex runs will not have
+- The run agent had the skill owner's account memory in its context (it names the owner's own
+  printer and slicer). This run used the X1 Carbon saved in the folder. Codex runs will not have
   that memory.
 - `references/development.md`, shipped with the skill, holds the scenario rows. This agent did
   not read it (its record lists it as not read).

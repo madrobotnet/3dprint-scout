@@ -34,10 +34,10 @@ How this harness worked (facts that bear on the marks below):
 
 Confounds of this run (facts; none of them changes a mark below):
 
-- The run agent had the skill owner's account memory in its context (it names a Bambu Lab X2D
-  and Bambu Studio). This run used the printer and slicer of the opening message; the delivery's
+- The run agent had the skill owner's account memory in its context (it names the owner's own
+  printer and slicer). This run used the printer and slicer of the opening message; the delivery's
   caller block says "in this project the user stated a Prusa MK4 with PrusaSlicer, which differs
-  from the Bambu X2D in their saved notes". Codex runs will not have that memory.
+  from [the owner's printer] in their saved notes". Codex runs will not have that memory.
 - Harness: every hand-back, the delivery included, wraps the Korean message for the user in
   English written for the caller: a preface ("I stopped at the skill's Phase 1 point, …",
   "Message for the user, as I wrote it (Korean):") and a "Background for the caller:" block. The
@@ -529,7 +529,7 @@ Tool calls and notes, in order:
 > - **Rebuild:** produced a byte-identical STL, so the earlier evidence and the user's look stayed fresh.
 > - **Unchecked estimates:** the infill advice, the tip-over figures and the "about 10 g more filament" are hand estimates, not checked by any script.
 > - **Not done:** no PrusaSlicer preset was recorded (the user doesn't know it), and no calibration entry was written. When the user reports a print result, offer once to record it.
-> - **Possibly worth remembering:** in this project the user stated a Prusa MK4 with PrusaSlicer, which differs from the Bambu X2D in their saved notes.
+> - **Possibly worth remembering:** in this project the user stated a Prusa MK4 with PrusaSlicer, which differs from [the owner's printer] in their saved notes.
 >
 > Delivered files are in $PROJECT/deliver/2026-10-23:
 > - stand.stl

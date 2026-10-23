@@ -35,9 +35,9 @@ How this harness worked (facts that bear on the marks below):
 
 Confounds of this run (facts; none of them changes a mark below):
 
-- The run agent had the skill owner's account memory in its context (it names a Bambu Lab X2D
-  and Bambu Studio). This run used the printer and slicer of the opening message; the delivery's
-  caller block says "Memory lists a Bambu X2D, so this may be a different machine or context; I
+- The run agent had the skill owner's account memory in its context (it names the owner's own
+  printer and slicer). This run used the printer and slicer of the opening message; the delivery's
+  caller block says "Memory lists [the owner's printer], so this may be a different machine or context; I
   did not change memory." Codex runs will not have that memory.
 - Harness: every hand-back wraps the Korean message for the user in English written for the
   caller: a "Status: …" block with the work done and the plan, then "Message for the user
@@ -322,7 +322,7 @@ Tool calls and notes, in order:
 > - **Strength:** `_verify.strength` is `[]`; no member carries load.
 > - **Soft checks:** P4, P5 and P6 were decided from the generator and preview, and the decisions are recorded in `_assumptions`.
 > - **Delivery:** finalize ran with `--deliver` and `--bundle`. The bundle is complete and nothing is missing.
-> - The user stated Prusa MK4 and PrusaSlicer for this project. Memory lists a Bambu X2D, so this may be a different machine or context; I did not change memory.
+> - The user stated Prusa MK4 and PrusaSlicer for this project. Memory lists [the owner's printer], so this may be a different machine or context; I did not change memory.
 >
 > Files (working folder $PROJECT):
 > - deliver/2026-10-23/holder.stl

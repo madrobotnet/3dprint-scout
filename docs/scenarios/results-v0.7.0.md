@@ -126,9 +126,10 @@ How the harness worked, and what it does to the marks:
 
 Known confounds (facts, not excuses for a result):
 
-- The run agents had the skill owner's account memory in their context; it names a Bambu Lab
-  X2D and Bambu Studio. Every run used the printer of its folder or its opening message; in the
-  re-runs, holes-unknown and given-answers mentioned the X2D in their caller blocks. Codex runs
+- The run agents had the skill owner's account memory in their context; it names the owner's own
+  printer and slicer. Every run used the printer of its folder or its opening message; in the
+  re-runs, holes-unknown and given-answers mentioned the owner's printer in their caller blocks.
+  Codex runs
   will not have that memory.
 - First pass only: `references/development.md`, which shipped with the skill, held the scenario
   rows, and the change-request agent read them (lines 110–140) and cited "the change-request

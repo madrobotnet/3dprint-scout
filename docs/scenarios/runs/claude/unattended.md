@@ -34,8 +34,8 @@ How this harness worked (facts that bear on the marks below):
 
 Confounds of this run (facts; none of them changes a mark below):
 
-- The run agent had the skill owner's account memory in its context (it names a Bambu Lab X2D
-  and Bambu Studio). This run used the printer and slicer of the opening message. Codex runs
+- The run agent had the skill owner's account memory in its context (it names the owner's own
+  printer and slicer). This run used the printer and slicer of the opening message. Codex runs
   will not have that memory.
 - Harness: neither hand-back carries English for the caller; both are in Korean. The agent's
   notes between tool calls were in English until the Phase 3 preview; they were not shown.

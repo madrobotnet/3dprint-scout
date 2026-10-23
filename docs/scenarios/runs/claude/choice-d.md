@@ -10,8 +10,8 @@
 
 Confounds of this run (facts; none of them changes a mark below):
 
-- The run agent had the skill owner's account memory in its context (it names a Bambu Lab X2D
-  and Bambu Studio). Its record says it saw the X2D there and did not use it, so the bed fit
+- The run agent had the skill owner's account memory in its context (it names the owner's own
+  printer and slicer). Its record says it saw the owner's printer there and did not use it, so the bed fit
   stayed unchecked. Codex runs will not have that memory.
 - `references/development.md`, shipped with the skill, holds the scenario rows. This agent did
   not read it (it read SKILL.md, phase-0 and phase-1 only).

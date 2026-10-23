@@ -14,8 +14,8 @@
 
 Confounds of this run (facts; none of them changes a mark below):
 
-- The run agent had the skill owner's account memory in its context (it names a Bambu Lab X2D
-  and Bambu Studio). This run followed the project's X1C. Codex runs will not have that memory.
+- The run agent had the skill owner's account memory in its context (it names the owner's own
+  printer and slicer). This run followed the project's X1C. Codex runs will not have that memory.
 - `references/development.md`, shipped with the skill, holds the scenario rows. This agent did
   not read it (it is not among the files its record lists).
 - Blender STL nondeterminism: not relevant, the Python engine was used.

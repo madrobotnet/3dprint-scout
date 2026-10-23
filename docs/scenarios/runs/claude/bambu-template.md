@@ -37,8 +37,8 @@ How this harness worked (facts that bear on the marks below):
 
 Confounds of this run (facts; none of them changes a mark below):
 
-- The run agent had the skill owner's account memory in its context (it names a Bambu Lab X2D
-  and Bambu Studio). This run used the X1 Carbon saved in the folder. Codex runs will not have
+- The run agent had the skill owner's account memory in its context (it names the owner's own
+  printer and slicer). This run used the X1 Carbon saved in the folder. Codex runs will not have
   that memory.
 - Harness: none of the five hand-backs carries English for the caller; all are in Korean.
 - The Blender STL is now deterministic (#23); no rebuild came after the user's look, and the
