@@ -1,0 +1,12 @@
+{
+  "schema": "3dprint.printers/1",
+  "default": "x1c",
+  "printers": {
+    "x1c": {
+      "process": "fdm",
+      "slicer": {"name": "bambu-studio", "template_3mf": ".3dprint/templates/x1c.3mf", "template_kind": "generated"},
+      "bed": {"area": [[0, 0], [256, 0], [256, 256], [0, 256]], "height": 250, "exclude": [], "source": "slicer-profile"},
+      "compensation": {"holes": "model", "elephant_foot": "slicer"}
+    }
+  }
+}

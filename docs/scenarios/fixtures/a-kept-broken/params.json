@@ -1,0 +1,142 @@
+{
+  "_material": "pla_basic",
+  "_print": {
+    "preset": "0.20mm Standard @BBL X1C"
+  },
+  "_parts": {
+    "holder": {
+      "expect": [
+        49.0,
+        19.0,
+        70.0
+      ]
+    }
+  },
+  "_assumptions": [
+    "양면테이프로 벽에 붙임: 테이프가 버티는지는 확인하지 않음"
+  ],
+  "phone_t": 11.0,
+  "seat_clear": 1.0,
+  "base_t": 6.0,
+  "prong_w": 18.0,
+  "base_d": 15.0,
+  "base_support": "cantilever",
+  "base_orient": "xy",
+  "notch_w": 13.0,
+  "lip_t": 3.0,
+  "lip_h": 7.0,
+  "back_t": 4.0,
+  "back_h": 70.0,
+  "plug_w": 13.4,
+  "plug_h": 6.8,
+  "plug_l": 24.0,
+  "_verify": {
+    "promises": [
+      {
+        "id": "seat",
+        "kind": "use",
+        "text": "케이스 낀 폰을 세워 올리면 앞 턱이 잡아 준다",
+        "conditions": "폰은 세로로, 케이스 포함 두께 11.0 mm; 거치대는 벽에 붙임",
+        "success": "앞 턱 윗면이 받침 윗면보다 폰 두께의 절반(5.5 mm) 이상 높다",
+        "evidence": [
+          {
+            "measurement": "lip height",
+            "covers": "만든 모델에서 턱 높이를 잼; 폰을 넣고 빼는 동작은 아님"
+          }
+        ]
+      },
+      {
+        "id": "cable-out",
+        "kind": "use",
+        "text": "충전 케이블(곧은 USB-C)을 꽂은 채로 폰을 올려 둘 수 있다",
+        "conditions": "곧은 USB-C 플러그, 케이블은 두 받침 사이로 아래로 내려감",
+        "success": "플러그 머리가 거치대와 겹치지 않고 양옆에 0.2 mm 이상 틈이 있다",
+        "evidence": [
+          {
+            "joint": "plug through notch",
+            "covers": "폰을 올려 둔 자세의 플러그 머리; 케이블이 휘는 것은 아님"
+          }
+        ]
+      },
+      {
+        "id": "holds",
+        "kind": "use",
+        "text": "폰을 올리거나 화면을 눌러도 받침이 부러지지 않는다",
+        "conditions": "받침 한쪽 끝을 손가락으로 세게 누름",
+        "success": "받침 한쪽이 손가락으로 세게 누르는 힘(약 71 N)을 안전율 2 이상으로 견딘다(손 계산)",
+        "evidence": [
+          {
+            "strength": "prong",
+            "covers": "받침 한쪽 뿌리, 끝에 손가락 힘; 출력해서 눌러 본 것은 아님"
+          }
+        ]
+      }
+    ],
+    "dims": [
+      {
+        "id": "phone-case",
+        "what": "케이스 낀 폰의 두께",
+        "unit": "mm",
+        "params": {
+          "phone_t": 11.0
+        },
+        "source": "caliper",
+        "by": "user",
+        "tol": 0.2
+      },
+      {
+        "id": "usb-c-plug",
+        "what": "곧은 USB-C 플러그 머리의 폭, 두께, 길이",
+        "unit": "mm",
+        "params": {
+          "plug_w": 13.4,
+          "plug_h": 6.8,
+          "plug_l": 24.0
+        },
+        "source": "caliper",
+        "tol": 0.2,
+        "by": "user"
+      }
+    ],
+    "joints": [
+      {
+        "name": "plug through notch",
+        "report": "out/fit_plug.json",
+        "proxy": true,
+        "dims": [
+          "usb-c-plug"
+        ],
+        "proxy_build": "out/plug/build.json"
+      }
+    ],
+    "strength": [
+      {
+        "name": "prong",
+        "report": "out/strength_prong.json"
+      }
+    ],
+    "measurements": [
+      {
+        "name": "lip height",
+        "report": "out/m_lip.json",
+        "dims": [
+          "phone-case"
+        ]
+      }
+    ],
+    "seen": [],
+    "test_prints": [],
+    "accepted": [],
+    "unverified": [],
+    "references": {
+      "holder": {
+        "front": "estimated",
+        "back": "estimated",
+        "left": "estimated",
+        "right": "estimated",
+        "top": "estimated",
+        "bottom": "assumed"
+      }
+    }
+  }
+}
