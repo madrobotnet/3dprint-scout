@@ -31,7 +31,12 @@ is missing is reported as "not declared", which keeps its tier from being verifi
                   "dims": ["usb-c-plug"], "proxy_build": "out/plug/build.json"}],
     "strength": [{"name": "latch arm", "report": "out/strength_latch.json"}],
     "measurements": [{"name": "lip height", "report": "out/m_lip.json"}],
-    "test_prints": [{"name": "hinge coupon", "status": "skipped", "note": "user had no time"}],
+    "seen": [{"name": "front look", "image": "out/look.png", "image_sha256": "...", "by": "user",
+              "promises": ["wave-back"], "result": "passed"}],
+    "test_prints": [{"name": "hinge coupon", "status": "skipped", "note": "user had no time"},
+                    {"name": "lid fit", "status": "passed", "promises": ["lid-fits"], "printer": "x2d",
+                     "orientation": "as built", "by": "user", "preset": "0.20mm Standard",
+                     "parts": {"lid": {"sha256": "...", "material": "pla_basic"}}}],
     "accepted": [{"check": "body P2", "reason": "the user wants supports there"},
                  {"check": "object box P2", "reason": "..."},
                  {"check": "joint lid on box F3", "reason": "a snug lid"},
@@ -60,8 +65,16 @@ reference shows (`real`), or was generated or inferred (`estimated`), or given u
 
 promises: what the user was promised, each judged by its own evidence. kind `use` (a thing the
 user does with the object: needs conditions and success), `feature` (needs success) or `look`.
-Evidence names a declared joint, member or measurement; a use takes all three, a feature joints
-and measurements; a part's own check (box M1) is never evidence of a promise. measurements:
+Evidence names a declared joint, member, measurement, seen image or test print; a use takes
+joints, members, measurements and test prints, a feature joints, measurements and test prints,
+a look seen images and test prints; a part's own check (box M1) is never evidence of a promise.
+seen: a person's judgement of a preview image (by user or agent, the promises judged, passed or
+failed, and image_sha256, the digest they looked at); it stands while the image is those bytes,
+its sidecar says so, and every STL the sidecar lists is a part of this build now; only the
+user's judgement verifies. A test print that lists promises stands for them when it printed the
+parts as they are now (parts: name -> sha256, material), in each part's material (_material,
+_parts.<name>.material: strength.py keys), on the build's printer, as built, under the delivered
+preset (_print.preset; none recorded leaves it assumed), by the user. measurements:
 saved `measure.py ... --expect` reports, each fresh while the file it read is unchanged (its
 sha256), passed when every expectation passed (finalize runs the report's command again on the
 file and reads each value itself); as evidence it must have read a part of this
@@ -125,8 +138,11 @@ SETTINGS = ("tol", "printer", "printer_id", "tools", "overhang_angle", "min_wall
 
 # The use tier: what the user was promised, and the evidence that it holds.
 KINDS = ("use", "feature", "look")
-EVIDENCE = ("joint", "strength", "measurement")
-ALLOWED = {"use": ("joint", "strength", "measurement"), "feature": ("joint", "measurement"), "look": ()}
+EVIDENCE = ("joint", "strength", "measurement", "seen", "test_print")
+ALLOWED = {"use": ("joint", "strength", "measurement", "test_print"), "feature": ("joint", "measurement", "test_print"),
+           "look": ("seen", "test_print")}
+SEEN_KEYS = ("name", "image", "image_sha256", "by", "promises", "result", "note")
+IMAGE_SCHEMA = "3dprint-scout.image/1"
 NEEDS = {"use": ("conditions", "success"), "feature": ("success",), "look": ()}
 PROMISE_KEYS = ("id", "kind", "text", "conditions", "success", "evidence", "assumes", "note")
 DIM_SOURCES = ("assumed", "caliper", "spec", "user-file")
@@ -226,7 +242,7 @@ def plural(n, word):
 
 
 def check_verify_shape(verify):
-    lists = {"joints": dict, "strength": dict, "measurements": dict, "test_prints": dict, "accepted": dict,
+    lists = {"joints": dict, "strength": dict, "measurements": dict, "seen": dict, "test_prints": dict, "accepted": dict,
              "unverified": str,
              "promises": dict, "dims": dict}
     for key, item in lists.items():
@@ -845,6 +861,164 @@ def expectation_problem(rep, exp):
     return None
 
 
+def check_seen(verify, parts):
+    """_verify.seen: a person's judgement of a preview image. Each entry names the image, the
+    digest of the image they looked at (image_sha256), who looked (by: user or agent), the
+    promises they judged from it and the result. The image is fresh while it is still those
+    bytes, its sidecar (<image>.json, from preview.py or render.py) says the same, and every STL
+    the sidecar lists is a part of this build as it is now. Returns (entries, declaration
+    errors); an entry's state is error, missing, stale or fresh, and `shows` names the parts."""
+    shas = {}
+    for p in parts:
+        if p.get("sha256"):
+            shas.setdefault(p["sha256"], []).append(p.get("name"))
+    entries, errors = [], []
+    for i, e in enumerate(verify.get("seen") or []):
+        name = e.get("name")
+        label = f"seen '{name}'" if isinstance(name, str) and name.strip() else f"seen entry {i + 1}"
+        image = e.get("image")
+        entry = {"name": name, "image": rel(image) if isinstance(image, str) else None, "by": e.get("by"),
+                 "result": e.get("result"), "promises": e.get("promises")}
+        entries.append(entry)
+        errs = []
+        if not text_field(e, "name"):
+            errs.append(f"{label}: needs a name")
+        unknown = sorted(k for k in e if k not in SEEN_KEYS)
+        if unknown:
+            errs.append(f"{label}: unknown field {', '.join(unknown)} (fields: {', '.join(SEEN_KEYS)})")
+        if not text_field(e, "image"):
+            errs.append(f"{label}: needs the image")
+        if not text_field(e, "image_sha256"):
+            errs.append(f"{label}: needs image_sha256, the digest of the image the person looked at")
+        if e.get("by") not in ("user", "agent"):
+            errs.append(f"{label}: by must be \"user\" or \"agent\" (who looked)")
+        if e.get("result") not in ("passed", "failed"):
+            errs.append(f"{label}: result must be passed or failed (the judgement)")
+        pr = e.get("promises")
+        if not (isinstance(pr, list) and pr and all(isinstance(x, str) and x.strip() for x in pr)):
+            errs.append(f"{label}: promises must list the ids of the promises judged from the image")
+        if errs:
+            entry["state"] = "error"
+            errors += errs
+            continue
+        if not os.path.isfile(image):
+            entry.update(state="missing", note=f"{rel(image)} not found")
+            continue
+        current = validate.file_sha256(image)
+        if current != e["image_sha256"]:
+            entry.update(state="stale", note="the image is not the one that was judged (drawn again since)")
+            continue
+        try:
+            side = load_json(image + ".json", "image sidecar")
+        except FinalizeError:
+            entry.update(state="missing", note=f"no sidecar ({rel(image)}.json) says what it shows: draw it with "
+                                               "preview.py or render.py")
+            continue
+        stls = side.get("stls") if isinstance(side, dict) else None
+        if not (isinstance(side, dict) and side.get("schema") == IMAGE_SCHEMA and isinstance(stls, list) and stls
+                and all(isinstance(x, dict) and isinstance(x.get("sha256"), str) for x in stls)):
+            entry.update(state="missing", note=f"{rel(image)}.json is not an image sidecar listing what it shows")
+            continue
+        if side.get("image_sha256") != current:
+            entry.update(state="stale", note=f"{rel(image)}.json describes another image (it was drawn again)")
+            continue
+        foreign = [str(x.get("path")) for x in stls if x["sha256"] not in shas]
+        if foreign:
+            entry.update(state="stale", note=f"it shows {', '.join(foreign)}, not a part of this build as it is now")
+            continue
+        entry.update(state="fresh", shows=sorted({n for x in stls for n in shas[x["sha256"]]}))
+    return entries, errors
+
+
+def current_printer(settings):
+    """The id of the printer the build was judged for, or None."""
+    if not settings.printer or not os.path.isfile(settings.printer):
+        return None
+    try:
+        return validate.load_printer(settings.printer, settings.printer_id)[0]
+    except (OSError, ValueError):
+        return None
+
+
+def check_print_evidence(verify, parts, params, specs, printer_id):
+    """The test prints that list promises, as their evidence: {name: info}, declaration errors.
+    A print stands for a promise only when it printed the parts as they are now (each part's
+    sha256), in each part's material (_parts.<name>.material, else _material; strength.py keys),
+    on the build's printer, as built (orientation), under the delivered preset (_print.preset;
+    none recorded leaves it assumed), reported by the user. A 0.6 entry (no promises) is left to
+    the print tier."""
+    import strength
+    mats = sorted(strength.MATERIALS)
+    by_name = {p.get("name"): p.get("sha256") for p in parts}
+    pr_cfg = params.get("_print")
+    preset = pr_cfg.get("preset") if isinstance(pr_cfg, dict) else None
+    out, errors = {}, []
+    for t in verify.get("test_prints") or []:
+        name = t.get("name")
+        if "promises" not in t:
+            continue
+        label = f"test print '{name}'"
+        errs = []
+        pr, pp = t.get("promises"), t.get("parts")
+        if not (isinstance(pr, list) and pr and all(isinstance(x, str) and x.strip() for x in pr)):
+            errs.append(f"{label}: promises must list the ids of the promises it checked")
+        if not (isinstance(pp, dict) and pp and all(isinstance(v, dict) and text_field(v, "sha256")
+                                                   and v.get("material") in mats for v in pp.values())):
+            errs.append(f"{label}: parts must map each printed part to its sha256 (from the build JSON handed over) "
+                        f"and the material it was printed in ({', '.join(mats)})")
+        errs += [f"{label}: needs {k}" for k in ("printer", "orientation", "by") if not text_field(t, k)]
+        if "preset" in t and not text_field(t, "preset"):
+            errs.append(f"{label}: preset must be the slicer's process preset name")
+        info = {"name": name, "promises": pr if isinstance(pr, list) else [], "status": str(t.get("status", "")).lower(),
+                "_raw": t}
+        out.setdefault(name, []).append(info)
+        if errs:
+            info["state"] = "error"
+            errors += errs
+            continue
+        notver, assumed = [], []
+        stale = [n for n, v in pp.items() if by_name.get(n) is None or by_name[n] != v["sha256"]]
+        if stale:
+            notver.append(f"it printed {', '.join(stale)} as they were then, not the parts of this build now")
+        if t["by"] != "user":
+            notver.append("only the user prints: by must be \"user\"")
+        for n, v in pp.items():
+            eff = (specs.get(n) or {}).get("material") or params.get("_material")
+            if eff is None:
+                notver.append(f"no material is declared for {n} (_material, or _parts.{n}.material)")
+            elif eff != v["material"]:
+                notver.append(f"{n} was printed in {v['material']}, the part is {eff}")
+        if printer_id is None:
+            notver.append("the build names no printer to compare with")
+        elif t["printer"] != printer_id:
+            notver.append(f"printed on {t['printer']}, the build is for {printer_id}")
+        if t["orientation"] != "as built":
+            notver.append(f"printed {t['orientation']}, not as built")
+        if not isinstance(preset, str) or not preset.strip():
+            assumed.append("the delivered preset is not recorded (_print.preset)")
+        elif t.get("preset") != preset:
+            notver.append(f"printed with preset {json.dumps(t.get('preset'))}, the delivery uses {json.dumps(preset)}")
+        info.update(state="stale" if stale else "fresh", notver=notver, assumed=assumed)
+    return out, errors
+
+
+def check_material_contract(params, specs):
+    """_material, _parts.<name>.material and _print, as declared: strength.py material keys and
+    a preset name. Returns declaration errors."""
+    import strength
+    mats = sorted(strength.MATERIALS)
+    errors = []
+    if "_material" in params and params["_material"] not in mats:
+        errors.append(f"_material must be a strength.py material key ({', '.join(mats)})")
+    for n, spec in specs.items():
+        if "material" in spec and spec["material"] not in mats:
+            errors.append(f"_parts.{n}.material must be a strength.py material key ({', '.join(mats)})")
+    if "_print" in params and not (isinstance(params["_print"], dict)
+                                   and ("preset" not in params["_print"] or text_field(params["_print"], "preset"))):
+        errors.append("_print must be an object whose preset is the slicer's process preset name")
+    return errors
+
+
 def check_measurements(verify, parts):
     """_verify.measurements: saved measure.py reports with --expect. Each entry gets a `result`:
     missing (no readable report with expectations), stale (the file it measured has changed or is
@@ -905,6 +1079,45 @@ def evidence_index(verify, key, entries):
     return index
 
 
+def judged_evidence(k, name, raw, entry, pid, gate):
+    """A seen image or a test print as one promise's evidence: what it adds to the promise's
+    errors, failures, not-verified and assumed reasons, and its result for the report."""
+    what = f"seen '{name}'" if k == "seen" else f"test print '{name}'"
+    out = {"errs": [], "failed": [], "notver": [], "assumed": [], "result": None}
+    if k == "test_print" and entry is None:
+        out["errs"].append(f"{what} lists no promises: a test print used as evidence names the promises it checked, its "
+                           "parts (sha256 and material each), printer, orientation and by")
+        return out
+    if entry.get("state") == "error":
+        out["errs"].append(f"{what} has a declaration error")
+        return out
+    if pid not in (entry.get("promises") or []):
+        out["errs"].append(f"{what} does not list this promise (its promises are what it checked)")
+        return out
+    state = entry.get("state")
+    if k == "seen":
+        out["result"] = entry.get("result") if state == "fresh" else state
+        if state in ("missing", "stale"):
+            out["notver"].append(f"{what}: {entry.get('note')}")
+        elif entry.get("result") == "failed":
+            out["failed"].append(f"{what}: judged failed by the {entry.get('by')}")
+        else:
+            if entry.get("by") != "user":
+                out["notver"].append(f"{what}: only the agent looked at it")
+            bad = [n for n in entry.get("shows") or [] if gate.get(n) == "FAIL"]
+            if bad:
+                out["notver"].append(f"{what} shows {', '.join(bad)}, whose own checks FAIL")
+        return out
+    out["result"] = entry.get("status") if state == "fresh" else state
+    out["notver"] += [f"{what}: {r}" for r in entry.get("notver") or []]
+    out["assumed"] += [f"{what}: {r}" for r in entry.get("assumed") or []]
+    if state == "fresh" and entry.get("status") == "failed":
+        out["failed"].append(f"{what} failed")
+    elif entry.get("status") != "passed" and state == "fresh":
+        out["notver"].append(f"{what}: {entry.get('status')}")
+    return out
+
+
 def promise_state(errs, failed, notver, excluded, assumed, accepted):
     if errs:
         return "error"
@@ -921,12 +1134,13 @@ def promise_state(errs, failed, notver, excluded, assumed, accepted):
     return "verified"
 
 
-def check_promises(verify, params, joints, strength, parts, measurements=()):
+def check_promises(verify, params, joints, strength, parts, measurements=(), seen=(), prints=None):
     """The use tier: each promise made to the user, judged by its own evidence. A promise is
     verified only when it says under which conditions it holds and what counts as success, its
     evidence is of a kind allowed for it, of the current parts and passed, and nothing it rests
     on is an unmeasured size. Returns a dict with tier, promises, counts, dims, errors, open."""
     dims, errors = check_dims(verify, params, measurements)
+    prints = prints or {}
     out = {"tier": "not declared", "promises": [], "counts": {}, "dims": list(dims.values()), "errors": errors,
            "open": []}
     for key, kind_name in (("joints", "joint"), ("strength", "member"), ("measurements", "measurement")):
@@ -967,8 +1181,14 @@ def check_promises(verify, params, joints, strength, parts, measurements=()):
     gate = {p.get("name"): p.get("gate") for p in parts}
     index = {"joint": evidence_index(verify, "joints", joints),
              "strength": evidence_index(verify, "strength", strength),
-             "measurement": evidence_index(verify, "measurements", measurements)}
-    where_of = {"joint": "_verify.joints", "strength": "_verify.strength", "measurement": "_verify.measurements"}
+             "measurement": evidence_index(verify, "measurements", measurements),
+             "seen": evidence_index(verify, "seen", seen), "test_print": {}}
+    for t in verify.get("test_prints") or []:
+        if isinstance(t.get("name"), str):
+            info = next((i for i in prints.get(t["name"], []) if i.get("_raw") is t), None)
+            index["test_print"].setdefault(t["name"], []).append((t, info))
+    where_of = {"joint": "_verify.joints", "strength": "_verify.strength", "measurement": "_verify.measurements",
+                "seen": "_verify.seen", "test_print": "_verify.test_prints"}
     for i, pr in enumerate(promises or []):
         pid, kind = pr.get("id"), pr.get("kind")
         ok_id = isinstance(pid, str) and bool(pid.strip())
@@ -1038,6 +1258,18 @@ def check_promises(verify, params, joints, strength, parts, measurements=()):
                 errs.append(f"{len(matches)} entries in {where} are named '{name}'")
                 continue
             raw, entry = matches[0]
+            if k in ("seen", "test_print"):
+                judged = judged_evidence(k, name, raw, entry, pid, gate)
+                errs += judged["errs"]
+                failed += judged["failed"]
+                notver += judged["notver"]
+                assumed += judged["assumed"]
+                if not judged["errs"]:
+                    ev = {k: name, "result": judged["result"]}
+                    if "covers" in item:
+                        ev["covers"] = item["covers"]
+                    ev_out.append(ev)
+                continue
             res = entry.get("result")
             ev = {k: name, "result": res}
             if "covers" in item:
@@ -1409,7 +1641,15 @@ def finalize(args):
     out["test_prints"] = prints
     measurements = check_measurements(verify, parts)
     out["measurements"] = measurements
-    use = check_promises(verify, params, joints, strength, parts, measurements)
+    seen, seen_errors = check_seen(verify, parts)
+    out["seen"] = seen
+    print_info, print_errors = check_print_evidence(verify, parts, params, specs, current_printer(settings))
+    use = check_promises(verify, params, joints, strength, parts, measurements, seen, print_info)
+    extra = seen_errors + print_errors + check_material_contract(params, specs)
+    if extra:
+        use["errors"] += extra
+        use["open"][:0] = extra
+        use["tier"] = "error"
     out["use"] = use["tier"]
     out["promises"], out["promise_counts"], out["dims"] = use["promises"], use["counts"], use["dims"]
     out["promise_errors"] = use["errors"]

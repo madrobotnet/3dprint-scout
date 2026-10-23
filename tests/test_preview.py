@@ -125,6 +125,28 @@ class Preview(unittest.TestCase):
         code, out = run(self.box, "-o", png, "--views", "iso", "--size", "300x300", "--overwrite")
         self.assertEqual(code, 0)
 
+    def test_a_sidecar_ties_each_image_to_its_parts(self):
+        """0.7.0 step 3: next to each image, its sha256, the views and each STL drawn with its
+        sha256; a sidecar left behind also stops a new image without --overwrite."""
+        import validate
+        stem = os.path.join(self.d, "s.png")
+        code, out = run(self.box, self.peg, "-o", stem, "--separate", "--views", "iso,top", "--size", "300x300")
+        self.assertEqual(code, 0, out["errors"])
+        for f in out["files"]:
+            self.assertEqual(f["sidecar"], f["path"] + ".json")
+            with open(f["sidecar"], encoding="utf-8") as fh:
+                side = json.load(fh)
+            self.assertEqual(side["schema"], preview.IMAGE_SCHEMA)
+            self.assertEqual(side["image_sha256"], validate.file_sha256(f["path"]))
+            self.assertEqual(side["views"], f["views"])
+            self.assertEqual([x["sha256"] for x in side["stls"]], [validate.file_sha256(self.box),
+                                                                   validate.file_sha256(self.peg)])
+        for f in out["files"]:
+            os.remove(f["path"])                                                   # the sidecars are left behind
+        code, out = run(self.box, self.peg, "-o", stem, "--separate", "--views", "iso,top", "--size", "300x300")
+        self.assertEqual(code, 1)
+        self.assertIn("s_iso.png.json already exists", out["errors"][0])
+
     def test_usage_and_file_errors_are_json(self):
         code, out = run(self.box, "-o", os.path.join(self.d, "x.png"), "--views", "diagonal")
         self.assertEqual(code, 1)

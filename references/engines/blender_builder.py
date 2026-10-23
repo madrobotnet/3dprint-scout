@@ -97,6 +97,9 @@ VIEWS = {
     "bottom": ((0.0, 0.0, -1.0), (0.0, 1.0, 0.0)),
 }
 DEFAULT_VIEWS = ["iso", "front", "right", "top"]
+VIEW_LABELS = {"en": {v: v.upper() for v in VIEWS},
+               "ko": {"iso": "등각", "front": "앞", "right": "오른쪽", "left": "왼쪽", "back": "뒤", "top": "위",
+                      "bottom": "아래"}}
 PALETTE = ["#4682b4", "#dd783c", "#5aa05a", "#a064b4", "#c8aa32", "#50aab4"]
 NEUTRAL = (0.5, 0.5, 0.5)               # an unknown filament name: neutral grey, never a question
 BACKGROUND = (0.965, 0.965, 0.965)    # sRGB, as preview.py's (246, 246, 246)
@@ -165,6 +168,7 @@ def cli_args(argv=None):
     r.add_argument("--engine", default="workbench", choices=ENGINE_NAMES)
     r.add_argument("--color", action="append", default=[], help="part=filament name or #rrggbb (repeatable)")
     r.add_argument("--label", help="caption (default: the size in mm)")
+    r.add_argument("--lang", default="en", choices=sorted(VIEW_LABELS), help="language of the view names")
     r.add_argument("--overwrite", action="store_true", help="replace an existing PNG (out/ is the working folder)")
     if args and args[0] in ("build", "render"):
         return ap.parse_args(args)
@@ -2777,7 +2781,7 @@ def _setup_engine(sc, engine):
 
 
 def render_views(out, views=None, colors=None, engine="workbench", size=(1600, 1200), objects=None, label=None,
-                 overwrite=False):
+                 overwrite=False, lang="en"):
     """Render the given objects (default: the registered parts) from `views` into one PNG grid
     at `out` (width, height), Workbench by default (headless, no GPU needed; eevee and cycles
     on request), part colours from `colors` {part: (r, g, b)} or the palette. The per-view
@@ -2794,6 +2798,9 @@ def render_views(out, views=None, colors=None, engine="workbench", size=(1600, 1
         raise ValueError(f"unknown views {bad}; choose from {list(VIEWS)}")
     if engine not in ENGINE_NAMES:
         raise ValueError(f"engine must be one of {ENGINE_NAMES}")
+    if lang not in VIEW_LABELS:
+        raise ValueError(f"lang must be one of {list(VIEW_LABELS)}")
+    names = VIEW_LABELS[lang]
     objects = list(objects) if objects is not None else [p["object"] for p in _PARTS.values()]
     if not objects:
         raise ValueError("nothing to render")
@@ -2833,7 +2840,7 @@ def render_views(out, views=None, colors=None, engine="workbench", size=(1600, 1
     try:
         for i, v in enumerate(views):
             cam = _camera_for(v, lo, hi, scale, aspect)
-            lab = _label(cam, f"{v.upper()}   {caption}" if i == 0 else v.upper(), scale, aspect, materials)
+            lab = _label(cam, f"{names[v]}   {caption}" if i == 0 else names[v], scale, aspect, materials)
             temp_objects += [cam, lab]
             sc.camera = cam
             tmp = os.path.join(tmpdir, f"{v}.png")
@@ -3044,7 +3051,8 @@ def render_cli(args):
     colors, warnings = parse_colors(args.color, names)
     views = [v.strip().lower() for v in args.views.split(",") if v.strip()]
     w, h = (int(x) for x in args.size.lower().split("x"))
-    rep = render_views(out, views, colors, args.engine, (w, h), objects, args.label, overwrite=args.overwrite)
+    rep = render_views(out, views, colors, args.engine, (w, h), objects, args.label, overwrite=args.overwrite,
+                       lang=getattr(args, "lang", "en"))
     rep["parts"] = [{"name": n, "colour": rgb_hex(colors[n]),
                      "drawn": rgb_hex(preview_rgb(colors[n]))} for n in names]
     rep["colour_note"] = COLOUR_TABLE_NOTE
