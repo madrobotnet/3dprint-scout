@@ -1876,7 +1876,7 @@ def bundle_contents(verify, build, deliver=None, joints=None):
             proxies.setdefault(place, (
                 f'python3 "$SKILL_DIR/scripts/build.py" run {shlex.quote(bundle_path(src))} --params '
                 f"{shlex.quote(bundle_path(prm))} --proxy {shlex.quote(','.join(str(p.get('name')) for p in stls))} "
-                f"--out {shlex.quote(out)} > {shlex.quote(place)}"))
+                f"--engine {b['engine']} --out {shlex.quote(out)} > {shlex.quote(place)}"))   # as built, not auto
             built.update(os.path.normcase(os.path.abspath(p["stl"])) for p in stls)
         else:                                                    # built again it would be another proxy
             for p in stls:

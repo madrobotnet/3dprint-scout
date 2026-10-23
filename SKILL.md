@@ -305,8 +305,8 @@ with every promise not verified; never exclude a promise (nobody can agree). If 
 slicer are unknown, deliver STL per part plus a core 3MF, mark D2
 UNVERIFIED, and say at the top that the printer was not confirmed. A skipped fit test or
 mechanism-first print goes into `_assumptions` like any other stop; `calibration.py add` is never
-run, nobody said yes. G9 still applies: the updates go into the progress notes. Two exceptions: if a dimension the part must fit cannot be sourced, stop
-rather than guess; and never overwrite a user original or delivered version. Updating the current
+run, nobody said yes. G9 still applies: the updates go into the progress notes. Two exceptions: if a size the part must fit has no source for the user's own object (a typical
+size of another product is no source), stop rather than guess; and never overwrite a user original or delivered version. Updating the current
 project's working state remains allowed under the file-protection rule above.
 
 ## Files

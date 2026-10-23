@@ -193,8 +193,9 @@ plug head, and how far it sticks out." When they cannot (no tool, the object is 
 take the best source you have as `assumed`, offer a test print of that fit (`fit_test.py`
 pieces, a few grams, Phase 4), and say it in one line: "I assumed the plug head is 13 × 8 mm,
 and the cable notch rests on that; a small test piece would confirm it." Unattended runs cannot
-ask: a size is `spec` or `assumed` from a source you found, and a size the part must fit with no
-source at all stops the run (SKILL.md, "Unattended runs").
+ask: a size is `spec` or `assumed` from a source you found for the user's own object, and a size
+the part must fit with no such source stops the run (a typical size of another product is no
+source; SKILL.md, "Unattended runs").
 
 When a measurement arrives later, change `source` and the value together in the dims entry,
 params.json and any proxy's own params file (with `"by": "user"` for a caliper value). A new
