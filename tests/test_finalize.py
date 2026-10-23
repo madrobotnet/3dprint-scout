@@ -2574,5 +2574,83 @@ class BundleFromTheScripts(unittest.TestCase):
         self.assertEqual([(p["id"], p["state"]) for p in again["promises"]], [(p["id"], p["state"]) for p in out["promises"]])
 
 
+@unittest.skipUnless(find_spec("bpy") is not None and HAS_M3D, "bpy module or manifold3d not installed")
+class BundleFromABlenderBuild(unittest.TestCase):
+    """A Blender project bundled, then rebuilt from its REPRODUCE.md: the parts are the same bytes
+    again, so the evidence tied to them by sha256 (a look at a preview, a test print, a strength
+    report linked to the build) reaches the same verdict. Before 0.7.0's fix every Blender build
+    wrote the same triangles in another order (and a manifold3d part other triangles), and the
+    bundle lost all three."""
+
+    PRESET = BundleFromTheScripts.PRESET
+    PRINTERS = BundleFromTheScripts.PRINTERS
+    write = staticmethod(BundleFromTheScripts.write)
+    script = staticmethod(BundleFromTheScripts.script)
+
+    def setUp(self):
+        from test_build import BLENDER_REBUILD_GEN
+        self.tmp = tempfile.mkdtemp(prefix="3dps-bundle-blender-")
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.cwd = os.getcwd()
+        os.chdir(self.tmp)
+        self.addCleanup(os.chdir, self.cwd)
+        for d in (".3dprint", "out", "photos", "deliver"):
+            os.makedirs(d)
+        with open("stand.py", "w") as f:
+            f.write(BLENDER_REBUILD_GEN)
+        self.write(".3dprint/printers.json", self.PRINTERS)
+
+    def params(self, verify=None):
+        self.write(".3dprint/params.json", {"_material": "pla_basic", "_print": {"preset": self.PRESET},
+                                             "_parts": {"block": {"expect": [40, 30, 12]}, "cap": {"expect": [20, 12, 6]}},
+                                             "_verify": verify or {}})
+
+    def test_the_bundle_rebuilds_the_same_stls_and_reaches_the_same_verdict(self):
+        import validate
+        self.params()
+        code, built = self.script("build.py", "run", "stand.py", "--params", ".3dprint/params.json", "--printer",
+                                  ".3dprint/printers.json", "--out", "out", save="out/build.json")
+        self.assertEqual((built["engine"], built["gate"]), ("blender", "PASS"), built["errors"])
+        code, member = self.script("strength.py", "beam", "--from-build", "out/build.json", "--part", "block",
+                                   "--param", "h=h", "--param", "b=d", "--param", "length=w", "--param", "support=support",
+                                   "--load", "finger_push", save="out/strength_block.json")
+        self.assertEqual(member["gate"], "PASS", member)
+        self.script("preview.py", "out/block.stl", "out/cap.stl", "-o", "out/look.png", "--size", "400x300")
+        with open("photos/print.jpg", "wb") as f:
+            f.write(b"\xff\xd8\xff\xe0 the user's photo of the print")
+        from test_bambu3mf import make_template
+        make_template("template.3mf", filament_settings_id=["Bambu PLA Basic @BBL X1C"], print_settings_id=self.PRESET)
+        self.write("job.json", {"template": "template.3mf", "out": "deliver/stand_bambu.3mf",
+                                "parts": [{"name": n, "stl": f"out/{n}.stl", "filament": 1} for n in ("block", "cap")]})
+        self.script("bambu3mf.py", "job.json")                      # its manifest names each STL by its sha256
+        sha = {p["name"]: p["sha256"] for p in built["parts"]}
+        self.params({
+            "promises": [
+                {"id": "plain", "kind": "look", "text": "a plain block and cap", "evidence": [{"seen": "iso"}]},
+                {"id": "push", "kind": "use", "text": "the block takes a finger push", "conditions": "pushed at the end",
+                 "success": "no break", "evidence": [{"strength": "block"}]},
+                {"id": "in-hand", "kind": "use", "text": "it feels right in the hand", "conditions": "held",
+                 "success": "the user says so", "evidence": [{"test_print": "first print"}]}],
+            "strength": [{"name": "block", "report": "out/strength_block.json"}], "joints": [],
+            "seen": [{"name": "iso", "image": "out/look.png", "image_sha256": validate.file_sha256("out/look.png"),
+                      "by": "user", "promises": ["plain"], "result": "passed"}],
+            "test_prints": [{"name": "first print", "status": "passed", "promises": ["in-hand"], "printer": "x1c",
+                             "orientation": "as built", "by": "user", "preset": self.PRESET, "photos": ["photos/print.jpg"],
+                             "parts": {n: {"sha256": s, "material": "pla_basic"} for n, s in sha.items()}}],
+            "accepted": [], "unverified": [],
+            "references": {n: {d: "real" for d in finalize.DIRECTIONS} for n in sha}})
+        code, out = self.script("finalize.py", "--build", "out/build.json", "--params", ".3dprint/params.json",
+                                "--deliver", "deliver", "--bundle", "deliver/source")
+        self.assertEqual(code, 0, out["errors"])
+        states = {p["id"]: p["state"] for p in out["promises"]}
+        self.assertEqual((out["use"], states), ("verified", {"plain": "verified", "push": "verified", "in-hand": "verified"}),
+                         out["open"])
+        with open("deliver/source/REPRODUCE.md", encoding="utf-8") as f:
+            self.assertIn('build.py" run stand.py --engine blender ', f.read())
+        again = reproduce("deliver/source")
+        self.assertEqual(verdict(again), verdict(out))
+        self.assertEqual({n: validate.file_sha256(os.path.join("deliver/source/out", n + ".stl")) for n in sha}, sha)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -45,7 +45,9 @@ every hard FAIL of a part, an object or an assembly check is one line in "errors
 A missing printers.json is a warning (D2 stays UNVERIFIED), not a failure.
 
 `--out` (default out/) is the build's working folder: every run rewrites its STLs,
-manifests and <source>.3mf. Deliverables are copied elsewhere as new files (SKILL.md).
+manifests and <source>.3mf. `run` writes each STL's triangles in a canonical order, so an
+unchanged generator, parameters and engine give the same bytes (the same sha256) again.
+Deliverables are copied elsewhere as new files (SKILL.md).
 `run --only latch,keeper` builds only those parts: a few-gram test print of a mechanism
 before the whole part (SKILL.md, Phase 4). Use a separate --out so the full build's
 artifacts stay fresh. `run plug.py --proxy plug --out out/plug` builds a proxy of a mating
@@ -822,6 +824,41 @@ def write_binary_stl(path, verts, tris):
             f.write(struct.pack("<12fH", n[0] / ln, n[1] / ln, n[2] / ln, *p, *q, *r, 0))
 
 
+def canonical_stl(path: str) -> bool:
+    """Put a binary STL's triangles in one order: sorted by their raw 50-byte records (normal,
+    three vertices, attribute), each record kept whole, so every triangle keeps its normal and
+    its own vertex order (winding) and the file holds the same triangles; the header is kept.
+    Blender (bmesh's extrude, for one) and OpenSCAD (CGAL) write the same triangles in an order
+    that changes from run to run; sorted, building the same generator again with the same parameters, engine
+    and library versions writes the same bytes, and the sha256 that evidence is tied to holds.
+    The sorted file replaces the old one in one step (a twin in the same folder, same mode).
+    Returns False, leaving the file alone, when it is not a plain binary STL (missing, 0 bytes,
+    ASCII, truncated, bytes after the last triangle): G4 judges it."""
+    try:
+        with open(path, "rb") as f:
+            data = f.read()
+    except OSError:
+        return False
+    n = struct.unpack_from("<I", data, 80)[0] if len(data) >= 84 else 0
+    if n == 0 or len(data) != 84 + 50 * n:
+        return False
+    records = [data[i:i + 50] for i in range(84, len(data), 50)]
+    ordered = sorted(records)
+    if ordered == records:
+        return True
+    fd, twin = tempfile.mkstemp(prefix=".canonical-", suffix=".stl", dir=os.path.dirname(os.path.abspath(path)))
+    try:
+        with os.fdopen(fd, "wb") as f:
+            f.write(data[:84])
+            f.write(b"".join(ordered))
+        shutil.copymode(path, twin)
+        os.replace(twin, path)
+    except BaseException:
+        _remove(twin)
+        raise
+    return True
+
+
 # --------------------------------------------------------------------------- #
 # Validation of every part
 # --------------------------------------------------------------------------- #
@@ -1173,6 +1210,18 @@ def cmd_run(args) -> dict:
         out.update(ran=False, gate="FAIL", R4="FAIL")
         out["errors"].append(str(exc))
         return out
+    # One triangle order for every STL the engine just wrote into --out, before anything hashes
+    # it (manifests, validation, the sha256 finalize ties evidence to): Blender and OpenSCAD
+    # write the same triangles in another order on each run. Here, not in blender_builder.py:
+    # this runs for every engine, both Blender modes, --only and --proxy, whichever copy of
+    # blender_builder.py the generator imports. `record` never comes here: an STL exported
+    # elsewhere stays as it is.
+    for p in parts:
+        try:
+            canonical_stl(p["stl"])
+        except OSError as exc:
+            out["warnings"].append(f"{p['name']}: the STL could not be rewritten in canonical triangle order ({exc}); "
+                                   "a rebuild may write the same triangles in another order, with another sha256")
     out["warnings"] += info.pop("warnings", [])
     # What the parts were built with: merged with the generator's defaults when the engine knows
     # them (a Python DEFAULTS, Blender PARAMETERS), else the params.json values (OpenSCAD).
