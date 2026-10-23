@@ -60,8 +60,8 @@ you to choose. Nozzle and material take their defaults without a new question.
 the build records each part's material, `strength.py --from-build` takes it from there, and
 test prints and the delivered print file are compared with it (`references/checks.md`).
 
-- `_material`: the filament the user prints with, as a `strength.py` material key (`pla_basic`,
-  `petg_hf` ...: the table in `references/materials.md`). A part printed in another gets its
+- `_material`: the filament the user prints with, as a `strength.py` material key (`pla_basic`
+  for PLA; any other from the table in `references/materials.md`). A part printed in another gets its
   own: `"_parts": {"latch": {"expect": [12, 6, 4], "material": "petg_basic"}}`. Ask only when
   the material matters (a member carries load, the part sits in a car or in the sun), in plain
   words: "Which filament will you print it in? PLA is fine if you're not sure." When the user
