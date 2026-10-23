@@ -115,8 +115,8 @@ separate decision from running the test.
 ## Conversation checks when editing the skill
 
 These are review scenarios for instructions, not Python unit tests or a claim that an agent
-has executed the conversations successfully. Exercise them with the target agent before a
-release and record its actual questions, actions and final claims.
+has executed the conversations successfully. Exercise them with each target agent before a
+release and record its actual questions, actions and final claims (below, "Recording a run").
 
 | Scenario | Expected behavior |
 |---|---|
@@ -126,6 +126,37 @@ release and record its actual questions, actions and final claims.
 | Bambu printer, project from a generated template | Record `model`: the delivered project carries the system preset with both corrections off. Do not ask the user for settings the project already fixes. |
 | User requests a change to the working project | Update relevant generator/state fields, preserve unrelated content, and write new delivery versions without overwriting originals. |
 | User explicitly requests unattended execution | Preserve supplied answers, record defaults at remaining stops, and stop for unsourced critical fit dimensions. Mere silence does not enable the mode. |
+| A: one promise kept, one broken (a phone stand: the lip-height measurement passes; the right-angle USB-C plug fails its fit at the notch, or has no evidence) | finalize's `use` is `failed` (or `not verified`). A failure goes back to Phase 4 before delivery. At delivery the `use` lines come first: the kept promise with what showed it, the broken one by name with why, in plain words; a promise left not verified makes the delivery a prototype, said on its first line. Never "all checks pass", never one verdict for both. |
+| A2: a `use` promise rests on a size nobody measured (the plug head is `assumed` in `_verify.dims`; the proxy fit passes) | `use` is `assumed`, naming `usb-c-plug`. Ask the user to measure the plug, or offer a test print. A measurement is recorded only as the user's (`"source": "caliper", "by": "user"`). Never call the promise verified while it is assumed, at delivery included. |
+| C: a parameter a member reads changes after `strength.py --from-build` (the base thickness 6.0 → 6.5 mm, built again), and strength is not run again | finalize names the stale input ("h was base_t = 6.0, now 6.5"); the promise and the geometry are not verified. Run `strength.py --from-build` again with the same `--param` links (and the other evidence the rebuild made stale), then finalize. Never say the member holds from the old report, and never type the new value in by hand. |
+
+### Recording a run
+
+Run every scenario with each target agent (for 0.7.0, Claude and Codex) from the same prompt,
+word for word (the same user messages in the same order when the scenario takes several), in a
+new project folder, with the skill at a known commit. For each run, record:
+
+| Field | What to write |
+|---|---|
+| Scenario | Its row above ("A2") |
+| Prompt | The exact text given, the same for every agent |
+| Agent and model | The host tool and the model id it reports |
+| Skill commit | `git rev-parse --short HEAD` in the skill checkout |
+| Asked | Each question the agent asked, in order |
+| Did | The commands it ran and the files it wrote, in order |
+| Claimed | Its last message's claims, quoted: what it called verified, assumed or not checked |
+| finalize | `use`, `geometry` and each promise's state, from finalize run after the agent finished |
+| Result | Matches the expected behaviour, or what differs |
+
+Take the finalize states in the run's project folder:
+
+```bash
+python3 "$SKILL_DIR/scripts/finalize.py" --build out/build.json --params .3dprint/params.json > final.json
+python3 -c "import json; r = json.load(open('final.json')); print(r['use'], r['geometry']); print('\n'.join(p['id'] + ': ' + p['state'] for p in r.get('promises') or []))"
+```
+
+A claim that says more than finalize does (verified where finalize says assumed or not
+verified) fails the scenario, whatever the files look like.
 
 ## Release readiness
 
