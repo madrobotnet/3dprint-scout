@@ -19,7 +19,7 @@ and re-run", below).
 
 | Scenario | Prompt | Agent and model | Skill commit | Asked | Did | Claimed | finalize | Result |
 |---|---|---|---|---|---|---|---|---|
-| given-answers | `given-answers.md` @ b6134c8 | Claude Code-based harness subagent, claude-opus-5-5 | e2f7953 (v070-rerun; content of main ecc5036 + kit b6134c8) | Concept pick (3 variants); Phase 2: the sizes taken at the widest point of the lower third? ("Asks again" row), clearance 1.3 mm a side?; base-shape look (pockets, mouth rounds and top chamfer already built) and "keep the P3 warning or add a 1 mm band?" (fallback) | Reference table without an A–D stop; `printers.json` (MK4, 250 × 210 × 220, PrusaSlicer, holes `unknown`) from the message; dims both remotes caliper/user; Blender holder; proxy fits with 1.3 mm play and lift-out, two measurements; the P3 warning left unaccepted, "the user handed the decision to me; not accepted"; no Phase 5 rebuild; STL + core 3MF + bundle in `deliver/2026-10-23`; finalize `--deliver` | "처음에 약속한 6가지: 모두 확인됨", one line each (the two looks share one); `stable` "계산했어요 … 약 17.7°"; the warning "열린 항목으로 남겨 두었어요 … '완전 확인'으로 표시되지 않아요"; not sliced or printed | `use` verified, `geometry` not verified (P3 open); insert-remotes, dip-third, wide-foot, stable, side-by-side, mouth-round verified | Differs: the base-shape look came after the mouth rounds and chamfer were built (skill); `geometry` not verified, the P3 warning the user handed back left open (the skill's path, against the kit's `geometry` must); Korean throughout (harness-only: English "Status:" blocks in every hand-back). Should missed: the widest-point question. Agreement holds |
+| given-answers | `given-answers.md` @ b6134c8 | Claude Code-based harness subagent, claude-opus-5-5 | e2f7953 (v070-rerun; content of main ecc5036 + kit b6134c8) | Concept pick (3 variants); Phase 2: the sizes taken at the widest point of the lower third? ("Asks again" row), clearance 1.3 mm a side?; base-shape look (pockets, mouth rounds and top chamfer already built) and "keep the P3 warning or add a 1 mm band?" (fallback) | Reference table without an A–D stop; `printers.json` (MK4, 250 × 210 × 220, PrusaSlicer, holes `unknown`) from the message; dims both remotes caliper/user; Blender holder; proxy fits with 1.3 mm play and lift-out, two measurements; the P3 warning left unaccepted, "the user handed the decision to me; not accepted"; no Phase 5 rebuild; STL + core 3MF + bundle in `deliver/2026-10-23`; finalize `--deliver` | "처음에 약속한 6가지: 모두 확인됨", one line each (the two looks share one); `stable` "계산했어요 … 약 17.7°"; the warning "열린 항목으로 남겨 두었어요 … '완전 확인'으로 표시되지 않아요"; not sliced or printed | `use` verified, `geometry` not verified (P3 open); insert-remotes, dip-third, wide-foot, stable, side-by-side, mouth-round verified | Differs: the base-shape look came after the mouth rounds and chamfer were built (skill); `geometry` not verified, the P3 warning the user handed back left open (the skill's path; the item was clarified after grading and holds under the new wording); Korean throughout (harness-only: English "Status:" blocks in every hand-back). Should missed: the widest-point question. Agreement holds |
 | given-answers | | Codex | | | | | | |
 | choice-d | `choice-d.md` @ 8a663aa | Claude Code-based harness subagent, claude-opus-5-5 | 1a9acb8 | A–D after four MakerWorld models, plus optional desk thickness and cable type (fallback) | Wrote nothing (only `build.py detect`); handoff of model 1 (GH05TU, CC BY-NC-SA) with URL, licence terms and download steps | "아직 확인되지 않은 것": desk fit, 3 vs 5 cables on the page, size and bed fit ("프린터도 확인하지 않았어요"), "슬라이싱 결과와 출력 품질: 아무것도 검증하지 않았어요"; page facts "만든 사람의 설명이고, 제가 확인한 건 아니에요" | n/a (choice D) | Matches |
 | choice-d | | Codex | | | | | | |
@@ -80,6 +80,22 @@ The agreement item holds in all four attended re-runs: no `accepted` entry, no e
 prototypes (bambu-template) and the prototype claim (holes-unknown) on replies to questions that
 named them, and each fallback (holes-unknown, bambu-template, given-answers) recorded as handed
 back, never as agreement.
+
+### Checklist clarifications after the re-run
+
+The re-run grading found four items unclear; the kit now says, and the Codex runs are graded by,
+the following. Only the first changes a mark above, and the records keep the mark as graded with
+a note:
+
+- given-answers, the finalize item: `geometry` is `verified`, or `not verified` only by a WARN
+  the user handed back that stays open, is recorded as handed back and is named at delivery.
+  Under this wording the given-answers re-run holds that item; it still differs on the look
+  taken after the features.
+- unattended, the opening item: no result line comes before what was decided alone (graded so).
+- The agreement item, in every attended scenario: a question asked earlier about the same named
+  promise counts (graded so).
+- bambu-template, asking: one optional question for the Bambu Studio version is not a failure
+  (graded so).
 
 ## Claude runs: setting and confounds
 

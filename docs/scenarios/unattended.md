@@ -79,7 +79,7 @@ Delivering:
 
 Claiming (the last message):
 - [ ] **must** In Korean throughout. It opens with what was decided alone (the defaults and the
-  stops taken) and every promise not verified, prototypes first; it never says the user chose,
+  stops taken) and every promise not verified, prototypes first, with no result line before them; it never says the user chose,
   approved or looked at anything except giving the case's size.
 - [ ] **must** Nothing called verified that finalize does not call verified.
 

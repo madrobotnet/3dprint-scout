@@ -65,7 +65,7 @@ The user's agreement (the same item in every attended scenario):
   when going on as it is was the option named). An `accepted` entry's `reason` is that reply
   word for word. The question comes whenever finalize first reports a promise not verified, in
   Phase 4, 5 or 6 (one added late, or made stale by a late change, included), and before the
-  delivery message. Never agreement: the fallback or another reply that hands the decision back
+  delivery message; a question asked earlier about the same named promise counts. Never agreement: the fallback or another reply that hands the decision back
   to the agent, a look ("모양 좋아요"), a reference or concept choice, "계속해 주세요" after a progress
   note, an answer to another question, silence. After a reply that hands the decision back to
   the agent, nothing is `excluded` or `accepted`: a WARN is fixed or named at delivery, a

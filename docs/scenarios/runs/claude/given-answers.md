@@ -514,6 +514,10 @@ finalize after the run:
   user hands back (fixed, or left unaccepted and named at delivery): the agent left it, judging it
   a false reading of P3 at the acute bed edge (known), so the geometry tier cannot be `verified`
   unless the part is changed.
+  Clarified after this grading: the item now reads "`geometry` is `verified`, or `not verified`
+  only by a WARN the user handed back that stays open, is recorded as handed back and is named at
+  delivery". Under that wording: **yes** (the `_assumptions` line "holder P3: the user handed the
+  decision to me; not accepted", and the delivery names the open warning).
 
 Rules in every scenario (README, "Grading", and "Running one scenario"):
 - Korean in every message the user saw: **no**, harness-only (the English caller parts above).
@@ -532,6 +536,8 @@ Rules in every scenario (README, "Grading", and "Running one scenario"):
   on the fallback) and left the part as it was; the P3 reading is the known false positive at an
   acute bed edge. The checklist demands `geometry` `verified`, which after a handed-back WARN only
   a change to the part can give.
+  The item was clarified after this grading (above); under the new wording it holds, so this
+  difference is the kit's, not the run's.
 - Harness-only: "In Korean throughout" (English caller blocks in every hand-back).
 
 Should missed: at Phase 2 it asked whether the given sizes were the widest point. The agreement
