@@ -43,9 +43,8 @@ Write one generator script:
   review points, not build steps.
 - OpenSCAD: set `$fa = 1; $fs = 0.4;` so curved parts meet D1.
 - **Split into parts** what has its own job or may get its own colour (latches, levers, labels,
-  signs, inserts): separate bodies that touch the main body (shared faces, no union), seams in
-  low-stress places; print-in-place pieces keep their clearance. Never ask the user about
-  colours: split, give every part the main filament, say so at delivery (`references/parts.md`).
+  signs, inserts): where the seam goes, `references/design.md`; the `_parts` entries,
+  `references/parts.md`.
 - **Members that carry load** (pins, knuckles, levers, links, hooks, latch bars) are sized by
   their duty, not by P3's 1.2 mm, and listed with their section in the dimension table (P7);
   **a mechanism never silently grows the object**: both in `references/design-mechanisms.md`.

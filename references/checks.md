@@ -29,7 +29,7 @@ reports, the user's files (`ref/`) and photos (`photos/`) inside the project fol
 | `measurements` | `name`, `report` (a saved `measure.py --expect` report); optional `dims` |
 | `seen` | `name`, `image`, `image_sha256` (copied from the image's sidecar when the user judges it), `by` (`user` or `agent`), `promises`, `result` (`passed` or `failed`); optional `note` |
 | `test_prints` | below |
-| `accepted` | A WARN the user accepted: `{"check": "<name>", "reason": "<the user's reason>"}`, named as `open` lists it: `<part> <check>` (`lid A2`), `object <name> <check>`, `joint <name> <check>` or `member <name>`; a FAIL cannot be accepted. A promise the user takes unverified: `{"promise": "<id>", "reason": "<their words>", "by": "user"}`. Either `reason` is the user's reply, word for word, to a question that named that WARN or promise (`references/phase-4-features-joints.md`, "What counts as agreement"); a look, a "you decide", an earlier answer or silence makes no entry |
+| `accepted` | A WARN the user accepted: `{"check": "<name>", "reason": "<the user's reason>"}`, named as `open` lists it: `<part> <check>` (`lid A2`), `object <name> <check>`, `joint <name> <check>` or `member <name>`; a FAIL cannot be accepted. A promise the user takes unverified: `{"promise": "<id>", "reason": "<their words>", "by": "user"}`. Either `reason` is the user's reply, word for word, to a question that named it (`references/phase-4-features-joints.md`, "What counts as agreement") |
 | `unverified` | Lines of text: estimated sizes no promise rests on (a size a promise rests on is a `dims` entry) |
 | `references` | Per object, each direction (`front`, `back`, `left`, `right`, `top`, `bottom`): `real`, `estimated` or `assumed` |
 

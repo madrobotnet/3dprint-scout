@@ -62,9 +62,8 @@ It also refuses a carried file that the rebuild writes again (a core 3MF a measu
 or a delivery made into `out/`: deliver into a folder of its own) or a file at a name the
 bundle writes itself (`build.json`, `REPRODUCE.md`, ...), and a printers.json the build used
 that is gone when the build judged an object of several parts with it.
-A generator that reads a data file of its own (not a Python import, an OpenSCAD include or a
-Blender library) is rebuilt without it: neither the freshness check nor the bundle tracks such a
-file, so keep those numbers in DEFAULTS / PARAMETERS or params.json (Phase 3).
+A generator that reads a data file of its own is rebuilt without it (Phase 3, "Read no data
+file of your own").
 
 The bundle refuses any file it would carry, or the `--deliver` folder, outside the project
 folder (a part STL or the core 3MF too, and a link inside the folder to a file outside it),

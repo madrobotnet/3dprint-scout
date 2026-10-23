@@ -30,9 +30,7 @@ Standard library only. Always prints one JSON document, even on errors.
 }
 ```
 
-`gate` is **PASS** (every hard check passed or N/A), **FAIL** (any hard FAIL or a broken
-artifact), or **INCOMPLETE** (no FAIL, but some hard check is UNVERIFIED). Never present
-INCOMPLETE as PASS; name what is unverified and why. Soft checks never change the gate.
+`gate` is PASS, FAIL or INCOMPLETE, as SKILL.md's "Checklist and gate" defines them.
 
 Exit code 0 means it ran (read `gate`), 2 means a broken artifact (G4), 1 means a usage or
 internal error. A failed artifact has `artifact_sane: false` and `artifact_error`, and no checks.

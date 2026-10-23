@@ -11,8 +11,8 @@ carry load), with `parts.py` building them in the Python engine.
 Each check below is evidence of a promise (Phase 1) once its report is saved: declare it in
 `_verify` as you save it (the format: `references/checks.md`, "The `_verify` declarations") and
 name it in the `evidence` of the promise it checks. A part's own checks (D1, M1, ...) are never
-evidence of a promise. Run every check from the project folder with relative paths, as below:
-the reports record the paths they are given, and the bundle refuses an absolute one.
+evidence of a promise. Run every check from the project folder with relative paths, as below
+(`references/checks.md`).
 
 ## Every joint from both sides (F3)
 
