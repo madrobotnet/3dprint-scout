@@ -1961,7 +1961,8 @@ class FinalizeBundle(FinalizePromises):
         self.assertIn("deliver/source/deliver/set.3mf.manifest.json", out["bundle"])
         self.assertNotIn("deliver/source/" + built["threemf"] + ".manifest.json", out["bundle"])
         with open("deliver/source/REPRODUCE.md", encoding="utf-8") as f:
-            self.assertIn(f"manifest of deliver/set.3mf, found at {built['threemf']}.manifest.json", f.read())
+            self.assertIn(f"manifest of deliver/set.3mf, found at {built['threemf'].replace(os.sep, '/')}.manifest.json",
+                          f.read())                                    # a bundle path: / on Windows too
         self.export()
         self.assertEqual(verdict(reproduce("deliver/source")), verdict(out))   # a new core 3MF there or not
 
@@ -2089,8 +2090,8 @@ class BundleFromTheScripts(unittest.TestCase):
             self.assertFalse(os.path.exists("deliver/source/" + path), path)
         with open("deliver/source/REPRODUCE.md", encoding="utf-8") as f:
             text = f.read()
-        self.assertIn('build.py" run plug.py --params .3dprint/plug.json --proxy plug --out out/plug > out/plug_build.json',
-                      text)
+        self.assertIn('build.py" run plug.py --params .3dprint/plug.json --proxy plug --engine python --out out/plug '
+                      '> out/plug_build.json', text)                       # the engine it was built with (Codex, PR #22)
         self.assertLess(text.index("--proxy plug"), text.index("finalize.py"))
         self.assertNotIn(self.tmp, text)
         again = reproduce("deliver/source")
