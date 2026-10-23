@@ -226,8 +226,9 @@ python3 -m unittest discover -s tests
 
 `tests/test_examples.py` rebuilds every example with the commands in its README.
 Finish installing dependencies before running tests; do not reinstall bpy while a Blender
-subprocess is using it. Skill changes also need the conversation scenarios documented in the
-setup guide; Python unit tests alone do not exercise agent decisions.
+subprocess is using it. Skill changes also need the conversation scenarios in
+[`docs/scenarios/`](docs/scenarios/README.md), which are not shipped with the skill; Python unit
+tests alone do not exercise agent decisions.
 
 `SKILL.md` is the entry point: the rules that hold at all times, a short skeleton of each phase
 and the checklist. Each phase's how-to (`references/phase-0-detect.md` to `phase-6-deliver.md`),

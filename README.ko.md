@@ -212,8 +212,9 @@ python3 -m unittest discover -s tests
 
 `tests/test_examples.py`는 모든 예제를 각 README의 명령 그대로 다시 빌드해요.
 의존성 설치를 끝낸 뒤 테스트하고, Blender가 실행 중일 때 bpy를 다시 설치하지 마세요.
-스킬 지침 변경은 개발 환경 안내의 대화 시나리오로도 검토해요. Python 단위 테스트만으로
-에이전트의 질문과 판단까지 검증되지는 않아요.
+스킬 지침 변경은 [`docs/scenarios/`](docs/scenarios/README.md)의 대화 시나리오로도 검토해요. 이
+시나리오는 스킬과 함께 배포되지 않아요. Python 단위 테스트만으로 에이전트의 질문과 판단까지
+검증되지는 않아요.
 
 진입점은 `SKILL.md`예요. 항상 지켜야 하는 규칙, 단계별 짧은 뼈대, 체크리스트가 거기에 있어요.
 각 단계의 진행 방법(`references/phase-0-detect.md`부터 `phase-6-deliver.md`까지), 엔진별 규칙, 공차,
