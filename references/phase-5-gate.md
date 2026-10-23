@@ -1,7 +1,7 @@
 # Phase 5 — Gate and process tuning (review point)
 
 Read this on entering Phase 5 (SKILL.md holds the checklist table and the rules that hold at
-all times; `references/checks.md` describes `validate.py`'s JSON and the `_verify` declarations).
+all times; `references/outputs.md` describes `validate.py`'s JSON, `references/checks.md` the `_verify` declarations).
 
 1. Validate every part against **its own** `expect`: re-run the Phase 3 `build.py run` (or
    `record`) command and save what it prints (`build.py run ... > out/build.json`); it validates

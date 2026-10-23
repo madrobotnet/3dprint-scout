@@ -229,7 +229,7 @@ printed.
 
 ## Phase 5 — Gate and process tuning (review point)
 
-Read `references/phase-5-gate.md` now (required); `references/checks.md` has `validate.py`'s JSON.
+Read `references/phase-5-gate.md` now (required); `references/outputs.md` has `validate.py`'s JSON.
 
 Goal: every part validated against its own `expect` on fresh artifacts, every uncovered check
 decided with evidence, print settings chosen with a reason.
@@ -299,7 +299,7 @@ assumption repeated.
 `validate.py` reports `gate`: **PASS** (every hard check passed or N/A), **FAIL** (any hard FAIL or a
 broken artifact), or **INCOMPLETE** (no FAIL, but some hard check is UNVERIFIED). Never present
 INCOMPLETE as PASS; name what is unverified and why. Soft checks never change the gate. The JSON
-of `validate.py` and `fit.py` is in `references/checks.md`, that of `build.py` in
+of `validate.py` and `fit.py` is in `references/outputs.md`, that of `build.py` in
 `references/parts.md`.
 
 ## Unattended runs
@@ -326,7 +326,7 @@ Scripts, run as `python3 "$SKILL_DIR/scripts/<name>.py"`:
 
 | Path | Purpose |
 |---|---|
-| `scripts/validate.py` | Mesh validator (this file's checklist); its JSON in `references/checks.md` |
+| `scripts/validate.py` | Mesh validator (this file's checklist); its JSON in `references/outputs.md` |
 | `scripts/build.py` | `detect` (Phase 0), `run` (OpenSCAD / Python / Blender), `record` (parts built in Fusion or a live Blender); groups parts into objects; `--only` for a subset, `--proxy` for a proxy of the mating part; the JSON records the parameters and each part's material |
 | `scripts/assembly.py` | Parts grouped into objects: D2 / P1 / P2 of the whole, A1 / A2 per part (used by build.py) |
 | `scripts/measure.py` | Measure a supplied STL / 3MF: objects and parts, slices with circle and corner fits, ray depth maps of a wall; `--expect PATH=VALUE` keeps a number as evidence (a size of the user's file, or a hand-calculated size on the built part) |
@@ -363,4 +363,5 @@ References, read when the line says so (phase files on entering the phase):
 | `references/materials.md` | Phase 2 (the material keys) and 4, a member that carries load: data-sheet values and hand forces behind `strength.py`, inputs from the build, with sources and what the model does not see |
 | `references/calibration.md` | Phase 2 (read the log) and 6 (offer to write it): when to read, when to ask, the schema |
 | `references/bambu-process.md` | Phase 2 (template question) and 5, slicer Bambu Studio: templates, where settings live, allowed keys, tuning rules |
-| `references/checks.md` | Phase 4 to 6: the JSON of `validate.py`, `fit.py` and `finalize.py`, exit codes, `not_covered`, the `_verify` declarations, how to read the use tier |
+| `references/checks.md` | Phase 4 to 6: the `_verify` declarations, the promise states and what each asks of you |
+| `references/outputs.md` | When you need it: the JSON of `validate.py`, `fit.py` and `finalize.py`, exit codes, `not_covered`, how finalize judges each kind of evidence |

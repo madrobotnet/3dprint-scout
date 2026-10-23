@@ -156,7 +156,7 @@ with `--only`, so it shows `seconds` per part and a `partial` object):
  "warnings": ["..."], "errors": []}
 ```
 
-- `parts[i].validate` is the full `validate.py` document for that part (`checks.md` shows
+- `parts[i].validate` is the full `validate.py` document for that part (`outputs.md` shows
   its shape); the part's verdicts are at `parts[i].validate.files[0].checks`, its numbers
   at `...files[0].metrics`. `role` is `null` for a part alone in its object; `assembly`
   exists only for parts in a group.

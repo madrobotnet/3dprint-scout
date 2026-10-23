@@ -70,7 +70,7 @@ words (a look, a "you decide", an earlier answer) comes out: ask now.
 
 A Bambu project must print each part in its material (`_parts.<name>.material`, else `_material`)
 and under `_print.preset`. finalize compares its manifest with them; what each finding leaves of
-the evidence that depends on the material or the preset is in `references/checks.md` (the
+the evidence that depends on the material or the preset is in `references/outputs.md` (the
 `--deliver` paragraph). Act on its `open` lines:
 
 - **Another material** ("stand is printed in Bambu PETG HF @BBL X1C (petg_hf), the part is
