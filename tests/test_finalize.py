@@ -1871,7 +1871,13 @@ class FinalizeBundle(FinalizePromises):
             ("a recorded proxy naming its STL by its absolute path", "proxy",
              "out/plug_build.json holds a path of this machine"),
             ("a sidecar naming an STL by its absolute path", "sidecar", "out/look.png.json holds a path of this machine"),
-            ("an input in the place of the rebuilt build JSON", "build.json", "build.json would take the place of a file"))
+            ("an input in the place of the rebuilt build JSON", "build.json", "build.json would take the place of a file"),
+            ("a missing report in the place of the rebuilt build JSON (Codex, PR #22)",
+             {"measurements": [{"name": "lip height", "report": "build.json"}]}, "build.json would take the place of a file"),
+            ("a missing report named REPRODUCE.md", {"strength": [{"name": "ribbon", "report": "REPRODUCE.md"}]},
+             "REPRODUCE.md would take the place of a file"),
+            ("a link inside the project to a report outside it (Codex, PR #22)", "link",
+             "out/fit_far.json is outside the project folder"))
         for what, change, message in cases:
             with self.subTest(what):
                 v = self.verify([self.SEAT, self.CABLE])
@@ -1894,6 +1900,12 @@ class FinalizeBundle(FinalizePromises):
                                    "stls": [{"path": os.path.join(self.tmp, "out", "box.stl"), "sha256": "0" * 64}]}, f)
                     v["seen"] = [{"name": "look", "image": "out/look.png", "image_sha256": "0" * 64, "by": "user",
                                   "promises": ["seat"], "result": "passed"}]
+                elif change == "link":
+                    try:
+                        os.symlink(os.path.join(outside, "fit.json"), "out/fit_far.json")
+                    except (OSError, NotImplementedError):                 # Windows without the privilege
+                        continue
+                    v["joints"] = [dict(v["joints"][0], report="out/fit_far.json")] + v["joints"][1:]
                 else:
                     with open("build.json", "w") as f:
                         json.dump({"schema": "3dprint-scout.build/1"}, f)
@@ -1908,8 +1920,8 @@ class FinalizeBundle(FinalizePromises):
                 self.assertIn(message, out["errors"][0])
                 self.assertNotIn(self.tmp, json.dumps(out))
                 self.assertFalse(os.path.exists("deliver/source"))
-                for path in ("build.json", "out/look.png", "out/look.png.json"):
-                    if os.path.exists(path):
+                for path in ("build.json", "out/look.png", "out/look.png.json", "out/fit_far.json"):
+                    if os.path.lexists(path):
                         os.remove(path)
         code, out = self.finalize("--deliver", outside, "--bundle", "deliver/source")
         self.assertEqual(code, 1)

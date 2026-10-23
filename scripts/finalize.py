@@ -1772,7 +1772,16 @@ def bundle_path(src):
         r = os.path.relpath(os.path.abspath(src))
     except ValueError:                                   # another drive on Windows
         return None
-    return None if r == ".." or r.startswith(".." + os.sep) else r.replace(os.sep, "/")
+    if r == ".." or r.startswith(".." + os.sep):
+        return None
+    if os.path.lexists(src):                             # a link inside the folder to a file outside it is outside:
+        try:                                             # copying it would carry what it points to
+            real = os.path.relpath(os.path.realpath(src), os.path.realpath(os.curdir))
+        except ValueError:
+            return None
+        if real == ".." or real.startswith(".." + os.sep):
+            return None
+    return r.replace(os.sep, "/")
 
 
 def json_object(path):
@@ -1970,6 +1979,9 @@ def write_bundle(folder, build, params_path, settings, report, verify=None, deli
     if clash:
         raise FinalizeError(f"{', '.join(clash)} would take the place of a file the bundle writes itself; rename it")
     inputs, missing, proxies, far = bundle_contents(verify or {}, build, deliver, report.get("joints"))
+    taken = sorted(place for place in missing if place.lower() in reserved)
+    if taken:                         # REPRODUCE.md would make it, and the verdict would read that, not "missing"
+        raise FinalizeError(f"{', '.join(taken)} would take the place of a file the bundle writes itself; rename it")
     if far:
         raise FinalizeError(f"{', '.join(rel(p) for p in far)} is outside the project folder (the folder the build ran "
                             "in); the bundle keeps every file at its place relative to that folder, so that "
