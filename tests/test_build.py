@@ -245,6 +245,15 @@ class PythonEngine(Base):
         self.assertEqual(code, 0, out.get("errors"))
         self.assertEqual(sorted(os.listdir(self.d)), ["gen.py", "lib.py", "out"])
         self.assertIn("lib.py", [os.path.basename(s) for s in out["sources"]])
+        # build.py's own modules are not the generator's sources (a skill update must not make
+        # every build stale); a skill library the generator imports (parts.py, and the strength.py
+        # it takes the duty floors from) is.
+        self.assertEqual(sorted(os.path.basename(s) for s in out["sources"]), ["gen.py", "lib.py"])
+        src = self.write("gen2.py", "import parts\nimport manifold3d as m3d\ndef build(p):\n"
+                                    "    return {'gen2': m3d.Manifold.cube([10, 10, 10])}\n")
+        code, out = run("run", src, "--out", self.out, "--no-wall-check", "--no-3mf")
+        self.assertEqual(code, 0, out.get("errors"))
+        self.assertEqual(sorted(os.path.basename(s) for s in out["sources"]), ["gen2.py", "parts.py", "strength.py"])
 
     def test_generator_warnings_reach_the_report(self):
         """A UserWarning raised while the generator runs (parts.text switching fonts) is a line
