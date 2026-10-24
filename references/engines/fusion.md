@@ -41,7 +41,7 @@ Paste the file above your `run()` or exec it from a file (below). It gives you:
 
 Name every body exactly like its `_parts` entry and export one STL per part; parts of one
 object are modelled in the same frame, so the STLs already hold the assembled positions.
-Pins, knuckles, levers and links that carry load follow `design.md`, "Mechanisms that carry
+Pins, knuckles, levers and links that carry load follow `design-mechanisms.md`, "Mechanisms that carry
 load" (pin ≥ 3.2 mm, 2.2 mm of wall around it, members ≥ 2.5 mm): the field-test latch
 built at the 1.2 mm printability minimum broke on first use.
 Then record and validate:
@@ -53,14 +53,16 @@ python3 "$SKILL_DIR/scripts/build.py" record out/body.stl out/lever.stl --source
 
 `record` writes the freshness manifests (the generator script and params are the source),
 validates every part, groups parts from `_parts` into objects (`parts.md`) and writes the core
-3MF. Its JSON is described in `build.py record --help` and `parts.md`. If an STL comes back
+3MF. Its JSON is described in `build.py record --help` and `outputs.md`. If an STL comes back
 10× too small or large, D4 reports a unit error: fix the export, never scale the mesh.
+Preview the recorded STLs with `preview.py` like any other; the MCP screenshot of Fusion's
+viewport is an extra.
 
 When your shell is a VM or a cloud container linked to the user's computer, `B.export` writes
 on their machine, where `build.py` cannot see it. Export into a folder the user connected (or
 bring the files over with the host's file tools), print each STL's md5 on their side (in the
 script, `hashlib.md5(open(p, "rb").read()).hexdigest()`) and check it on yours before `record`,
-as for a live Blender (`blender.md`, "Three ways it runs").
+as for a live Blender (`blender-live.md`).
 
 The Builder is derived from the one that ran end to end in the 2026-10-17 field test; this
 cleaned version (expressions on features, sketch dimensions, real arcs, the join/cut guards)

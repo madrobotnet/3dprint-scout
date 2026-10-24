@@ -4,14 +4,15 @@ Read this on entering Phase 4 (SKILL.md names the rules that hold at all times).
 
 Holes, bosses, slots, vents, snap fits, lips, cable paths. Fits and clearances come from
 `references/tolerances.md`, which states whether each value is radial (per side) or on the diameter;
-the shapes (teardrop holes, insert bosses, snap hooks, hinges, threads, text) from
-`references/design.md`, with `parts.py` building them in the Python engine.
+the shapes from `references/design.md` (teardrop holes), `references/design-features.md` (insert
+bosses, snap hooks, threads, text) and `references/design-mechanisms.md` (hinges and members that
+carry load), with `parts.py` building them in the Python engine.
 
 Each check below is evidence of a promise (Phase 1) once its report is saved: declare it in
 `_verify` as you save it (the format: `references/checks.md`, "The `_verify` declarations") and
 name it in the `evidence` of the promise it checks. A part's own checks (D1, M1, ...) are never
-evidence of a promise. Run every check from the project folder with relative paths, as below:
-the reports record the paths they are given, and the bundle refuses an absolute one.
+evidence of a promise. Run every check from the project folder with relative paths, as below
+(`references/checks.md`).
 
 ## Every joint from both sides (F3)
 
@@ -28,28 +29,12 @@ a seated part; the whole move is followed, so a lip B would pass through and lea
 it), the smallest gap and the contact area, and prints a verdict in the validate.py style: FAIL
 on overlap, WARN when the play is below `--min-clearance` or the parts bind, PASS otherwise. A
 press fit fails by design; compare its overlap with the intended one instead. A moving part gets
-a sweep from its placed pose (`--sweep-axis z --sweep-pivot x,y,z --sweep-angles 0:90:2
---sweep-travel 40`): the angle at which it hits its stop and the free travel before it, the turn
-between two steps followed too. Always give the travel the part needs (`--sweep-travel`, a
-magnitude, also for a clockwise sweep): PASS when it is free through it, FAIL when it hits
-before it; without it a stop is only a WARN and a free sweep is UNVERIFIED. A range that does
-not start at 0 or ends before the travel is UNVERIFIED too. Declare that joint with `"sweep":
-true` in `_verify.joints`: without it finalize does not require F3_sweep, and a report of the
-seated fit alone would pass for the moving part. A part that turns in contact (a
-lever lying on its body) is checked every 0.2 mm of its swing, which can take a while on dense
-meshes; a sweep that would need more than 1000 such checks is UNVERIFIED (sweep a shorter range,
-or lighter proxies). When the mating object has no closed mesh (a plug, a phone, a housing),
-fit against a proxy of it (below). The report records the sha256 of both STLs; a rebuild of
-either part makes it stale (`--check`, Phase 5). `--min-clearance` is the clearance the model is
-built with, model hole compensation included (`references/tolerances.md`, F1).
-
-A part built to a standard (a bin on a baseplate, a stacking lip) has a joint with the
-standard's counterpart: build a proxy of it from the standard's numbers and run F3 against it.
-To find a seat height, place B above its seat and run `--play 0,0,-1`: the play is how far B
-drops before it touches; place it that much lower and run the fit again with the sideways
-directions. A proxy built from the same numbers as the part only proves the two agree with each
-other, not that the numbers are right: say so, and offer a fit test when the source is
-unverified.
+a sweep through the travel it needs (`--sweep-*`), its joint declared `"sweep": true`; a part
+built to a standard is fitted against a proxy of the standard's counterpart: both in
+`references/phase-4-mechanisms.md`. When the mating object has no closed mesh (a plug, a phone,
+a housing), fit against a proxy of it (below). The report records the sha256 of both STLs; a
+rebuild of either part makes it stale (`--check`, Phase 5). `--min-clearance` is the clearance
+the model is built with, model hole compensation included (`references/tolerances.md`, F1).
 
 **A proxy of the mating part**: a small generator of its own that takes every size from a
 params file of its own, holding exactly the numbers of the object's `dims` entry (Phase 2) with
@@ -73,7 +58,7 @@ building the part and the proxy again, then the fit and every other check of the
 ## Members that carry load (P7)
 
 Every pin, knuckle, lever and latch bar is checked against the floors of its **duty** (P7,
-`references/design.md`, "Mechanisms that carry load") before the fit, not after the print,
+`references/design-mechanisms.md`, "Mechanisms that carry load") before the fit, not after the print,
 and gets a hand calculation. The duty decides the rule and the load case:
 
 | Duty | What | Floors | Load case |
@@ -83,53 +68,29 @@ and gets a hand calculation. The duty decides the rule and the load case:
 | `decorative` | carries nothing | the same floors | none |
 
 Snap arms and other flexures designed by the strain formula have no duty: they are exempt from
-the floors and follow the snap-fit check (`references/design.md`, "Snap fits"). Their load case
-is their own deflection or release force (P there, at full undercut), not a hand-force key:
-`strength.py snap` with the arm's `length`, `h`, `b` and `undercut` (and `repeated`, true for a
-snap opened often: a params.json boolean such as `"snap_repeated": true`, linked with `--param
-repeated=snap_repeated`) checks the strain against the limit and gives that force and the
-insertion and release forces; a straight arm can also go through `strength.py beam` with that
-force as its load and SF 3, both parameters.
+the floors and follow the snap-fit check (`references/design-features.md`, "Snap fits"), loaded
+by their own deflection or release force, not a hand-force key (`strength.py snap`).
 
 **Link every input to the build.** Run strength.py as `--from-build out/build.json --part NAME`
 with a `--param INPUT=PARAM` for every size, choice and flag of the member (h, b, length, d,
 support, orientation, `repeated`, `load_across_layers`, sf when it is not 2, the load when it is
 a force in N), each a parameter of the generator (Phase 3); a flag is a params.json `true` or
-`false`. The phone stand's ribbon, and the hinge of a lid with a latch:
+`false`. The phone stand's ribbon (a lid hinge's command: `references/phase-4-mechanisms.md`):
 
 ```bash
 python3 "$SKILL_DIR/scripts/strength.py" beam --from-build out/build.json --part sled \
   --param h=ribbon_t --param b=ribbon_w --param length=ribbon_len --param support=ribbon_support \
   --param sf=ribbon_sf --load finger_push > out/strength_ribbon.json
-python3 "$SKILL_DIR/scripts/strength.py" hinge --from-build out/build.json --part lid \
-  --param pin_d=hinge_pin_d --param knuckle_d=hinge_knuckle_d --param knuckles=hinge_knuckles \
-  --param length=hinge_len --param gap=hinge_clearance --param clearance=hinge_clearance \
-  --param pin=hinge_pin --param duty=hinge_duty --param orientation=hinge_orient --load finger_pull \
-  > out/strength_hinge.json
 ```
 
-The material is the part's (`_material`, `_parts.<name>.material`; `--material` is refused). A
-hand-force key (`--load finger_push`) is a table value, and an input left out takes strength.py's
-own default (`sf` 2, `orientation` z): neither counts as typed in. An input typed on the command
-line (`--h 6`, `--support cantilever`, `--sf 3`, `--repeated`, `--load 141.2`) is `manual` in the
-report's `inputs_from`, even when it equals the parameter: such a report can size a member, but it
-is never evidence of a `use` promise. A parameter the build did not record is an error that names
-it: add it to `DEFAULTS` or `PARAMETERS` (to params.json for a build of scope `overrides`) and
-build again. Save each report and declare it in `_verify.strength`. **After any change to a linked
-parameter, to the part or to its material, run the same command again**: finalize names what
-changed ("h was ribbon_t = 4.5, now 6.0") and the member is not verified until then. The ribbon at
-4.5 mm read WARN at SF 3 (1.88); at 6.0 it passes (3.34).
+Only a hand-force key may be typed in: any other input typed on the command line makes the report
+`manual`, which can size a member but never verifies a `use` (what each input means, the cases,
+the hinge and the snap: `references/phase-4-mechanisms.md`). Save each report and declare it in
+`_verify.strength`. **After any change to a linked parameter, to the part or to its material,
+run the same command again**: finalize names what changed ("h was ribbon_t = 4.5, now 6.0") and
+the member is not verified until then. Record the load case, its share and the ratio in
+`_assumptions`.
 
-(`pin`, `beam`, `link`, `bearing`, `hinge`, `snap`; loads from a cited hand-force table, or a
-force in N that is a parameter (`--param load=latch_load`: the key's force × the lever ratio,
-worked out by you); materials from Bambu Lab data sheets, `orientation` xy or z for the layer
-direction, `gap` for the print-in-place gap at a pin's root or between knuckles, `sf` 2 by
-default; `references/materials.md`. The `hinge` case takes the hinge as `parts.hinge` builds it,
-an integral or a loose pin, with the pull taken to cross the layers (the axis prints flat and
-the pull turns with the lid: shear and the knuckle wall use the Z strength); `parts.hinge` has
-one `clearance` for the radial clearance and the axial gap, so link it to both `gap` and
-`clearance`; with `duty` it compares pin, wall, knuckle length and, for a lid, the knuckle count
-with that duty's floors.) Record the load case, its share and the ratio in `_assumptions`.
 FAIL → redesign. WARN, or no proven reference to compare
 with → **print the mechanism first**, those parts whole (a coupon part for less), a few grams,
 which the user tries before the full part (the same idea as the fit test; a Bambu job lists
@@ -142,16 +103,8 @@ mkdir -p out/mech && python3 "$SKILL_DIR/scripts/build.py" run model.py \
   --printer .3dprint/printers.json > out/mech/build.json
 ```
 
-A `lid` hinge must reach SF ≥ 2: at WARN grow the pin or the knuckle Ø or add knuckles (odd), and
-its coupon print is required on top of that margin, never instead of it. A mechanism built into
-the walls (a box hinge) still gets its coupon: the same section cut short, built as its own
-`_parts` entry; "cutting it out would be most of the part" is not a reason to skip. A coupon is a
-part like any other: every full build makes it, and it is delivered with the rest (Phase 6). A
-snap's coupon keeps the full width (the click force scales with it, `references/design.md`) and
-steps the undercut, one coupon part per step; `fit_test.py` steps only the clearance of closed
-rings and plugs. The calculation is a sizing aid: it flagged the failed field latch's arms, not
-its pins, so for latch duty the minimums and the test print decide; for a lid hinge the
-calculation sizes and the coupon decides, and a paper SF ≥ 2 is never the last word.
+A `lid` hinge always gets a coupon on top of SF ≥ 2, and a mechanism built into the walls gets
+one cut from the same section (`references/phase-4-mechanisms.md`, "Coupons and the lid hinge").
 
 ## A hand calculation checked on the built part
 
@@ -218,7 +171,9 @@ dims value that differs from params.json), and any other declaration (a dims, ac
 test print entry, `_material`, `_print`), which makes the tier `error` with no promise in error. A
 `failed` promise is never accepted or excluded away: go back to the phase of the evidence that
 failed and fix it (G7). Run again the evidence a change made stale, as its reason says (the fit,
-the `strength.py --from-build` command, the measurement, a new image for the user).
+the `strength.py --from-build` command, the measurement, a new image for the user). A value of
+the parameter table that changed since the user confirmed it (a wall thickened to pass a check)
+is a changed design choice: name it with its old and new value and stop for it (Phase 2, step 5).
 
 **A look belongs to its image.** The user's look is evidence for the `seen` entry of the image
 they looked at, and nothing more. A `look` promise added after they looked, or a `seen` entry a
@@ -238,11 +193,11 @@ decide each one together:
 - **A prototype**, for a `not verified` promise the user agrees to take unproven, or hands back
   to you (below): it is delivered unproven. Add the `_assumptions` line `"<promise id>: delivered
   as a prototype, not verified"`, word for word (finalize reads it and marks the promise
-  `"prototype": true`), ending, as recommended, in a note in parentheses that says who chose it:
-  in an attended run the user's reply, word for word (`"flat-end: delivered as a prototype, not
-  verified (the user: \"I have no time for a test print now, just go on\")"`); when the user
-  handed the decision back, `(the user handed the decision to me)`; in an unattended run,
-  `(unattended run)`. It stays `not verified`, and the delivery message opens with it.
+  `"prototype": true`), ending in a note in parentheses that says who chose it. When the user
+  agreed, the note is required and holds their reply, word for word, the one place it is kept
+  (`"flat-end: delivered as a prototype, not verified (the user: \"I have no time for a test
+  print now, just go on\")"`). Otherwise it is recommended: `(the user handed the decision to
+  me)`, or `(unattended run)`. It stays `not verified`, and the delivery message opens with it.
 - **The user excludes it**: drops it, or takes it unverified. It stays in the list as `excluded`,
   through an entry in `_verify.accepted` whose `reason` is their reply, word for word:
   `{"promise": "cable-bend", "reason": "I'll try it with my own cable", "by": "user"}`.
@@ -253,7 +208,7 @@ delivering a `not verified` promise as a prototype (its `_assumptions` line). Ag
 user's reply to a question that named that promise or warning, said in plain words what taking it
 means (the promise stays unverified, or the warning stays, and what that can cost) and offered
 the choices; the reply takes that option. Record the reply word for word: as the entry's
-`reason`, or, for a prototype, in its line's note, the one place it is kept. For `cable-bend`:
+`reason`, or, for a prototype, in its line's note. For `cable-bend`:
 "That the cable bends down without a kink is not checked: it may kink at the lip. Shall I make a
 test piece, or do you take it as it is, unchecked?", and the reply "I'll try it with my own
 cable". "Just go on" agrees when going on as it is was the option named: "The flat end is not
@@ -279,8 +234,6 @@ Before the delivery message, no promise goes out as a prototype, excluded or wit
 WARN that the user was not asked about in a message that named it, except the defaults above
 and those of an unattended run, each with its `_assumptions` line.
 
-Run finalize again after each change. In an unattended run nobody can agree, so nothing is
-excluded or accepted: an `assumed` promise goes on assumed, one `not verified` is delivered as a
-prototype (its line as above, noted `(unattended run)`) and a WARN is fixed or left in `open`;
-each decision taken alone has its `_assumptions` line and is said at the top of the delivery,
-before any result.
+Run finalize again after each change. In an unattended run nobody can agree (SKILL.md,
+"Unattended runs"): an `assumed` promise goes on assumed, a `not verified` one is a prototype
+noted `(unattended run)`, and a WARN is fixed or left in `open`.

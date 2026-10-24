@@ -95,8 +95,8 @@ module countersunk_hole(d, head_d, depth, head_clearance = 0.3) {   // mouth at 
 - `teardrop_hole`: the apex sits r·√2 above the axis, as `parts.teardrop_hole` (`design.md`,
   "Overhangs"); rotate it for a hole along Y.
 - `countersunk_hole`: `head_d` is the head's diameter, from the caliper for a screw in hand, else
-  the ISO table in `design.md`; the module adds the 2 × 0.3 mm clearance itself
-  (`head_clearance`, as `parts.screw_hole`; `design.md`, "Screws, inserts and threads").
+  the ISO table in `design-features.md`; the module adds the 2 × 0.3 mm clearance itself
+  (`head_clearance`, as `parts.screw_hole`; `design-features.md`, "Screws, inserts and threads").
 - A snap's strain check runs outside OpenSCAD: `strength.py snap --length --h --b --undercut
   --material` (standard library only: strain against the limit, `repeated` for a joint opened
   often, the deflection force as its load, insertion and release forces; linked to the build as

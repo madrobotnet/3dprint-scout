@@ -105,5 +105,5 @@ mkdir -p out/plug && python3 "$SKILL_DIR/scripts/build.py" run plug_proxy.py \
 
 Use it in `fit.py` (seated fit) or with `--sweep-angles` (a lever's travel to its stop). The
 joint names `out/plug/build.json` as `proxy_build` and the entry as `dims`; what `finalize.py`
-makes of it: `references/checks.md`. A proxy stays in `out/` and is never delivered; the
+makes of it: `references/outputs.md`. A proxy stays in `out/` and is never delivered; the
 bundle carries its generator and params file, and its REPRODUCE.md builds it again.

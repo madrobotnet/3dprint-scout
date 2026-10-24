@@ -1,11 +1,8 @@
 # Phase 3 — Base shape (review point, not skippable)
 
-Read this on entering Phase 3 (SKILL.md names the rules that hold at all times), together with
-`references/engines/<engine>.md` (only the engine in use) and `references/design.md` (bed-edge
-chamfers, overhangs, walls in nozzle multiples, orientation for strength, where to split parts).
-A mixed object (a CAD body with a Blender part, or a Blender body with a fit feature) needs both
-engine files and the mixed procedure in `references/engines/blender.md`, "Mixed parts: one
-object, two engines".
+Read this on entering Phase 3, with `references/engines/<engine>.md` (the engine in use) and
+`references/design.md`. A mixed object (a CAD body with a Blender part) needs both engine files
+and `references/engines/mixed.md`.
 
 ## The generator script
 
@@ -32,32 +29,25 @@ Write one generator script:
   `strength.py --from-build` reads them from the build JSON's `parameters`: a Python
   generator's defaults are recorded only from a dict named `DEFAULTS` (scope `merged`); OpenSCAD,
   Fusion and a live Blender record only params.json (scope `overrides`), so put the values there
-  (`references/parts.md`, `references/engines/python.md`). A derived value (the lip top = seat +
+  (`references/outputs.md`, `references/engines/python.md`). A derived value (the lip top = seat +
   lip height) is not recorded: check it with a measurement in Phase 4.
 - Read no data file of your own from the generator (a JSON or CSV of sizes, an SVG outline):
   the build hashes the generator and what it imports (Python modules, OpenSCAD includes, the
   Blender library), not files it opens, so a changed data file would not make the build stale
   and the source bundle would rebuild without it. Put those numbers in the parameter block or
   params.json; a shape from a file the user gave is measured (`measure.py`), not loaded.
+  Another maker's geometry library only with a permissive licence, its attribution and a note
+  to the user.
 - **Z-up: Z = 0 is the print bed.** Model in the orientation it will print in.
 - Each build regenerates everything from scratch in a safe order (fillets before cuts). Phases are
   review points, not build steps.
 - OpenSCAD: set `$fa = 1; $fs = 0.4;` so curved parts meet D1.
 - **Split into parts** what has its own job or may get its own colour (latches, levers, labels,
-  signs, inserts): separate bodies that touch the main body (shared faces, no union), seams in
-  low-stress places; print-in-place pieces keep their clearance. Never ask the user about
-  colours: split, give every part the main filament, say so at delivery (`references/parts.md`).
+  signs, inserts): where the seam goes, `references/design.md`; the `_parts` entries,
+  `references/parts.md`.
 - **Members that carry load** (pins, knuckles, levers, links, hooks, latch bars) are sized by
-  `references/design.md`, "Mechanisms that carry load", by their duty (`latch`, `lid`,
-  `decorative`), not by P3's 1.2 mm, which is only what prints: list each with its section in
-  the dimension table (P7), beside the reference member when one was measured, and run
-  `strength.py` on it (Phase 4).
-- **A mechanism never silently grows the object**: a hinge on a box goes into the dimension
-  table with its knuckle Ø and how far it stands proud of the wall (gusset included), next to
-  the box's depth, and into the concept preview; if its duty's floors would make the object
-  bigger than the user's sizes, or it looks out of proportion, stop and give the choices in
-  `references/design.md`, "Print-in-place joints" (the right duty, notched-in knuckles, another
-  closure, a bigger object), never resize the object on your own.
+  their duty, not by P3's 1.2 mm, and listed with their section in the dimension table (P7);
+  **a mechanism never silently grows the object**: both in `references/design-mechanisms.md`.
 - Design to the recommended values in `references/tolerances.md`, not to the minimums: a wall
   planned at exactly 1.2 mm can fail its own check through floating-point rounding.
 - Guard derived dimensions with assertions (`assert(...)` in OpenSCAD, `raise` in Python) so an
@@ -86,11 +76,10 @@ a copied value makes D1 circular, and `validate.py` flags one. Parts of one obje
 (print-in-place, keeps `clearance`); all parts of an object are modelled in the same frame, so
 the STLs hold the assembled positions (`references/parts.md`, schema and checks).
 
-Set the material before the first build: `_material` is the filament of Phase 2 as a
-`strength.py` key (`pla_basic`, `pla_pure`, `petg_hf`, ...; `references/materials.md`; PLA
-Basic, in `_assumptions`, when the user named none), and `_parts.<name>.material` a part
-printed in another one. The build records each part's material; `strength.py` and the test
-prints are judged in it (Phase 4). The values of every `dims` entry (Phase 2) are written in
+Set the material before the first build: `_material` is Phase 2's key (`pla_basic` when the
+user named none, in `_assumptions`), and `_parts.<name>.material` a part printed in another
+one. The build records each part's material; `strength.py` and the test prints are judged in it
+(Phase 4). The values of every `dims` entry (Phase 2) are written in
 params.json itself, even when the generator's defaults hold the same numbers: finalize compares
 the two.
 
@@ -100,9 +89,11 @@ validation inputs separately from the geometry hash.
 
 ## Build, preview, stop
 
-This phase: outer shell, walls, floor. No holes, no fillets yet. A generator rebuilt from
-scratch may already build them: review the shell first, or give it a parameter that leaves the
-features off for this look. Build and validate:
+This phase: outer shell, walls, floor. For a part with several bodies or a mechanism, the user
+looks at the shell alone first, before holes, fillets and joints: a generator rebuilt from
+scratch may already build them, so give it a parameter that leaves them off for this look. A
+simple part (one body, no mechanism) may be shown as built, features included. Build and
+validate:
 
 ```bash
 mkdir -p out && python3 "$SKILL_DIR/scripts/build.py" run model.scad --params .3dprint/params.json \
@@ -116,17 +107,11 @@ Keep the JSON of the latest full build in `out/build.json`: `strength.py --from-
 `build.py run` builds every part in `_parts`, writes `<part>.stl.manifest.json`, writes a core 3MF
 (parts of an object under one parent), validates each part against its own `expect`, and checks
 every object with several parts as a whole (D2 against the area every nozzle reaches, P1, P2 on
-the union, A1 / A2 per part). For Fusion, export one STL per part from Fusion and use
-`build.py record` instead (`references/engines/fusion.md`; its JSON is described in
-`build.py record --help` and `references/parts.md`). A Blender generator (first line
-`# 3dprint-scout: engine=blender`, `references/engines/blender.md`) runs through the same
-`build.py run` in the `blender` binary or the `bpy` module and leaves `out/<model>.blend` next to
-the STLs; in a live Blender the script runs through the host's tool and `build.py record
---engine blender` takes its STLs. A mixed object builds each engine's parts with `--only` and
-`--no-3mf` into folders of their own, then one `build.py record` takes every STL with the union
-of both runs' `sources` (`references/engines/blender.md`, "Mixed parts").
+the union, A1 / A2 per part). A Blender generator runs through the same `build.py run` and leaves
+`out/<model>.blend`; Fusion, a live Blender and a mixed object hand their STLs to `build.py
+record` instead, as their engine file says.
 The build JSON records `parameters` (what the parts were built with, and its `scope`) and each
-part's `material` (`references/parts.md`). A warning that a params.json key is not in the
+part's `material` (`references/outputs.md`). A warning that a params.json key is not in the
 generator's `DEFAULTS` (or `PARAMETERS`) is a misspelt name that built with the default: fix it.
 Render the built STLs with `preview.py`
 (`references/phase-0-detect.md`, step 3; `render.py` when Blender is there) and look at it
@@ -134,11 +119,9 @@ yourself first, **one view at a time**, never the grid as one picture: would som
 object from this view; silhouette, main volumes, thickness, edge radii. A view the references
 do not show stays unverified (say so; do not call it right), and passing sizes, mesh checks or
 a triangle count say nothing about the shape. Then report size, volume and verdicts in two or
-three lines with the image, and **stop for the user's look**. In attended runs, for
-a part with several bodies or a mechanism (lever, latch, hinge) this stop is never skipped: a
-fit-test piece comes after it, not instead of it.
-In explicit unattended mode, use SKILL.md's preview-and-assumption rule; still produce and
-inspect the preview, and never describe an unreviewed shape as user-approved.
+three lines with the image, and **stop for the user's look**, in every attended run: a
+fit-test piece comes after it, not instead of it. Unattended: SKILL.md's rule; still make and
+inspect the preview, and never call an unreviewed shape approved.
 
 **Record the user's look.** When the user looks at the image and says a `look` promise (Phase
 1) is right or wrong, add it to `_verify.seen`: the image, the `image_sha256` from its sidecar
@@ -151,14 +134,13 @@ judged and the result:
 ```
 
 Only the user's look verifies; yours is `"by": "agent"` and never does, so an unattended run has
-none. An approval of the shell judges only the promises the image shows. Drawing the image
-again, or rebuilding a part it shows, makes the entry stale: show the new image at the next stop
-and record the user's new look; never copy an old judgement onto a new image.
+none. An approval of the shell judges only the promises the image shows. The entry goes stale
+when the image changes or a part it shows is rebuilt to different bytes (a rebuild that changed
+nothing keeps it; `references/outputs.md`): show the new image at the next stop and record the
+user's new look; never copy an old judgement onto a new image.
 
-- `out/` is the build's working folder: every build rewrites `out/<part>.stl`, its manifest,
-  `out/<model>.3mf` with its `out/<model>.3mf.manifest.json` (the 3MF's sha256 and the sha256 of
-  each part STL it holds, which `finalize.py --deliver` reads) and, with Blender,
-  `out/<model>.blend`. `bambu3mf.py` writes the same sidecar next to the project it makes.
+- `out/` is the build's working folder: every build rewrites its STLs, manifests, the core 3MF
+  with its `.3mf.manifest.json` (which `finalize.py --deliver` reads) and the `.blend`.
   Deliverables (Phase 6) are written elsewhere as new files.
 - Pass `--printer .3dprint/printers.json` even before the printer is known: a missing file is a
   warning and leaves D2 UNVERIFIED (gate INCOMPLETE), not a FAIL. A malformed file or an unknown

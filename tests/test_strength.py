@@ -452,7 +452,7 @@ class Hinge(unittest.TestCase):
     def test_parts_and_docs_share_the_duty_table(self):
         """One copy of the floors: parts.py imports strength.DUTIES, and design.md / SKILL.md quote the
         latch numbers."""
-        with open(os.path.join(HERE, "..", "references", "design.md"), encoding="utf-8") as f:
+        with open(os.path.join(HERE, "..", "references", "design-mechanisms.md"), encoding="utf-8") as f:
             design = f.read()
         with open(os.path.join(HERE, "..", "SKILL.md"), encoding="utf-8") as f:
             skill = f.read()

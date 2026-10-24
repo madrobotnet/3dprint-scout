@@ -105,7 +105,7 @@ print in the same `add`, so they come back together as `worked_set`.
 
 ## Example: a field comparison turned into entries
 
-The two latches of `design.md` ("Mechanisms that carry load"), written as a user would
+The two latches of `design-mechanisms.md` ("Mechanisms that carry load"), written as a user would
 record them (generic wording; dates and sizes as in that section):
 
 ```bash

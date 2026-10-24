@@ -18,27 +18,19 @@ Per printer: `process` (`fdm`), `slicer` (`name`, and for Bambu Studio `template
 `tools` (one area and height per nozzle), `compensation` (`holes`: `slicer`, `model` or `unknown`;
 `elephant_foot`: `slicer` or `model`) and `tolerance` with its `source`. `default` names the printer the scripts use; with
 exactly one printer it may be omitted, with several pass `--printer-id`. A bed without
-`height` leaves D2 UNVERIFIED. Resolve each answer from the current request, confirmed earlier
-conversation, then saved settings; ask only for missing or conflicting values. Create or update
-the working settings from confirmed answers without asking them again just because the file is
-missing. When both answers are missing, ask in plain words: "Which printer do you have, and which program do you open print files in? It's fine
-if you don't know the program." Both answers change the result: the printer sets the bed and
-nozzles, and the program (the slicer) sets the output file (Phase 6) and who compensates holes.
-One printer brand can be paired with several slicers: if only the slicer is unknown, ask only
-that question rather than inferring it from the brand. Many users do not know the word "slicer";
-never make them feel they should.
+`height` leaves D2 UNVERIFIED. Answers come as SKILL.md says (request, conversation, saved
+settings); write the file from confirmed answers without asking again because it was missing.
+When both answers are missing, ask in plain words: "Which printer do you have, and which program
+do you open print files in? It's fine if you don't know the program." The printer sets the bed
+and nozzles; the program (the slicer) sets the output file (Phase 6) and who compensates holes.
+One brand can go with several slicers: if only the slicer is unknown, ask only that, never infer
+it from the brand. Many users do not know the word "slicer"; never make them feel they should.
 For a Bambu Lab printer the same message may ask for the Bambu Studio version, as optional
-("Help > About; fine if you do not know"): a generated template must not be newer than the app
-(`references/bambu-process.md`). Unknown, attended or not: use the version of the profiles you
-read, say so, and record it in `_assumptions`.
+(`references/bambu-process.md`, `--app-version`).
 
-**Defaults when an answer is missing or unclear** (record each one in `_assumptions`):
-
-If you have asked for the printer or slicer in an attended run, wait for the answer; use its
-fallback after the user says they do not know or asks you to choose. Other documented defaults
-(such as nozzle and material) do not require a new question when suitable for the stated task;
-record them as assumptions. Silence does not answer a pending choice. Explicit unattended runs
-may take defaults for missing answers.
+**Defaults when an answer is missing or unclear** (record each one in `_assumptions`). A question
+you asked waits for its answer; its fallback applies once the user says they do not know or asks
+you to choose. Nozzle and material take their defaults without a new question.
 
 - Slicer unknown, Bambu Lab printer → Bambu Studio (Bambu Lab's own slicer).
 - Slicer unknown, any other printer → `unknown`: deliver STL plus core 3MF, which every slicer opens.
@@ -61,8 +53,6 @@ may take defaults for missing answers.
   intersection automatically. For a single-filament print on a printer with two nozzles (X2D,
   H2D), pass the nozzle the user prints with, or `--tools 0,1` when that is not known (or when
   separate objects use both); give both scripts the same `--tools`.
-- Never store access codes, serial numbers, or IP addresses.
-- FDM only. For resin, say so and stop.
 - With several saved printers, ask which one in a single line only if the user has not already
   selected one for this project.
 
@@ -70,8 +60,8 @@ may take defaults for missing answers.
 the build records each part's material, `strength.py --from-build` takes it from there, and
 test prints and the delivered print file are compared with it (`references/checks.md`).
 
-- `_material`: the filament the user prints with, as a `strength.py` material key (`pla_basic`,
-  `petg_hf` ...: the table in `references/materials.md`). A part printed in another gets its
+- `_material`: the filament the user prints with, as a `strength.py` material key (`pla_basic`
+  for PLA; any other from the table in `references/materials.md`). A part printed in another gets its
   own: `"_parts": {"latch": {"expect": [12, 6, 4], "material": "petg_basic"}}`. Ask only when
   the material matters (a member carries load, the part sits in a car or in the sun), in plain
   words: "Which filament will you print it in? PLA is fine if you're not sure." When the user
@@ -88,7 +78,8 @@ test prints and the delivered print file are compared with it (`references/check
 
 ## 2. Purpose and the use list
 
-Decorative, general, or load-bearing. Default: general.
+Decorative, general, or load-bearing. Default: general, recorded in `_assumptions` when the user
+did not say.
 
 Then make the **use list** with the user: what they will do with the part, under which
 conditions, and what counts as success. Start from the request and the chosen concept's
@@ -113,7 +104,10 @@ load held, never "works well":
 `fit.py` checks a placed pose and a declared turn, not a path by hand or a cable that bends.
 A use that needs one (sliding the phone in, a cable bent around a corner) needs a test print
 among its evidence, since a fit report alone does not show it: say so when you write it, so the
-user knows a print will decide it. A promise that rests on a size no evidence will name lists
+user knows a print will decide it. finalize cannot tell such a use from others and
+verifies it on its fits alone (an evidence item may name only a print already recorded), so
+until the user's print is recorded (`references/checks.md`, "Test prints"), say at delivery
+that the fit was checked and the motion was not. A promise that rests on a size no evidence will name lists
 that dims id in `assumes` (below).
 
 Unattended runs write the use list from the request alone and say in `_assumptions` that the
@@ -193,9 +187,7 @@ plug head, and how far it sticks out." When they cannot (no tool, the object is 
 take the best source you have as `assumed`, offer a test print of that fit (`fit_test.py`
 pieces, a few grams, Phase 4), and say it in one line: "I assumed the plug head is 13 × 8 mm,
 and the cable notch rests on that; a small test piece would confirm it." Unattended runs cannot
-ask: a size is `spec` or `assumed` from a source you found for the user's own object, and a size
-the part must fit with no such source stops the run (a typical size of another product is no
-source; SKILL.md, "Unattended runs").
+ask: SKILL.md, "Unattended runs", says when a size stops the run.
 
 When a measurement arrives later, change `source` and the value together in the dims entry,
 params.json and any proxy's own params file (with `"by": "user"` for a caliper value). A new
@@ -211,21 +203,13 @@ would have shown up with half the member thickness and a sixth of the material.
 
 ## 4. Compensation lives in one place
 
-Use the single `slicer / model / unknown` decision table in `references/tolerances.md`.
-Unknown settings do not establish that compensation is off. Keep fit clearance separate from
-the printer correction and record the chosen state in `compensation.holes`.
-
-What counts is the setting the part will be printed with. A Bambu Studio project from
-`bambu3mf.py` carries its process settings: the template's `project_settings.config` is copied
-byte for byte (`bambu-process.md`), and Bambu Studio applies a project's saved settings when it
-opens the file. Bambu's system process presets ship with both corrections off: the X2D's
-`0.20mm Standard` inherits `enable_circle_compensation` 0 and `xy_hole_compensation` 0 from
-`fdm_process_common` (public profiles 02.08.02.61). So with a generated template, or a saved
-template that shows both off, record `"model"`; `"slicer"` when the template's preset (or a
-per-object setting the skill writes) has one of them on. Keep `"unknown"` when the user will
-slice the STLs with a preset nobody has seen: another slicer, or no project file. The same
-system preset's elephant-foot compensation is 0.15 mm (`fdm_process_dual_0.20_nozzle_0.4`):
-`elephant_foot` is `"slicer"` there.
+Use the `slicer / model / unknown` table in `references/tolerances.md`, and write the state into
+the printer's entry in `printers.json`: `compensation.holes` and `compensation.elephant_foot`,
+added when missing (the other fields stay as they are), with the reason in
+`compensation.source`. What counts is the setting the part will be printed with: a Bambu project
+the skill delivers carries its settings, so a generated template means holes `"model"` and
+elephant foot `"slicer"` (`references/bambu-process.md`, "Constraints"); STLs sliced with a
+preset nobody has seen stay `"unknown"`.
 
 ## 5. Show the use list and the parameter table, and stop
 

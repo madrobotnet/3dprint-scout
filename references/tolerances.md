@@ -14,7 +14,7 @@ This file is the only place for fit clearances; `design.md` links here instead o
 | Snug, no rattle | +0.15 | +0.30 | Stacked parts, alignment lips |
 | Press fit | −0.05 to −0.10 | −0.10 to −0.20 | Pins and bosses meant to stay; test before committing |
 | Object in a pocket | +0.30 | +0.60 | A device dropped into a holder; add +1.0 per side if it must lift out easily by its sides. A thin item standing in a slot (a card, a sheet) keeps +0.30: easy removal comes from the height left exposed or a finger notch |
-| Snap-in cylinder (C-clip bore) | +0.15 | +0.30 | The snug row: the bore clearance sets only the rattle; the hold comes from the mouth undercut, sized by the strain rule (`design.md`, "Snap fits"). A start value: confirm with a test piece |
+| Snap-in cylinder (C-clip bore) | +0.15 | +0.30 | The snug row: the bore clearance sets only the rattle; the hold comes from the mouth undercut, sized by the strain rule (`design-features.md`, "Snap fits"). A start value: confirm with a test piece |
 | Print-in-place joint (hinge, pivot, captive pin) | +0.30 (0.40–0.50 on a less tuned printer) | +0.60 (0.80–1.00) | Parts printed assembled that must move afterwards; Prusa KB ≥ 0.3 mm, Fictiv 0.4 mm for pivots, Hubs 0.5 mm (design.md sources 1, 2, 6) |
 
 Material adjustments: PETG add +0.05 per side; TPU add +0.3 per side; ABS/ASA shrink about 0.5–0.7 %
@@ -35,7 +35,7 @@ Convert per-side clearance to a diameter allowance by multiplying by two: a 10 m
 
 Apply this to every round hole that must fit, including bores. Pass `fit.py --min-clearance`
 the clearance actually modeled, including any model compensation. A delivered Bambu Studio
-project prints with the settings it carries (`phase-2-printer-dimensions.md`, step 4); a
+project prints with the settings it carries (`bambu-process.md`, "Constraints"); a
 system default says nothing about a preset the user picks for loose STLs.
 - `fit_test.py` pieces carry no model compensation; say so. A step that fits is the clearance
   as printed without it: build the part's hole the same way (that step, nothing added), or add
@@ -43,10 +43,13 @@ system default says nothing about a preset the user picks for loose STLs.
 - For `unknown`, explain that a tight test print may need slicer hole compensation; inspect the
   active preset before enabling it so a second correction is not added unknowingly. A hole
   that comes out tight can be drilled; one that comes out loose cannot be fixed.
-- The same holds for elephant foot: either the slicer's elephant-foot compensation or a 0.3–0.5 mm
-  chamfer on bottom edges that must stay sharp, not both shrinking the first layer. A chamfer
-  that belongs to a standard's profile (the foot of a bin that sits in a baseplate) is geometry,
-  not an elephant-foot chamfer: keep it at its size whatever the slicer does.
+- Elephant foot is corrected in one place too (`elephant_foot` in `printers.json`): the
+  slicer's elephant-foot compensation (`"slicer"`, on in Bambu's system presets) or a 0.3–0.5 mm
+  chamfer on the bottom edges (`"model"`), not both. With the slicer's on, a bottom chamfer is
+  for looks only: it is not the correction, so the edge stays sharp or takes a small chamfer
+  for its look. Never a fillet (P6). A chamfer that belongs to a standard's profile (the foot of
+  a bin that sits in a baseplate) is geometry, not an elephant-foot chamfer: keep it at its size
+  whatever the slicer does.
 
 ## Limits
 
@@ -59,7 +62,7 @@ system default says nothing about a preset the user picks for loose STLs.
 | Engraved text | 0.6 mm deep, 0.8 mm stroke | 1.0 mm deep |
 | Overhang from vertical | 45° (PLA often 50°) | Chamfer instead of a horizontal ledge |
 | Unsupported bridge | — | under 10 mm (Hubs design rules); under 5 mm it does not sag at all; ribs underneath shorten longer spans |
-| Bottom edge | 0.3–0.5 mm chamfer | Chamfer, never a fillet (P6) |
+| Bottom edge | 0.3–0.5 mm chamfer, or sharp with the slicer's compensation (one of them, above) | Never a fillet (P6) |
 
 ## Threads and fasteners
 
