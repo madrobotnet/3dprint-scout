@@ -12,8 +12,8 @@ person plays the user, from a script.
 | `<id>.md`, one per scenario | The row's expected behaviour (a copy), the starting state, the opening message, the scripted replies, the grading checklist |
 | `setup.py` | Makes the project folder a scenario starts in, with the skill's own scripts |
 | `fixtures/` | The sources `setup.py` copies into place (`wall-holder/` is shared by four scenarios) |
-| `results-v0.7.0.md` | One row per scenario per agent, filled after each run |
-| `runs/<agent>/<id>.md` | The full transcript of each run (written by whoever runs it) |
+| `results-v0.7.0.md`, `results-v0.8.0.md` | One row per scenario per agent, filled after each run, for the skill version in the name |
+| `runs/<agent>/<id>.md` | The full transcript of each run (written by whoever runs it); `runs/claude-0.8.0/` for the 0.8.0 runs |
 
 The scenarios, in the order of the table in `conversation-checks.md`:
 
