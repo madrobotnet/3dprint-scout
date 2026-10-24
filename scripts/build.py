@@ -963,6 +963,25 @@ def _relpath(path: str) -> str:
 
 
 def finish(out, parts, sources, params, params_path, specs, args, engine):
+    """After the engine: sanity, manifests, objects, the core 3MF, each part's validation, the
+    object checks and what the build was made from; then the gate."""
+    sane = _sane_parts(out, parts, params)
+    stale = _stamp_manifests(parts, sane, sources, params, engine, args)
+    groups, grouping_failed = _group_parts(out, parts, specs)
+    partial = _write_core_3mf(out, sane, groups, args)
+    reports = _validate_parts(out, sane, stale, specs, sources, params_path, args)
+    object_gates = _object_checks(out, parts, sane, groups, partial, specs, args)
+    _record_inputs(out, parts, sane, sources, params_path, args)
+    gate = overall_gate(reports)
+    if object_gates:
+        gate = overall_gate([{"gate": gate}] + [{"gate": g} for g in object_gates])
+    out["gate"] = "FAIL" if len(sane) < len(parts) or grouping_failed else gate
+    out["R4"] = "PASS" if len(sane) == len(parts) else "FAIL"   # the generator ran, but left a broken artifact
+    return out
+
+
+def _sane_parts(out, parts, params):
+    """Each part's material, and G4 first: the parts whose STL can be read."""
     for p in parts:
         p["material"] = part_material(params, p["name"])     # what finalize.py compares the current params.json with
     # G4: artifact sanity first. A broken STL gets no manifest, is left out of the 3MF, and is
@@ -976,6 +995,12 @@ def finish(out, parts, sources, params, params_path, specs, args, engine):
             p["artifact_error"] = str(exc)
             out["errors"].append(f"{p['name']}: broken artifact ({exc}); no manifest written, left out of the 3MF")
     sane = [p for p in parts if p["artifact_sane"]]
+    return sane
+
+
+def _stamp_manifests(parts, sane, sources, params, engine, args):
+    """A build manifest for each sane part, unless an earlier one describes this very STL; returns
+    the stale earlier ones (record)."""
     # record (S3-1): a part whose earlier manifest describes this very STL keeps it. A fresh one
     # is the better record (that engine, that part's own sources); a stale one must not be
     # re-stamped, which would bless an STL its own generator no longer produces.
@@ -985,9 +1010,13 @@ def finish(out, parts, sources, params, params_path, specs, args, engine):
     for p in sane:
         if p["stl"] not in prior:
             validate.write_manifest(p["stl"], sources, params, engine, by=by)
+    return stale
 
-    # Parts grouped into objects (assembly.py). A bad grouping is a usage error: the parts are
-    # still validated, but no object check ran, so the build gate is FAIL.
+
+def _group_parts(out, parts, specs):
+    """Parts grouped into objects (assembly.py); returns the groups and whether grouping failed.
+    A bad grouping is a usage error: the parts are still validated, but no object check ran, so
+    the build gate is FAIL."""
     grouping_failed = False
     out["assembly_sha256"] = None
     try:
@@ -1002,7 +1031,11 @@ def finish(out, parts, sources, params, params_path, specs, args, engine):
     for p in parts:
         p["object"] = of_part[p["name"]]["name"]
         p["role"] = assembly.part_role(specs.get(p["name"])) if len(of_part[p["name"]]["parts"]) > 1 else None
+    return groups, grouping_failed
 
+
+def _write_core_3mf(out, sane, groups, args):
+    """The core 3MF of every whole object; returns the objects built only in part (--only)."""
     # Objects with some of their parts built (--only, S3-5): no core 3MF item, the subset would
     # be dropped onto the bed where the missing parts should carry it.
     partial = getattr(args, "partial_objects", None) or {}
@@ -1033,7 +1066,11 @@ def finish(out, parts, sources, params, params_path, specs, args, engine):
                                            "so it fits the bed (the STL itself is unchanged)")
         except (validate.ArtifactError, OSError) as exc:
             out["errors"].append(f"core 3MF not written: {exc}")
+    return partial
 
+
+def _validate_parts(out, sane, stale, specs, sources, params_path, args):
+    """validate.py on each sane part; its errors, hard FAILs and warnings lifted to the top."""
     reports = []
     for p in sane:
         own = stale.get(p["stl"])
@@ -1057,8 +1094,11 @@ def finish(out, parts, sources, params, params_path, specs, args, engine):
             out["errors"] += _fail_lines(p["name"], f.get("checks", {}))
         out["warnings"] += [f"{p['name']}: {w}" for w in p.get("engine_warnings", [])]
         out["warnings"] += [f"{p['name']}: {w}" for w in rep.get("warnings", [])]
+    return reports
 
-    # Objects with several parts: D2 / P1 / P2 of the whole, A1 / A2 per part.
+
+def _object_checks(out, parts, sane, groups, partial, specs, args):
+    """Objects with several parts: D2 / P1 / P2 of the whole, A1 / A2 per part. Returns the gates."""
     sane_names = {p["name"] for p in sane}
     by_name = {p["name"]: p for p in parts}
     # An object with several parts, or any object of a job that uses several filaments, may be
@@ -1112,7 +1152,12 @@ def finish(out, parts, sources, params, params_path, specs, args, engine):
                          else "INCOMPLETE")
             object_gates.append(entry["gate"])
         out["objects"].append(entry)
+    return object_gates
 
+
+def _record_inputs(out, parts, sane, sources, params_path, args):
+    """What the verdicts are about and were made with: each STL's sha256, the sources, params and
+    validate settings (finalize.py re-checks with the same)."""
     for p in sane:
         p["sha256"] = validate.file_sha256(p["stl"])      # the very STLs these verdicts are about (finalize.py)
     out["parts"] = parts
@@ -1124,12 +1169,6 @@ def finish(out, parts, sources, params, params_path, specs, args, engine):
     out["validate_settings"]["wall_check"] = bool(getattr(args, "wall_check", True))
     pr = getattr(args, "printer", None)
     out["validate_settings"]["printer_sha256"] = validate.file_sha256(pr) if pr and os.path.isfile(pr) else None
-    gate = overall_gate(reports)
-    if object_gates:
-        gate = overall_gate([{"gate": gate}] + [{"gate": g} for g in object_gates])
-    out["gate"] = "FAIL" if len(sane) < len(parts) or grouping_failed else gate
-    out["R4"] = "PASS" if len(sane) == len(parts) else "FAIL"   # the generator ran, but left a broken artifact
-    return out
 
 
 def cmd_run(args) -> dict:
