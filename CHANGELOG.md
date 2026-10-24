@@ -1,5 +1,80 @@
 # Changelog
 
+## 0.8.0 — 2026-10-24
+
+The same skill, smaller and in one piece. Over 0.7.0 the guidance had grown to about 4,300
+lines, and an agent on the Blender path read about 3,400 of them. About twenty rules stood in
+two or more places, eight pairs of sentences disagreed, and the rules broken most often sat in
+files the agents had read, beside sentences that said something else. 0.8.0 gives each rule one
+home and moves rare material behind a "read only when" line. It also breaks `finalize.py`'s
+longest functions into named pieces. Verdicts, reasons, CLI options and file formats are
+unchanged: the build and finalize output was compared byte for byte with v0.7.0. The plan (in
+Korean) is in `docs/plans/v0.8.0.md`.
+
+- **Four rules decided** (#29). Each pair of sentences that disagreed now says one thing:
+  - A prototype's `_assumptions` line must end in the user's reply, word for word, when the
+    user agreed; otherwise the note is recommended.
+  - The Phase 3 look stops in every attended run. A part with several bodies or a mechanism
+    shows its shell alone first; a simple part may be shown with its features.
+  - Elephant foot is corrected in one place, the slicer's compensation or a bottom chamfer.
+    With the slicer's on, a chamfer is for looks only.
+  - Staleness: `_` keys never make an STL stale, but a `_parts` or `_material` change needs a
+    new build. A look goes stale when the image's bytes or a part's bytes change.
+- **One home per rule** (#29). Each rule written in several places (agreement and prototypes,
+  load-carrying members, promise states, evidence a rebuild makes stale, delivery and bundle,
+  hole compensation, unattended runs, and more) keeps one home; the other places point to it.
+  The latch floors in the P7 row and the duty table in Phase 4 stay quoted on purpose, checked
+  by a test against `strength.DUTIES`.
+- **Read only when it applies** (#29):
+  - **New files:**
+    - `design-mechanisms.md`: print-in-place joints and members that carry load;
+    - `design-features.md`: snaps, screws, keyholes, text;
+    - `outputs.md`: every script's JSON (now with `build.py`'s), how finalize judges evidence,
+      and a worked `_verify`;
+    - `phase-4-mechanisms.md`: sweep, standards, strength inputs, coupons;
+    - `phase-6-files.md`: print-file findings, bundle internals;
+    - `engines/blender-live.md`, `engines/python-sdf.md` and `engines/mixed.md`.
+  - **Moved:** Bambu's handling of touching parts and its compensation defaults now live in
+    `bambu-process.md`.
+  - **Pointers kept:** section names that the scripts print, such as
+    `design.md, "Mechanisms that carry load"` or `parts.md` for `build.py`'s JSON, still lead
+    to a pointer.
+  - **The result:** `SKILL.md` is 300 lines (was 363). The reading path, counted as the
+    0.8.0 audit counted it, is 2,366 lines for Blender (was 3,433) and 2,238 for Python (was
+    3,220). Counting `measure.md` and `materials.md` as read only when they apply, it is
+    2,049 and 1,921; a mechanism adds about 200.
+- **The most-broken rules at their step** (#29):
+  - the unattended opening is item 0 of the delivery message, before any result;
+  - a confirmed value that changes in Phase 4 is named and stopped for;
+  - a part rebuilt since the user's look is shown again before delivery;
+  - Phase 2 writes the compensation state into `printers.json`;
+  - the default purpose is recorded.
+- **What the guidance now says about a hand-guided use** (sliding a phone in): finalize
+  verifies it on its fits alone, so the delivery says the fit was checked and the motion was
+  not. Enforcing a test print would change behaviour, and 0.8.0 does not.
+- **A sentence map** (`docs/plans/v0.8.0-guide-map.md`) lists every one of the 316 sentences
+  that changed, with its new home. Two were dropped on purpose, both informational.
+- **`finalize.py` in modules** (#28):
+  - `finalize_common`, `finalize_geometry`, `finalize_evidence`, `finalize_promises`,
+    `finalize_deliver` and `finalize_bundle`;
+  - `finalize.py` keeps the CLI, `finalize()` and every name it exported;
+  - the four longest functions are broken into named steps (the longest is 87 lines, was 252);
+  - `build.py`'s `finish()` runs its steps as named functions.
+- **Conversation scenarios, run again** (`docs/scenarios/results-v0.8.0.md`):
+  - All nine match with Claude, and no must item that held in 0.7.0 fails. Two of the nine
+    matched only on a re-run after the restatements above.
+  - The kit grades the 0.8.0 decisions: a simple part's look with its features, and the
+    prototype note.
+- **Upgrading**: nothing to do. Projects, reports and commands from 0.7.0 work unchanged.
+- **Known, for 0.8.x**:
+  - Paths in the build JSON are absolute; they become relative to the project folder.
+  - The agent's P4–P6 decisions have no record, so finalize keeps them "yours to decide".
+  - A "you decide" to another question was once taken as the concept pick.
+  - A hand-guided use verifies without a test print.
+  - P3 gives a false positive at an acute bed edge.
+- **Tests**: the same 441 tests, passing on Python 3.13 + bpy 5.2.2, 3.11 + bpy 4.5.14 and
+  3.9, and in CI.
+
 ## 0.7.0 — 2026-10-23
 
 Verification evidence tied to the design. 0.6 checked that each report was about the current

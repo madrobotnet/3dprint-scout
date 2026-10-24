@@ -163,6 +163,18 @@ the X2D and H2D, objects that need both nozzles are placed where both can reach.
 
 ## Status
 
+**v0.8.0** makes the skill smaller without changing what it does. Each rule now has one home,
+and material only some parts need (mechanisms, special features, the live Blender path, the
+bundle's internals) is read only when the part needs it. An agent following the Blender path
+reads about 2,400 lines instead of 3,400, and `SKILL.md` is 300 lines. Four rules that the
+guidance stated two ways are now stated once:
+- the user's look at the base shape always stops;
+- simple parts may be shown complete;
+- elephant foot is corrected in one place;
+- a prototype keeps the user's own words.
+`finalize.py` is split into modules, and its output is byte-identical to 0.7.0's. The nine
+conversation scenarios were run again; none got worse.
+
 **v0.7.0** ties the verification evidence to the design. What you were promised (something you
 do with the part, a feature it must have, a look) is written down with its conditions and what
 counts as success, and the final report calls a promise verified only when its own evidence is
@@ -249,7 +261,7 @@ subprocess is using it. Skill changes also need the conversation scenarios in
 [`docs/scenarios/`](docs/scenarios/README.md), which are not shipped with the skill; Python unit
 tests alone do not exercise agent decisions. The kit holds nine scenarios, each with an opening
 message, scripted replies and a grading checklist, a script that sets up each start state, and
-the graded runs of 0.7.0.
+the graded runs of 0.7.0 and 0.8.0.
 
 `SKILL.md` is the entry point: the rules that hold at all times, a short skeleton of each phase
 and the checklist. Each phase's how-to (`references/phase-0-detect.md` to `phase-6-deliver.md`),
