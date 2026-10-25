@@ -48,9 +48,12 @@ After the choice:
   test print.
 - [ ] **must** Asks nothing more: not the printer, the slicer or a dimension (the bed fit stays
   unchecked rather than a Phase 2 questionnaire).
-- [ ] **must** Builds nothing: no generator, no `out/build.json`, no `_verify` in a params.json;
-  runs none of `build.py`, `validate.py`, `fit.py`, `finalize.py` on a model.
-- [ ] **must** Downloads no model file: no `.stl`, `.3mf`, `.step` or `.zip` appears in the folder.
+- [ ] **must** Builds nothing after the choice: no generator, no `out/build.json`, no `_verify` in
+  `.3dprint/params.json`; runs none of `build.py`, `validate.py`, `fit.py`, `finalize.py` on a
+  model. The concepts the pick showed (0.9.0) are built before it, in `out/concepts/` only, and
+  are not graded here.
+- [ ] **must** Downloads no model file: no `.stl`, `.3mf`, `.step` or `.zip` appears in the folder
+  outside `out/concepts/` (the concepts' own builds).
 - [ ] **must** Generates no substitute and does not start modeling its own version (saying that a
   custom part is possible later is fine).
 - [ ] **must** Claims nothing as checked or verified about the model's mesh, size or fit; a size
