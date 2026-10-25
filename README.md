@@ -163,6 +163,12 @@ the X2D and H2D, objects that need both nozzles are placed where both can reach.
 
 ## Status
 
+**v0.8.2** settles three judgement items. A use you do by hand (pushing a phone in, a peg in
+and out) is marked as such, and the final check itself says when no test print has confirmed
+the motion; if you take it unproven, the report records it as a prototype. The wall check no
+longer reads a wall thin where a slope meets the bed. A Bambu filament preset you saved
+yourself is traced to the material it was made from.
+
 **v0.8.1** lets a project folder move. The build report records its paths relative to the
 project folder, so a project you move or hand to someone still passes its final check, Blender
 builds included. The agent's decisions on the checks left to it (bridges, small features, the
@@ -269,7 +275,7 @@ subprocess is using it. Skill changes also need the conversation scenarios in
 [`docs/scenarios/`](docs/scenarios/README.md), which are not shipped with the skill; Python unit
 tests alone do not exercise agent decisions. The kit holds nine scenarios, each with an opening
 message, scripted replies and a grading checklist, a script that sets up each start state, and
-the graded runs of 0.7.0, 0.8.0 and 0.8.1.
+the graded runs of 0.7.0, 0.8.0, 0.8.1 and 0.8.2.
 
 `SKILL.md` is the entry point: the rules that hold at all times, a short skeleton of each phase
 and the checklist. Each phase's how-to (`references/phase-0-detect.md` to `phase-6-deliver.md`),
