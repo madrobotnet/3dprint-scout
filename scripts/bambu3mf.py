@@ -42,9 +42,10 @@ take the main filament unless they name their own. "params": ".3dprint/params.js
 Next to the project goes `<out>.manifest.json` (threemf.write_3mf_manifest): the project's
 sha256 and each part STL's, plus what the project selects for each part, "filaments":
 {part: {"slot": filament slot, "settings": the template's filament preset name for that
-slot}}, and "process": {"settings": the template's process preset name}, null where the
-template names none. finalize.py --deliver compares them with each part's declared material
-and _print.preset.
+slot, "inherits": the preset that one inherits from (a user's own preset saved from a system
+one), "filament_type": the slot's filament type}}, and "process": {"settings": the template's
+process preset name}, null where the template names none. finalize.py --deliver compares
+them with each part's declared material and _print.preset.
 
 Objects are laid out on the plate's usable area. With "printer": ".3dprint/printers.json"
 (and "printer_id" when it holds several), the usable area is the intersection of every
@@ -230,22 +231,39 @@ def _preset_name(value):
     return value if isinstance(value, str) and value.strip() else None
 
 
+def _slot_value(values, index):
+    """values[index] of a per-slot list of the template as a name, or None (no list, past its end)."""
+    return _preset_name(values[index]) if isinstance(values, list) and 0 <= index < len(values) else None
+
+
 def manifest_presets(objects: list, template_cfg: dict) -> tuple:
-    """(filaments, process) for the 3MF manifest. filaments: {part: {"slot", "settings"}}, the
-    part's filament slot (1-based, a part without its own takes its object's) and the name of
-    that slot's filament preset, filament_settings_id[slot - 1] of the template's
-    project_settings.config; process: {"settings": print_settings_id}. A name the template does
-    not give is None: no filament_settings_id (a template whose slot count comes from
-    filament_colour, or the one-slot default), a slot past the end of the list, or an empty
-    name. Saved and generated (bambu_template.py) templates both name system or user presets."""
-    names = template_cfg.get("filament_settings_id")
-    names = names if isinstance(names, list) else []
+    """(filaments, process) for the 3MF manifest. filaments: {part: {"slot", "settings",
+    "inherits", "filament_type"}}, the part's filament slot (1-based, a part without its own
+    takes its object's), the name of that slot's filament preset, filament_settings_id[slot - 1]
+    of the template's project_settings.config, the system preset that one inherits from (a
+    user's own "My PLA" saved from "Bambu PLA Basic @BBL X1C"), inherits_group[slot], and the
+    slot's filament_type[slot - 1] ("PLA", "PETG"); process: {"settings": print_settings_id}. A
+    name the template does not give is None: no such list (a template whose slot count comes
+    from filament_colour, or the one-slot default), a slot past the end of the list, or an empty
+    name (a system preset inherits nothing, so its inherits is None). Saved and generated
+    (bambu_template.py) templates both name system or user presets."""
+    # inherits_group holds one parent name per preset of the project: the process preset at
+    # index 0, filament slot k (1-based) at index k, the printer preset last (index n + 1).
+    # Bambu Studio, src/libslic3r/PresetBundle.cpp: PresetBundle::full_fff_config() appends the
+    # print preset's inherits, then each filament's in slot order, then the printer's, and stores
+    # them as "inherits_group" (only when one is not empty); PresetBundle::load_config_file_config()
+    # and PresetBundle::validate_presets() read filament i (0-based) back from inherits_values[i + 1]
+    # and the printer from inherits_values[n + 1] (master, read 2026-10-25).
+    names, parents = template_cfg.get("filament_settings_id"), template_cfg.get("inherits_group")
+    types = template_cfg.get("filament_type")
     filaments = {}
     for o in objects:
         for p in o["parts"]:
             slot = p["filament"]
             filaments[p["name"]] = {"slot": slot,
-                                    "settings": _preset_name(names[slot - 1]) if 1 <= slot <= len(names) else None}
+                                    "settings": _slot_value(names, slot - 1),
+                                    "inherits": _slot_value(parents, slot) if slot >= 1 else None,
+                                    "filament_type": _slot_value(types, slot - 1)}
     return filaments, {"settings": _preset_name(template_cfg.get("print_settings_id"))}
 
 

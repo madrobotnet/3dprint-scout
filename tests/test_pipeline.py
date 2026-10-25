@@ -99,8 +99,9 @@ class StrengthToDelivery(unittest.TestCase):
             f.write(out)
         return json.loads(out)
 
-    def deliver(self, slot=1, process=PRESET):
-        make_template("template.3mf", filament_settings_id=FILAMENTS, print_settings_id=process)
+    def deliver(self, slot=1, process=PRESET, **template):
+        make_template("template.3mf", **dict({"filament_settings_id": FILAMENTS, "print_settings_id": process},
+                                             **template))
         self.write("job.json", {"template": "template.3mf", "out": "deliver/sled_bambu.3mf",
                                 "parts": [{"name": "sled", "stl": "out/sled.stl", "filament": slot}]})
         script("bambu3mf.py", "job.json")
@@ -131,6 +132,27 @@ class StrengthToDelivery(unittest.TestCase):
         bambu = [d for d in out["delivered"] if d["kind"] == "3mf"][0]
         self.assertEqual((bambu["filaments"], bambu["preset"]),
                          ({"sled": {"slot": 1, "settings": FILAMENTS[0], "material": "pla_basic"}}, PRESET))
+
+    def test_a_users_own_preset_is_traced_to_the_one_it_inherits(self):
+        """0.8.2 C: a template whose first slot is the user's "My PLA", saved from Bambu PLA Basic:
+        bambu3mf.py records the parent and the type, finalize takes PLA Basic from them."""
+        self.params()
+        self.build()
+        self.strength("--param", "support=arm_support")
+        self.params(printed=sha256("out/sled.stl"))
+        self.deliver(filament_settings_id=["My PLA", FILAMENTS[1]], filament_type=["PLA", "PETG"],
+                     inherits_group=["", FILAMENTS[0], "", ""])
+        out = self.finalize()
+        self.assertEqual((out["use"], out["geometry"]), ("verified", "verified"), out["open"])
+        bambu = [d for d in out["delivered"] if d["kind"] == "3mf"][0]
+        self.assertEqual(bambu["filaments"], {"sled": {"slot": 1, "settings": "My PLA", "material": "pla_basic",
+                                                       "material_from": "inherits", "inherits": FILAMENTS[0]}})
+        os.remove("deliver/sled_bambu.3mf")
+        os.remove("deliver/sled_bambu.3mf.manifest.json")
+        self.deliver(filament_settings_id=["My PLA", FILAMENTS[1]], filament_type=["PETG", "PETG"],
+                     inherits_group=["", FILAMENTS[0], "", ""])                 # switched to PETG: not PLA
+        self.assertEqual(self.states(self.finalize())["hold-push"], ("assumed", [
+            "member 'sled arm': the slicer's filament for sled is not checked"]))
 
     def test_what_breaks_the_links(self):
         """Reverse: each change the plan names keeps a promise from verifying, by name."""

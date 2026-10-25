@@ -46,7 +46,8 @@ def write_3mf_manifest(path, parts, filaments=None, process=None):
 
     A slicer project that selects filaments and a process preset (bambu3mf.py) also passes
     `filaments`, {part: {"slot": 1-based filament slot, "settings": that slot's filament preset
-    name or None}}, and `process`, {"settings": the process preset name or None}; finalize.py
+    name or None, "inherits": the preset that one inherits from or None, "filament_type": the
+    slot's filament type or None}}, and `process`, {"settings": the process preset name or None}; finalize.py
     --deliver compares them with each part's declared material and _print.preset. Each key is
     written only when given: the core 3MF selects neither, so its manifest has neither."""
     data = {"schema": MANIFEST_SCHEMA, "artifact_sha256": file_sha256(path),

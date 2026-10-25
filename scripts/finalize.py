@@ -92,6 +92,9 @@ user does with the object: needs conditions and success), `feature` (needs succe
 Evidence names a declared joint, member, measurement, seen image or test print; a use takes
 joints, members, measurements and test prints, a feature joints, measurements and test prints,
 a look seen images and test prints; a part's own check (box M1) is never evidence of a promise.
+A use done by hand ("by_hand": true: pushing a phone in, a peg in and out) keeps the state its
+evidence gives; without a passed test print among that evidence, its reasons and open say "the
+motion by hand is not confirmed by a print".
 seen: a person's judgement of a preview image (by user or agent, the promises judged, passed or
 failed, and image_sha256, the digest they looked at); it stands while the image is those bytes,
 its sidecar says so, and every STL the sidecar lists is a part of this build now; only the
@@ -120,7 +123,9 @@ material cannot be read), accepted (it passed with a WARN the user accepted) or 
 A not verified promise delivered unproven has the _assumptions line "<id>: delivered as a
 prototype, not verified", optionally ending in a note in parentheses that says who chose it
 (the user's reply, or "(unattended run)"): it is marked "prototype": true, named in the use
-summary and not counted as an assumption on its own.
+summary and not counted as an assumption on its own. A by_hand use whose motion no passed test
+print confirms takes the same line whatever its state: it keeps that state and is marked a
+prototype too.
 
 The report has five tiers and never folds them into one PASS:
   use       the worst state of its promises (error, failed, not verified, excluded, assumed,
@@ -142,7 +147,9 @@ delivered in one or the other; a malformed manifest is a reason, not an error. A
 project's manifest (bambu3mf.py) also names each part's filament and the process preset: a
 filament of another material than the part's leaves the part's material-dependent evidence (a
 --from-build member of it, a test print of it) not verified, one finalize cannot name
-(strength.material_of_filament) leaves it assumed, as does a part in no Bambu project (another
+(strength.material_of_filament; a user's own preset such as "My PLA" takes the material of the
+one it inherits from when the slot's filament_type is that material's type, "material_from":
+"inherits") leaves it assumed, as does a part in no Bambu project (another
 slicer: the print file's material is not checked); a process preset other than _print.preset
 keeps test prints of its parts from verifying, and without _print.preset it is the delivered
 preset they are compared with; a project that names no process preset leaves them assumed. These are open lines, not geometry reasons. --bundle DIR
@@ -262,6 +269,7 @@ from finalize_evidence import (# noqa: E402, F401  (every name stays importable 
     strength_link,
     user_file_problems)
 from finalize_promises import (# noqa: E402, F401  (every name stays importable from finalize)
+    BY_HAND,
     check_promises,
     evidence_index,
     judged_evidence,
@@ -410,18 +418,28 @@ def _prototypes(out):
     # A promise delivered unproven (phase 4, "Leaving Phase 4") is recorded as the _assumptions
     # line "<id>: delivered as a prototype, not verified", with an optional note in parentheses
     # saying who chose it: it belongs to that promise while the promise is not verified, so it is
-    # not counted as an assumption on its own.
+    # not counted as an assumption on its own. A use done by hand that no passed print confirms
+    # (BY_HAND among its reasons) takes the line too, whatever its fits give: the motion is what
+    # the user took unproven, and the report says so.
     by_id = {p["id"]: p for p in out["promises"] if isinstance(p.get("id"), str)}
     prototypes = []
     for a in out["assumptions"]:
         m = PROTOTYPE.match(a) if isinstance(a, str) else None
-        if m and m.group(1) in by_id and by_id[m.group(1)]["state"] == "not verified" and m.group(1) not in prototypes:
+        if m and m.group(1) in by_id and _takes_prototype(by_id[m.group(1)]) and m.group(1) not in prototypes:
             prototypes.append(m.group(1))
             by_id[m.group(1)]["prototype"] = True
     unlinked = (sum(1 for a in out["assumptions"] if not (isinstance(a, str) and PROTOTYPE.match(a)
                                                           and PROTOTYPE.match(a).group(1) in prototypes))
                 + len(out["unverified_dimensions"]))
     return prototypes, unlinked
+
+
+def _takes_prototype(p):
+    """Whether a promise can go out as a prototype: one not verified, or a use done by hand whose
+    motion no passed print confirms (its state stays what its fits give: verified, assumed or
+    accepted)."""
+    return p["state"] == "not verified" or (p.get("by_hand") is True and BY_HAND in (p.get("reasons") or [])
+                                             and p["state"] in ("verified", "assumed", "accepted"))
 
 
 def _summary(out, use, prototypes, unlinked, geometry_ok, n_open, shape, deliver):

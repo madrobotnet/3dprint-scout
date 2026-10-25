@@ -481,6 +481,7 @@ P3_MAX_FACES = 400_000     # above this the check is skipped (UNVERIFIED), never
 P3_PAIR_BUDGET = 200_000   # (ray, candidate triangle) pairs tested per numpy batch
 P3_MAX_DEPTH = 20.0        # mm; a ray that finds no wall within this counts as "at least this thick"
 P3_SKIN = 0.05             # mm; hits closer than this are the ray's own face or a corner neighbour
+P3_BED_TOL = 0.01          # mm; a face this close to the mesh's lowest z, facing down, lies on the bed
 
 
 def _ray_triangle_t(tri, orig, dirs):
@@ -503,7 +504,15 @@ def _ray_triangle_t(tri, orig, dirs):
 
 
 def wall_thickness(tris, min_wall, samples=2000):
-    """Shoot a ray inward from `samples` random faces; the nearest opposite wall is the thickness.
+    """Shoot `samples` rays inward, each from a random point of the surface; the nearest opposite
+    wall is the thickness.
+
+    The points are spread by area (a face gets rays in proportion to its size, with a fixed seed,
+    so the result is the same every run), not one per face: a mesh cut finely along an edge would
+    otherwise be judged by that edge. No ray starts on the bed (a face at the mesh's lowest z,
+    facing down): near the edge where a wall leans in and meets the bed at an acute angle, a ray
+    shot up leaves through that wall at once and reads a wall that is not there. A floor is still
+    measured, by the rays from its top face going down.
 
     Memory is bounded by construction: each ray is a segment of at most P3_MAX_DEPTH mm, the
     broad phase (rtree over triangle boxes) only returns triangles near that segment, and the
@@ -529,11 +538,19 @@ def wall_thickness(tris, min_wall, samples=2000):
         if len(usable) == 0:
             return ("UNVERIFIED", None, "no usable faces")
         normals[usable] /= length[usable, None]
+        z = T[:, :, 2]
+        on_bed = (z.max(axis=1) <= z.min() + P3_BED_TOL) & (normals[:, 2] < -0.9)
+        shoot = usable[~on_bed[usable]]
+        if len(shoot) == 0:
+            return ("UNVERIFIED", None, "no usable faces off the bed")
+        area = length[shoot]
         rng = np.random.default_rng(0)
-        picked = rng.choice(usable, size=min(samples, len(usable)), replace=False)
-        centres = T[picked].mean(axis=1)
+        picked = rng.choice(shoot, size=samples, p=area / area.sum())
+        r1, r2 = np.sqrt(rng.random(samples)), rng.random(samples)    # a uniform point on each face
+        w = np.stack([1 - r1, r1 * (1 - r2), r1 * r2], axis=1)
+        points = np.einsum("ij,ijk->ik", w, T[picked])
         dirs = -normals[picked]                                       # into the solid
-        origins = centres + dirs * 1e-3
+        origins = points + dirs * 1e-3
         ends = origins + dirs * P3_MAX_DEPTH
         lo, hi = T.min(axis=1), T.max(axis=1)
         prop = rtree_index.Property()

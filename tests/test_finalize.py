@@ -1365,6 +1365,99 @@ class FinalizePromises(Workspace):
         out = judge(None, _material="pla")
         self.assertIn("_material must be a strength.py material key", " ".join(out["promise_errors"]))
 
+    BY_HAND = "the motion by hand is not confirmed by a print (no passed test print among its evidence)"
+
+    def test_a_use_done_by_hand_says_a_print_has_not_confirmed_it(self):
+        """0.8.2 A: a use done by hand keeps the state its evidence gives, and finalize itself says
+        the motion is not confirmed until a passed test print is among that evidence."""
+        import validate
+        hand = dict(self.SEAT, by_hand=True)
+        out = self.run_use(self.verify([hand], dims=[]))
+        seat = self.promise(out, "seat")
+        self.assertEqual((out["use"], seat["state"], seat["by_hand"]), ("verified", "verified", True))
+        self.assertEqual(seat["reasons"], [self.BY_HAND])
+        self.assertIn("promise 'seat' (use): " + self.BY_HAND, out["open"])
+        self.assertEqual(out["summary"][0], "use: verified (1 promise: 1 verified; 1 assumption not linked to a "
+                                            "promise)")
+        self.assertEqual(out["promise_counts"], {"use": {"verified": 1}})
+        plain = self.run_use(self.verify([self.SEAT], dims=[]))                # no by_hand: as before
+        self.assertNotIn(self.BY_HAND, json.dumps(plain))
+        self.assertNotIn("by_hand", self.promise(plain, "seat"))
+        self.assertEqual(plain["open"], [o for o in out["open"] if self.BY_HAND not in o])
+        off = self.run_use(self.verify([dict(self.SEAT, by_hand=False)], dims=[]))
+        self.assertEqual((self.promise(off, "seat")["reasons"], off["open"]), ([], plain["open"]))
+        # A test print among its evidence: a passed one takes the line away, any other keeps it.
+        lid = validate.file_sha256("out/lid.stl")
+        printed = {"name": "lid fit", "status": "passed", "promises": ["seat"], "printer": "x2d",
+                   "orientation": "as built", "by": "user", "preset": "0.20mm Standard",
+                   "parts": {"lid": {"sha256": lid, "material": "pla_basic"}}}
+        hand = dict(hand, evidence=[{"joint": "lid on box"}, {"test_print": "lid fit"}])
+        contract = {"_material": "pla_basic", "_print": {"preset": "0.20mm Standard"}}
+        out = self.run_use(self.verify([hand], dims=[], test_prints=[printed]), **contract)
+        seat = self.promise(out, "seat")
+        self.assertEqual((seat["state"], seat["reasons"]), ("verified", []))
+        self.assertFalse(any(self.BY_HAND in o for o in out["open"]), out["open"])
+        for status, state in (("failed", "failed"), ("skipped", "not verified"), ("pending", "not verified")):
+            with self.subTest(status=status):
+                out = self.run_use(self.verify([hand], dims=[], test_prints=[dict(printed, status=status)]), **contract)
+                seat = self.promise(out, "seat")
+                self.assertEqual(seat["state"], state)
+                self.assertEqual(seat["reasons"][-1], self.BY_HAND)
+                lines = [o for o in out["open"] if self.BY_HAND in o]      # in the promise's own line, once
+                self.assertEqual(len(lines), 1, out["open"])
+                self.assertTrue(lines[0].startswith(f"promise 'seat' (use) {state}: "), lines[0])
+        # A stale print (of another lid) is no passed print either.
+        out = self.run_use(self.verify([hand], dims=[], test_prints=[
+            dict(printed, parts={"lid": {"sha256": "0" * 64, "material": "pla_basic"}})]), **contract)
+        self.assertEqual(self.promise(out, "seat")["reasons"][-1], self.BY_HAND)
+        # The user took it without verifying it: its reasons still say so.
+        out = self.run_use(self.verify([dict(self.SEAT, by_hand=True, evidence=[])], dims=[], accepted=[
+            {"promise": "seat", "reason": "I'll try it on the first print", "by": "user"}]))
+        self.assertEqual(self.promise(out, "seat")["reasons"],
+                         ["taken by the user without verifying it: I'll try it on the first print", "no evidence yet",
+                          self.BY_HAND])
+
+    def test_a_use_done_by_hand_the_user_took_unproven_is_a_prototype(self):
+        """0.8.2: the user told the motion was not confirmed takes it as a prototype ("확인 안 된 것은
+        시제품으로 받을게요"). Its _assumptions line marks it a prototype while no passed print confirms
+        it, whatever its fits give; it keeps that state."""
+        reply = '(the user: "확인 안 된 것은 시제품으로 받을게요.")'
+        line = f"seat: delivered as a prototype, not verified {reply}"
+        hand = dict(self.SEAT, by_hand=True)
+        out = self.run_use(self.verify([hand], dims=[]), _assumptions=[line])
+        seat = self.promise(out, "seat")
+        self.assertEqual((out["use"], seat["state"], seat.get("prototype")), ("verified", "verified", True))
+        self.assertEqual(seat["reasons"], [self.BY_HAND])
+        self.assertEqual(out["summary"][0], "use: verified (1 promise: 1 verified; delivered as a prototype: seat)")
+        # Without by_hand, a prototype line on a verified promise is still an assumption of its own.
+        plain = self.run_use(self.verify([self.SEAT], dims=[]), _assumptions=[line])
+        self.assertNotIn("prototype", self.promise(plain, "seat"))
+        self.assertEqual(plain["summary"][0], "use: verified (1 promise: 1 verified; 1 assumption not linked to a "
+                                              "promise)")
+        # An assumed by_hand use (it rests on a size nobody measured) takes it too, and stays assumed.
+        out = self.run_use(self.verify([dict(self.CABLE, by_hand=True)]),
+                           _assumptions=[line.replace("seat:", "cable-out:")])
+        cable = self.promise(out, "cable-out")
+        self.assertEqual((cable["state"], cable.get("prototype")), ("assumed", True))
+
+    def test_by_hand_is_declared_on_a_use_as_true_or_false(self):
+        feature = {"id": "notch", "kind": "feature", "text": "a notch", "success": "6 mm wide",
+                   "evidence": [{"joint": "lid on box"}]}
+        look = {"id": "label", "kind": "look", "text": "the name on the front"}
+        for promise, message in ((dict(self.SEAT, by_hand="yes"), "by_hand must be true or false"),
+                                 (dict(self.SEAT, by_hand=1), "by_hand must be true or false"),
+                                 (dict(feature, by_hand=True), "by_hand is for a use promise (a motion done by hand), "
+                                                               "not a feature"),
+                                 (dict(look, by_hand=False), "by_hand is for a use promise (a motion done by hand), "
+                                                             "not a look")):
+            with self.subTest(promise=promise):
+                out = self.run_use(self.verify([promise], dims=[]))
+                p = out["promises"][0]
+                self.assertEqual((out["use"], p["state"]), ("error", "error"))
+                self.assertIn(message, p["reasons"])
+                self.assertIn(message, "\n".join(out["open"]))
+                self.assertNotIn(self.BY_HAND, p["reasons"])
+
     def test_the_tier_is_the_worst_promise(self):
         nothing = {"id": "label", "kind": "look", "text": "the name on the front"}
         out = self.run_use(self.verify([self.SEAT, self.CABLE, nothing]))
@@ -1585,10 +1678,11 @@ class FinalizePromises(Workspace):
         out = self.run_linked(v, _material=None, _print={"preset": self.STANDARD}, materials={"box": None, "lid": None})
         self.assertEqual(out["material_drift"], [])                            # none then, none now
 
-    def bambu_project(self, filaments=None, process=STANDARD, parts=("box", "lid"), name="set.3mf"):
+    def bambu_project(self, filaments=None, process=STANDARD, parts=("box", "lid"), name="set.3mf", slots=None):
         """A delivered Bambu project and its manifest as bambu3mf.py writes it (contract 3 of step
         4): the parts' sha256, each part's filament slot and settings name, the process preset.
-        filaments=False or process=False leave the key out, as a core 3MF of build.py."""
+        filaments=False or process=False leave the key out, as a core 3MF of build.py. slots adds
+        fields to a part's filament entry ({"lid": {"inherits": ..., "filament_type": ...}}, 0.8.2)."""
         import validate
         os.makedirs("deliver", exist_ok=True)
         path = os.path.join("deliver", name)
@@ -1598,7 +1692,8 @@ class FinalizePromises(Workspace):
              "parts": {n: validate.file_sha256(os.path.join("out", n + ".stl")) for n in parts}}
         if filaments is not False:
             fil = dict({n: self.BAMBU_PLA for n in parts}, **(filaments or {}))
-            m["filaments"] = {n: {"slot": i + 1, "settings": s} for i, (n, s) in enumerate(sorted(fil.items()))}
+            m["filaments"] = {n: dict({"slot": i + 1, "settings": s}, **(slots or {}).get(n, {}))
+                              for i, (n, s) in enumerate(sorted(fil.items()))}
         if process is not False:
             m["process"] = {"settings": process}
         with open(path + ".manifest.json", "w") as f:
@@ -1659,6 +1754,54 @@ class FinalizePromises(Workspace):
                                  ["test print 'lid fit': the slicer's filament for lid is not checked"])
                 self.assertTrue(any(o.startswith("deliver/set.3mf: the slicer's filament for lid is not checked") and why in o
                                     for o in out["open"]), out["open"])
+
+    def test_a_users_own_preset_takes_the_material_it_inherits(self):
+        """0.8.2 C: "My PLA", saved from Bambu PLA Basic, is PLA Basic when the slot's filament type
+        is PLA; a preset switched to another type, or without a type, stays not checked."""
+        v = self.delivered_verify()
+        parent = self.BAMBU_PLA
+        self.bambu_project({"lid": "My PLA"}, slots={"lid": {"inherits": parent, "filament_type": "PLA"}})
+        out = self.run_linked(v, deliver="deliver", _print={"preset": self.STANDARD})
+        self.assertEqual(self.states(out), {"holds": "verified", "seat": "verified", "stands": "verified"}, out["open"])
+        self.assertEqual(out["delivered"][0]["filaments"]["lid"],
+                         {"slot": 2, "settings": "My PLA", "material": "pla_basic", "material_from": "inherits",
+                          "inherits": parent})
+        self.assertEqual(out["delivered"][0]["filaments"]["box"], {"slot": 1, "settings": parent,
+                                                                   "material": "pla_basic"})
+        self.assertFalse(any("filament" in o for o in out["open"]), out["open"])
+        # Inherited, but of another material than the part's: not verified, as a system preset would be.
+        self.bambu_project({"lid": "My PETG"}, slots={"lid": {"inherits": "Bambu PETG HF @BBL X1C",
+                                                               "filament_type": "petg"}})
+        out = self.run_linked(v, deliver="deliver", _print={"preset": self.STANDARD})
+        self.assertEqual(self.states(out), {"holds": "not verified", "seat": "not verified", "stands": "verified"})
+        self.assertIn("deliver/set.3mf: lid is printed in My PETG (petg_hf, inherited from Bambu PETG HF @BBL X1C), the "
+                      "part is pla_basic: choose the filament of its material in the project, or change the part's "
+                      "material and build again", out["open"])
+        self.assertEqual(out["delivered"][0]["filaments"]["lid"]["material_from"], "inherits")
+        # The type disagrees with the parent's, or is not recorded: not checked, as before.
+        for ftype, why in (("PETG", 'it inherits "Bambu PLA Basic @BBL X1C" (pla_basic), but its filament type is '
+                                    "PETG, not PLA"),
+                           ("PLA-CF", "but its filament type is PLA-CF, not PLA"),
+                           (None, "but the project records no filament type for its slot"),
+                           ("", "but the project records no filament type for its slot")):
+            with self.subTest(filament_type=ftype):
+                self.bambu_project({"lid": "My PLA"}, slots={"lid": {"inherits": parent, "filament_type": ftype}})
+                out = self.run_linked(v, deliver="deliver", _print={"preset": self.STANDARD})
+                self.assertEqual(self.states(out), {"holds": "assumed", "seat": "assumed", "stands": "verified"})
+                self.assertEqual(out["delivered"][0]["filaments"]["lid"], {"slot": 2, "settings": "My PLA",
+                                                                           "material": None})
+                line = next(o for o in out["open"] if o.startswith("deliver/set.3mf: the slicer's filament for lid"))
+                self.assertIn('("My PLA" is not a filament of a known material; ', line)
+                self.assertIn(why, line)
+        # A parent finalize cannot name either, or none: as before.
+        for slots in ({"lid": {"inherits": "Generic PLA @BBL X1C", "filament_type": "PLA"}},
+                      {"lid": {"inherits": None, "filament_type": "PLA"}}, {"lid": {"inherits": ["x"]}}, None):
+            with self.subTest(slots=slots):
+                self.bambu_project({"lid": "My PLA"}, slots=slots)
+                out = self.run_linked(v, deliver="deliver", _print={"preset": self.STANDARD})
+                self.assertEqual(self.states(out), {"holds": "assumed", "seat": "assumed", "stands": "verified"})
+                self.assertIn("deliver/set.3mf: the slicer's filament for lid is not checked (\"My PLA\" is not a "
+                              "filament of a known material); set it to pla_basic in the slicer", out["open"])
 
     def test_without_a_bambu_project_the_print_files_material_is_assumed(self):
         v = self.delivered_verify()

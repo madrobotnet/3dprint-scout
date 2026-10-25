@@ -443,7 +443,89 @@ def tube(n, r_out=30.0, r_in=28.0, h=20.0):
     return tris
 
 
+def _outward(tris, centre):
+    """Each triangle wound so its normal points away from `centre` (a convex solid)."""
+    out = []
+    for a, b, c in tris:
+        e1, e2 = [b[i] - a[i] for i in range(3)], [c[i] - a[i] for i in range(3)]
+        n = (e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0])
+        g = [(a[i] + b[i] + c[i]) / 3 - centre[i] for i in range(3)]
+        out.append((a, b, c) if sum(n[i] * g[i] for i in range(3)) > 0 else (a, c, b))
+    return out
+
+
+def _slices(p0, p1, q0, q1, n):
+    """The quad p0 p1 q1 q0 cut into n slices from edge p0-q0 to edge p1-q1, two triangles each."""
+    lerp = lambda u, v, f: tuple(u[k] + (v[k] - u[k]) * f for k in range(3))
+    out = []
+    for i in range(n):
+        a, b = lerp(p0, p1, i / n), lerp(p0, p1, (i + 1) / n)
+        c, d = lerp(q0, q1, (i + 1) / n), lerp(q0, q1, i / n)
+        out += [(a, b, c), (a, c, d)]
+    return out
+
+
+def sloped_block(length=60.0, base=20.0, height=20.0, angle=74.0, edge=0.3, n=200):
+    """A solid block along X whose two long sides lean in and meet the bed at `angle` (the 0.7.0
+    holder's front and back, 74 deg), meshed as CAD exports such an edge: the bed face and each
+    slope cut into n thin slices within `edge` mm of the bed edge, the rest in big triangles."""
+    L, B, H = length, base, height
+    a = H / math.tan(math.radians(angle))
+    tris = _slices((0, 0, 0), (L, 0, 0), (0, edge, 0), (L, edge, 0), n)
+    tris += _slices((0, B - edge, 0), (L, B - edge, 0), (0, B, 0), (L, B, 0), n)
+    tris += _slices((0, edge, 0), (L, edge, 0), (0, B - edge, 0), (L, B - edge, 0), 1)
+    f = edge / H
+    for y0, y1 in ((0.0, a), (B, B - a)):
+        ym = y0 + (y1 - y0) * f
+        tris += _slices((0, y0, 0), (L, y0, 0), (0, ym, edge), (L, ym, edge), n)
+        tris += _slices((0, ym, edge), (L, ym, edge), (0, y1, H), (L, y1, H), 1)
+    tris += _slices((0, a, H), (L, a, H), (0, B - a, H), (L, B - a, H), 1)
+    for x in (0.0, L):
+        tris += _slices((x, 0, 0), (x, B, 0), (x, a, H), (x, B - a, H), 1)
+    return _outward(tris, (L / 2, B / 2, H / 2))
+
+
 class OptionalWallP3(Base):
+    def need_ray_casting(self):
+        try:
+            import numpy, rtree  # noqa: F401
+        except ImportError:
+            self.skipTest("numpy/rtree not installed")
+
+    def test_a_wall_meeting_the_bed_at_an_acute_angle_is_not_thin(self):
+        """0.8.2 B: the 0.7.0 holder read P3 WARN at 0.35 mm, every thin reading a bed triangle at
+        the edge where a 74 deg slope meets the bed (a ray shot up there leaves through the slope at
+        once). One ray per face let those small triangles judge the part; with the bed face left
+        out the holder's 5th percentile was 3.0 mm."""
+        st, val, note = validate.wall_thickness(sloped_block(), 1.2)
+        self.assertEqual(st, "PASS", note)
+        self.assertGreater(val["wall_p5_mm"], 3.0)
+        self.assertEqual(set(val), {"wall_p5_mm", "min_wall_mm", "rays", "max_depth_mm"})
+        self.assertEqual(val["rays"], 2000)                                   # the sample count, not the faces
+        self.assertEqual(validate.wall_thickness(sloped_block(), 1.2), (st, val, note))   # the same every run
+        # A narrow one, where rays from the bed face would still pull the 5th percentile under 1.2 mm
+        # when spread by area alone.
+        st, val, note = validate.wall_thickness(sloped_block(length=40, base=8, height=5, n=20), 1.2)
+        self.assertEqual(st, "PASS", note)
+
+    def test_a_thin_plate_or_floor_on_the_bed_still_warns(self):
+        """No ray starts on the bed, but a floor is still measured from its top face, down."""
+        self.need_ray_casting()
+        st, val, _ = validate.wall_thickness(box(30, 30, 0.8), 1.2)           # a plate lying on the bed
+        self.assertEqual(st, "WARN")
+        self.assertAlmostEqual(val["wall_p5_mm"], 0.8, delta=0.01)
+        st, val, _ = validate.wall_thickness(box(30, 30, 0.8, 0, 0, 5), 1.2)  # the same plate, raised
+        self.assertEqual(st, "WARN")
+        cup = box(30, 30, 10) + box(26, 26, 7.2, 2, 2, 0.8, inward=True)     # 2 mm walls and lid, 0.8 mm floor
+        st, val, _ = validate.wall_thickness(cup, 1.2)
+        self.assertEqual(st, "WARN")
+        self.assertAlmostEqual(val["wall_p5_mm"], 0.8, delta=0.01)
+        st, val, _ = validate.wall_thickness(box(30, 30, 10) + box(26, 26, 6, 2, 2, 2, inward=True), 1.2)
+        self.assertEqual(st, "PASS")                                          # a 2 mm floor
+        self.assertAlmostEqual(val["wall_p5_mm"], 2.0, delta=0.01)
+        self.assertEqual(validate.wall_thickness(box(30, 30, 0.8)[:2], 1.2)[:2],   # only the bed face
+                         ("UNVERIFIED", None))
+
     def test_wall_check_never_crashes(self):
         """With or without numpy/rtree, P3 yields a verdict and JSON is emitted."""
         p = self.stl("h.stl", box(20, 20, 20) + box(16, 16, 16, 2, 2, 2, inward=True))

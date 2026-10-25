@@ -110,13 +110,47 @@ def check_delivered(deliver, parts, build):
             reasons.append(f"{p['name']}: not in the delivery ({rel(deliver)}) as an STL or in a 3MF")
     return entries, reasons, projects
 
+def material_type(key):
+    """The filament type of a strength.py MATERIALS key, as Bambu Studio's filament_type names it:
+    pla_basic -> PLA, petg_hf -> PETG, abs -> ABS; None for a key that is not in MATERIALS. Kept
+    here, not in strength.py: strength.py is a source every build that imports parts.py hashes, so
+    a change there would make those builds stale."""
+    import strength
+    return key.split("_")[0].upper() if isinstance(key, str) and key in strength.MATERIALS else None
+
+
 NO_PROJECT = "the print file's material is not checked (no Bambu project)"
+
+
+def _inherited_material(key, settings, f, strength):
+    """(material key, taken from the parent preset, why not) for one part's filament in a Bambu
+    project's manifest. A filament preset finalize cannot name (a user's own "My PLA") takes the
+    material of the system preset it inherits from (the manifest's `inherits`, bambu3mf.py 0.8.2),
+    but only when the slot's `filament_type` is that material's type: a preset saved from PLA and
+    switched to PETG is not PLA. Otherwise the key stays as it was (None: not checked), with the
+    reason when a parent was named but its type does not agree."""
+    parent = f.get("inherits") if isinstance(f.get("inherits"), str) else None
+    if key is not None or not settings or not parent:
+        return key, False, None
+    pkey = strength.material_of_filament(parent)
+    if pkey is None:
+        return key, False, None
+    ftype = f.get("filament_type") if isinstance(f.get("filament_type"), str) else ""
+    want = material_type(pkey)
+    if ftype.strip().upper() == want:
+        return pkey, True, None
+    return key, False, (f"{json.dumps(settings)} is not a filament of a known material; it inherits "
+                        f"{json.dumps(parent)} ({pkey}), but "
+                        + (f"its filament type is {ftype.strip()}, not {want}" if ftype.strip() else
+                           "the project records no filament type for its slot"))
 
 
 def check_delivered_print(projects, part_names, params, specs):
     """The slicer settings a delivered Bambu project carries (its manifest's `filaments` and
     `process`, written by bambu3mf.py) against what params.json declares. Each part's filament
-    (strength.material_of_filament of its settings name) must be the part's material: another
+    (strength.material_of_filament of its settings name; for a preset it cannot name, the
+    material of the preset it inherits from when the slot's filament_type is that material's
+    type, recorded as "material_from": "inherits") must be the part's material: another
     material leaves the part's material-dependent evidence (a --from-build strength report, a
     test print of it) not verified, a filament finalize cannot name leaves it assumed, and so
     does a part in no Bambu project (another slicer: its filament cannot be read). A project's
@@ -138,20 +172,25 @@ def check_delivered_print(projects, part_names, params, specs):
             f = fil.get(n) if isinstance(fil.get(n), dict) else {}
             settings = f.get("settings") if isinstance(f.get("settings"), str) else None
             key, eff = strength.material_of_filament(settings), effective_material(params, specs, n)
-            entry["filaments"][n] = {"slot": f.get("slot"), "settings": settings, "material": key}
+            report = {"slot": f.get("slot"), "settings": settings, "material": key}
+            key, inherited, why = _inherited_material(key, settings, f, strength)
+            if inherited:
+                report.update(material=key, material_from="inherits", inherits=f["inherits"])
+            entry["filaments"][n] = report
+            printed = f"{settings} ({key}" + (f", inherited from {f['inherits']})" if inherited else ")")
             ev = evidence.setdefault(n, {"notver": [], "assumed": []})
             if key is None:
-                why = (f"{json.dumps(settings)} is not a filament of a known material" if settings else
-                       "the project names no filament for its slot")
+                why = why or (f"{json.dumps(settings)} is not a filament of a known material" if settings else
+                              "the project names no filament for its slot")
                 lines.append(f"{rel(path)}: the slicer's filament for {n} is not checked ({why}); set it to "
                              f"{eff or 'the part material'} in the slicer")
                 ev["assumed"].append(f"the slicer's filament for {n} is not checked")
             elif eff is None:
-                lines.append(f"{rel(path)}: {n} is printed in {settings} ({key}), and no material is declared for {n} "
+                lines.append(f"{rel(path)}: {n} is printed in {printed}, and no material is declared for {n} "
                              f"(_material, or _parts.{n}.material) to compare it with")
                 ev["notver"].append(f"no material is declared for {n} to compare the print file's filament with")
             elif key != eff:
-                lines.append(f"{rel(path)}: {n} is printed in {settings} ({key}), the part is {eff}: choose the "
+                lines.append(f"{rel(path)}: {n} is printed in {printed}, the part is {eff}: choose the "
                              "filament of its material in the project, or change the part's material and build again")
                 ev["notver"].append(f"the print file prints {n} in {key}, the part is {eff}")
         p = proc.get("settings") if isinstance(proc, dict) else None

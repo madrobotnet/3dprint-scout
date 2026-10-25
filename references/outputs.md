@@ -170,6 +170,14 @@ part's STL now is stale: the line stays, ending in "decided for another build of
 again". A wrong entry is a declaration error (`promise_errors`, `use` is `error`). None of this
 changes `geometry`.
 
+A promise entry repeats `conditions`, `success` and `by_hand` when they are declared. A `use`
+with `"by_hand": true` and no passed test print among its evidence (an `evidence` item
+`{"test_print": ..., "result": "passed"}`) keeps its state, and its `reasons` end with "the motion
+by hand is not confirmed by a print (no passed test print among its evidence)": in the promise's
+`open` line when it is not verified, and as its own `open` line, `promise '<id>' (use): the
+motion by hand is not confirmed by a print (...)`, when it is (`references/checks.md`, "A use
+done by hand").
+
 ## How finalize judges each kind of evidence
 
 A seen image (`_verify.seen`) is a person's judgement of a preview; `image_sha256` is the digest
@@ -236,7 +244,16 @@ again. A build JSON from before 0.7.0 records no material, and nothing is said.
 With `--deliver`, a delivered Bambu project's manifest (written by `bambu3mf.py`) names each
 part's filament slot and settings name (`filaments`) and the process preset (`process`); each
 3MF entry of `delivered` repeats them, with the material key of each filament
-(`strength.material_of_filament`: "Bambu PLA Basic @BBL X1C" is `pla_basic`). A filament of
+(`strength.material_of_filament`: "Bambu PLA Basic @BBL X1C" is `pla_basic`). Since 0.8.2 the
+manifest also records, per part, the preset that slot's filament preset inherits from
+(`inherits`, from the template's `inherits_group`; `null` for a system preset) and the slot's
+`filament_type`. A user's own preset finalize cannot name ("My PLA") takes the material of the
+preset it inherits from, but only when its `filament_type` is that material's type (`PLA` for
+`pla_basic`, `pla_matte` and `pla_pure`, `PETG` for `petg_basic` and `petg_hf`, `ABS`, `ASA`);
+its entry then reads `{"slot": 1, "settings": "My PLA", "material": "pla_basic",
+"material_from": "inherits", "inherits": "Bambu PLA Basic @BBL X1C"}`. A preset saved from PLA
+and switched to PETG, or one whose type is not recorded, is not checked, and its `open` line
+says why; a manifest from before 0.8.2 reads as before. A filament of
 another material than the part's is an `open` line and leaves the part's material-dependent
 evidence (a `--from-build` member of it, a test print of it) not verified; a filament name
 finalize does not know, or none, is an `open` line ("the slicer's filament for lid is not

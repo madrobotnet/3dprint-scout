@@ -25,6 +25,11 @@ PNG = b"\x89PNG\r\n\x1a\n" + b"\0" * 32
 DROP = object()     # make_template(key=DROP) leaves that key out of the template's settings
 
 
+def fil(slot, settings, inherits=None, filament_type=None):
+    """One part's entry of a Bambu project manifest's `filaments`."""
+    return {"slot": slot, "settings": settings, "inherits": inherits, "filament_type": filament_type}
+
+
 def make_template(path, extra_entries=None, model_extra="", **cfg_over):
     cfg = {"printer_model": "Test Printer", "print_settings_id": "Test Process",
            "printable_area": ["0x0", "256x0", "256x256", "0x256"], "printable_height": "250",
@@ -440,10 +445,10 @@ class Manifest(Base):
         m = self.manifest()
         self.assertEqual(m["schema"], threemf.MANIFEST_SCHEMA)
         self.assertEqual(m["artifact_sha256"], validate.file_sha256(self.out))
-        self.assertEqual(m["filaments"], {"lid": {"slot": 1, "settings": "PLA A"},
-                                          "label": {"slot": 3, "settings": "PLA C"},
-                                          "latch": {"slot": 1, "settings": "PLA A"},
-                                          "box": {"slot": 2, "settings": "PLA B"}})
+        self.assertEqual(m["filaments"], {"lid": fil(1, "PLA A"),
+                                          "label": fil(3, "PLA C"),
+                                          "latch": fil(1, "PLA A"),
+                                          "box": fil(2, "PLA B")})
         self.assertEqual(m["process"], {"settings": "Test Process"})
         self.assertEqual(set(m["filaments"]), set(m["parts"]))                  # one entry per part STL
         self.assertEqual(m["parts"]["box"], validate.file_sha256(self.box))
@@ -455,16 +460,16 @@ class Manifest(Base):
         out2 = os.path.join(self.d, "out2.3mf")
         bambu3mf.build({"template": self.template, "out": out2, "params": prm, "parts": [
             {"name": "lid", "stl": lid}, {"name": "label", "stl": label}, {"name": "latch", "stl": latch}]})
-        self.assertEqual(self.manifest(out2)["filaments"], {"lid": {"slot": 4, "settings": "PLA D"},
-                                                            "label": {"slot": 2, "settings": "PLA B"},
-                                                            "latch": {"slot": 4, "settings": "PLA D"}})
+        self.assertEqual(self.manifest(out2)["filaments"], {"lid": fil(4, "PLA D"),
+                                                            "label": fil(2, "PLA B"),
+                                                            "latch": fil(4, "PLA D")})
 
     def test_names_the_template_does_not_give_are_null(self):
         # No filament_settings_id: the slot count comes from filament_colour, no slot has a name.
         make_template(self.template, filament_settings_id=DROP, filament_colour=["#FFFFFF", "#000000"])
         bambu3mf.build(self.job([{"name": "box", "stl": self.box, "filament": 2}, {"name": "lid", "stl": self.lid}]))
         m = self.manifest()
-        self.assertEqual(m["filaments"], {"box": {"slot": 2, "settings": None}, "lid": {"slot": 1, "settings": None}})
+        self.assertEqual(m["filaments"], {"box": fil(2, None), "lid": fil(1, None)})
         self.assertEqual(m["process"], {"settings": "Test Process"})
         with open(self.out + ".manifest.json", encoding="utf-8") as f:
             self.assertIn('"settings": null', f.read())                         # JSON null, not "None" or ""
@@ -473,8 +478,8 @@ class Manifest(Base):
         make_template(self.template, filament_settings_id=["PLA A", "", "  "])
         bambu3mf.build(self.job([{"name": "box", "stl": self.box, "filament": 2},
                                  {"name": "lid", "stl": self.lid, "filament": 3}]))
-        self.assertEqual(self.manifest()["filaments"], {"box": {"slot": 2, "settings": None},
-                                                        "lid": {"slot": 3, "settings": None}})
+        self.assertEqual(self.manifest()["filaments"], {"box": fil(2, None),
+                                                        "lid": fil(3, None)})
         # Neither the template's one-slot default nor a missing, null or empty process name gives a name.
         for over, name in (({"print_settings_id": DROP, "filament_settings_id": DROP}, None),
                            ({"print_settings_id": None}, "PLA A"), ({"print_settings_id": ""}, "PLA A")):
@@ -483,7 +488,7 @@ class Manifest(Base):
             bambu3mf.build(self.job([{"name": "box", "stl": self.box}]))
             m = self.manifest()
             self.assertEqual(m["process"], {"settings": None}, over)
-            self.assertEqual(m["filaments"], {"box": {"slot": 1, "settings": name}}, over)
+            self.assertEqual(m["filaments"], {"box": fil(1, name)}, over)
 
     def test_a_slot_past_the_template_list_has_no_name(self):
         """read_parts keeps a part's slot within the template's filament count, which is the length
@@ -492,14 +497,14 @@ class Manifest(Base):
         objects = [{"parts": [{"name": "a", "filament": 1}, {"name": "b", "filament": 3}]}]
         filaments, process = bambu3mf.manifest_presets(objects, {"filament_settings_id": ["PLA A", "PLA B"],
                                                                  "print_settings_id": "P"})
-        self.assertEqual(filaments, {"a": {"slot": 1, "settings": "PLA A"}, "b": {"slot": 3, "settings": None}})
+        self.assertEqual(filaments, {"a": fil(1, "PLA A"), "b": fil(3, None)})
         self.assertEqual(process, {"settings": "P"})
         filaments, process = bambu3mf.manifest_presets(objects, {"filament_settings_id": "PLA A",
                                                                  "print_settings_id": ["P"]})
-        self.assertEqual(filaments, {"a": {"slot": 1, "settings": None}, "b": {"slot": 3, "settings": None}})
+        self.assertEqual(filaments, {"a": fil(1, None), "b": fil(3, None)})
         self.assertEqual(process, {"settings": None})
         filaments, _ = bambu3mf.manifest_presets(objects, {"filament_settings_id": ["PLA A", 7, "PLA C"]})
-        self.assertEqual(filaments["b"], {"slot": 3, "settings": "PLA C"})
+        self.assertEqual(filaments["b"], fil(3, "PLA C"))
         self.assertEqual(bambu3mf.manifest_presets([{"parts": [{"name": "a", "filament": 2}]}],
                                                    {"filament_settings_id": ["PLA A", 7]})[0]["a"]["settings"], None)
 
@@ -510,9 +515,32 @@ class Manifest(Base):
         res = bambu3mf.build(self.job([{"name": "box", "stl": self.box, "filament": 2}, {"name": "lid", "stl": self.lid}]))
         self.assertIn("preset names", res["template_kind"])
         m = self.manifest()
-        self.assertEqual(m["filaments"], {"box": {"slot": 2, "settings": "Bambu PETG HF @BBL X2D"},
-                                          "lid": {"slot": 1, "settings": "Bambu PLA Basic @BBL X2D"}})
+        self.assertEqual(m["filaments"], {"box": fil(2, "Bambu PETG HF @BBL X2D"),
+                                          "lid": fil(1, "Bambu PLA Basic @BBL X2D")})
         self.assertEqual(m["process"], {"settings": "0.20mm Standard @BBL X2D"})
+
+    def test_an_inherited_preset_names_its_parent_and_type(self):
+        """0.8.2 C: a user's own filament preset ("My PLA") is traced to the system preset it
+        inherits from: inherits_group holds the process preset's parent first, then one per
+        filament slot, then the printer's (Bambu Studio PresetBundle::full_fff_config)."""
+        make_template(self.template, filament_settings_id=["My PLA", "Bambu PETG HF @BBL X2D", "My PETG"],
+                      inherits_group=["process parent", "Bambu PLA Basic @BBL X2D", "", "Bambu PLA Basic @BBL X2D",
+                                      "printer parent"],
+                      filament_type=["PLA", "PETG", "PETG"])
+        bambu3mf.build(self.job([{"name": "box", "stl": self.box, "filament": 3}, {"name": "lid", "stl": self.lid},
+                                 {"name": "cap", "stl": self.lid, "filament": 2}]))
+        self.assertEqual(self.manifest()["filaments"], {
+            "box": fil(3, "My PETG", "Bambu PLA Basic @BBL X2D", "PETG"),
+            "lid": fil(1, "My PLA", "Bambu PLA Basic @BBL X2D", "PLA"),
+            "cap": fil(2, "Bambu PETG HF @BBL X2D", None, "PETG")})         # a system preset inherits nothing
+        objects = [{"parts": [{"name": "a", "filament": 1}, {"name": "b", "filament": 3}]}]
+        for cfg, a, b in (({"inherits_group": ["", "P1"]}, fil(1, None, "P1"), fil(3, None)),       # past its end
+                          ({"inherits_group": "P1", "filament_type": "PLA"}, fil(1, None), fil(3, None)),  # no lists
+                          ({"inherits_group": ["", 7, "", "", ""], "filament_type": [None, "", "PLA"]},
+                           fil(1, None), fil(3, None, None, "PLA")),
+                          ({"inherits_group": [""] * 5}, fil(1, None), fil(3, None))):   # bambu_template.py's
+            with self.subTest(cfg=cfg):
+                self.assertEqual(bambu3mf.manifest_presets(objects, cfg)[0], {"a": a, "b": b})
 
     def test_core_3mf_manifests_carry_neither_key(self):
         core = os.path.join(self.d, "core.3mf")
