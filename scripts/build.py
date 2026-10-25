@@ -962,6 +962,16 @@ def _relpath(path: str) -> str:
         return os.path.abspath(path)
 
 
+def _recorded(path):
+    """A path as the build JSON records it: relative to the working directory build.py runs in,
+    so that the project folder can be moved or given away and finalize.py, run from that folder,
+    still finds the files (and no folder of this machine is in a JSON that is shared). A path
+    given relative is kept as given; one on another Windows drive stays absolute (_relpath)."""
+    if not isinstance(path, str) or not os.path.isabs(path):
+        return path
+    return _relpath(path)
+
+
 def finish(out, parts, sources, params, params_path, specs, args, engine):
     """After the engine: sanity, manifests, objects, the core 3MF, each part's validation, the
     object checks and what the build was made from; then the gate."""
@@ -1058,7 +1068,7 @@ def _write_core_3mf(out, sane, groups, args):
             # out/ is the build's working folder: this file is rewritten on every build.
             placed = threemf.write_core_3mf([(p["name"], p["stl"]) for p in whole], path,
                                             bed=usable_bed(args), objects=[g for g in groups if g["name"] not in partial])
-            out["threemf"] = path
+            out["threemf"] = _recorded(path)
             for p in whole:
                 p["rotation_deg"] = placed[p["name"]]["rotation_deg"]
                 if p["rotation_deg"]:
@@ -1233,7 +1243,7 @@ def cmd_run(args) -> dict:
                         "total": len(members)}
                 args.partial_objects[built[0] if len(built) == 1 else obj] = info
     os.makedirs(args.out, exist_ok=True)
-    out = {"schema": SCHEMA, "ran": True, "command": "run", "engine": engine, "source": source, "gate": None,
+    out = {"schema": SCHEMA, "ran": True, "command": "run", "engine": engine, "source": _recorded(source), "gate": None,
            "warnings": [], "errors": []}
     try:
         if engine == "openscad":
@@ -1249,6 +1259,12 @@ def cmd_run(args) -> dict:
         out.update(ran=False, gate="FAIL", R4="FAIL")
         out["errors"].append(str(exc))
         return out
+    # The Python and Blender engines report the absolute paths their child process wrote: the
+    # build JSON records every path relative to the folder build.py runs in (_recorded).
+    for p in parts:
+        p["stl"] = _recorded(p["stl"])
+    if info.get("blend"):
+        info["blend"] = _recorded(info["blend"])
     # One triangle order for every STL the engine just wrote into --out, before anything hashes
     # it (manifests, validation, the sha256 finalize ties evidence to): Blender and OpenSCAD
     # write the same triangles in another order on each run. Here, not in blender_builder.py:
@@ -1359,12 +1375,12 @@ def cmd_record(args) -> dict:
         raise ValueError(f"source not found: {missing}")
     specs = part_specs(params, "part")
     given = [os.path.abspath(s) for s in args.source]
-    out = {"schema": SCHEMA, "ran": True, "command": "record", "engine": args.engine, "source": args.source[0],
+    out = {"schema": SCHEMA, "ran": True, "command": "record", "engine": args.engine, "source": _recorded(args.source[0]),
            "gate": None, "warnings": [], "errors": []}
     parts, extra = [], set()
     for stl in args.stl:
         name = os.path.splitext(os.path.basename(stl))[0]
-        part = {"name": name, "stl": stl, "engine_warnings": []}
+        part = {"name": name, "stl": _recorded(stl), "engine_warnings": []}
         # An STL that `run` already described: its manifest's own freshness decides whether it may
         # be re-stamped, and its sources join the freshness hash (S3-1, S3-2). A manifest an earlier
         # record wrote is no such word and is re-stamped (review B1).

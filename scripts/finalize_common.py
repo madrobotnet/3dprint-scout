@@ -52,6 +52,10 @@ DIM_KEYS = ("id", "what", "unit", "params", "source", "tol", "by", "url", "where
 
 STATES = ("error", "failed", "not verified", "excluded", "assumed", "accepted", "verified")
 
+DECIDED_KEYS = ("check", "result", "reason", "sha256")
+
+DECIDED_RESULTS = ("holds", "warn")
+
 
 class FinalizeError(Exception):
     pass
@@ -70,6 +74,32 @@ def load_json(path, what):
         raise FinalizeError(f"{what} {path}: {exc.strerror or exc}")
     except ValueError as exc:
         raise FinalizeError(f"{what} {path}: not JSON ({exc})")
+
+
+LIBRARY_PLACES = ((ENGINES_DIR, ("references", "engines")), (HERE, ("scripts",)))   # folder, its place in a skill
+
+
+def skill_library(path):
+    """This skill's own file for a recorded source that is one of the skill's library files
+    (blender_builder.py, parts.py, ...) at its place in a skill folder that is not there any more:
+    `.../references/engines/blender_builder.py` or `.../scripts/parts.py`. None for anything else,
+    and for a path that exists (it is read as it is)."""
+    if not isinstance(path, str) or os.path.isfile(path):
+        return None
+    bits = [b for b in path.replace("\\", "/").split("/") if b]
+    for folder, place in LIBRARY_PLACES:
+        n = len(place)
+        if len(bits) > n and tuple(bits[-1 - n:-1]) == place and os.path.isfile(os.path.join(folder, bits[-1])):
+            return os.path.join(folder, bits[-1])
+    return None
+
+
+def source_file(path):
+    """A build's recorded source as the file to read now. A skill library file recorded relative to
+    the folder the build ran in is gone once that folder moves, or on another machine where the skill
+    is installed elsewhere: it is this skill's file of that name. Its hash still decides freshness,
+    so a skill whose library changed still asks for a new build."""
+    return skill_library(path) or path
 
 
 def rel(path):
@@ -156,7 +186,7 @@ def plural(n, word):
 
 def check_verify_shape(verify):
     lists = {"joints": dict, "strength": dict, "measurements": dict, "seen": dict, "test_prints": dict, "accepted": dict,
-             "unverified": str,
+             "decided": dict, "unverified": str,
              "promises": dict, "dims": dict}
     for key, item in lists.items():
         if key in verify:
