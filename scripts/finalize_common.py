@@ -52,6 +52,10 @@ DIM_KEYS = ("id", "what", "unit", "params", "source", "tol", "by", "url", "where
 
 STATES = ("error", "failed", "not verified", "excluded", "assumed", "accepted", "verified")
 
+DECIDED_KEYS = ("check", "result", "reason", "sha256")
+
+DECIDED_RESULTS = ("holds", "warn")
+
 
 class FinalizeError(Exception):
     pass
@@ -156,7 +160,7 @@ def plural(n, word):
 
 def check_verify_shape(verify):
     lists = {"joints": dict, "strength": dict, "measurements": dict, "seen": dict, "test_prints": dict, "accepted": dict,
-             "unverified": str,
+             "decided": dict, "unverified": str,
              "promises": dict, "dims": dict}
     for key, item in lists.items():
         if key in verify:
