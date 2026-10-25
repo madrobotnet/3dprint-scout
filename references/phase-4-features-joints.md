@@ -132,7 +132,8 @@ python3 "$SKILL_DIR/scripts/fit_test.py" --profile rounded --size 45.1,14.0 --ra
 (`--profile rect | rounded | circle | polygon`, `--mode ring` for an object that goes into the part,
 `--mode plug` for a part that goes into the object; `--clearance`, `--step`, `--steps`;
 `--bambu-template` also writes a `bambu3mf.py` job.) The JSON's `how_to_read` tells the user
-what to try; build the real part with the step that fits. The pieces carry no model hole
+what to try; build the real part with the step that fits. Offer the pieces in the look (Phase 3,
+item 5), not in a stop of their own. The pieces carry no model hole
 compensation: say so (`references/tolerances.md`, F1). If the user cannot test now, build to the
 middle step and record that in `_assumptions`; the same for a skipped mechanism-first print
 ("latch pin Ø3.2: not confirmed by a test print"; "lid hinge Ø2.4 in Ø7.4 knuckles: coupon not
@@ -173,7 +174,8 @@ test print entry, `_material`, `_print`), which makes the tier `error` with no p
 failed and fix it (G7). Run again the evidence a change made stale, as its reason says (the fit,
 the `strength.py --from-build` command, the measurement, a new image for the user). A value of
 the parameter table that changed since the user confirmed it (a wall thickened to pass a check)
-is a changed design choice: name it with its old and new value and stop for it (Phase 2, step 5).
+is a changed design choice: name it with its old and new value and stop for it, in the look when
+it comes before it (Phase 3, item 3), otherwise in a stop of its own.
 
 **A look belongs to its image.** The user's look is evidence for the `seen` entry of the image
 they looked at, and nothing more. A `look` promise added after they looked, or a `seen` entry a
@@ -233,7 +235,10 @@ None of these is agreement, and none is ever recorded as one:
 - **An earlier answer to another question, or silence.**
 
 **When to ask.** Whenever finalize first reports a promise not verified, in Phase 4, 5 or 6,
-including a promise added late and one a late change made stale that no new evidence renews.
+including a promise added late and one a late change made stale that no new evidence renews. For
+a simple part the first time is the look (Phase 3, item 5): its offer, naming the promise, what
+goes unconfirmed and what it can cost, is this question, and the user's reply to it decides the
+promise. Ask again only for a promise the look did not name, or one whose reason changed since.
 Before the delivery message, no promise goes out as a prototype, excluded or with an accepted
 WARN that the user was not asked about in a message that named it, except the defaults above
 and those of an unattended run, each with its `_assumptions` line.

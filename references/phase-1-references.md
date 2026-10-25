@@ -1,4 +1,4 @@
-# Phase 1 — Intent and references (STOP)
+# Phase 1 — Intent and references (STOP: the pick)
 
 Read this on entering Phase 1 (SKILL.md names the rules that hold at all times).
 
@@ -17,13 +17,29 @@ for four alternatives or ask them to choose again.
 
    Tier C (no marketplace tool, no web search): give 3–5 search queries and ask the user to
    paste links.
-3. Reuse a choice already stated in the request or confirmed conversation. Otherwise offer the
-   choice, then **stop**:
-   - **A. Reference** one model (say which parts of it).
-   - **B. Mix** ideas from several.
-   - **C. Original**, from scratch.
-   - **D. Use an existing model as is** — when one already does the job, say so; do not model for the sake of it.
-   Offer "show 4 more" as well.
+3. Unless the user already chose (a new design, a named model to follow, or D), build the
+   concepts (below) and stop for **the pick**, one message:
+   - When one of the four already does the job, that first, in one line: "Model 2 already does
+     this: shall I just point you to it?" (that answer is D).
+   - The concepts, each with its image and one line on what differs and what it costs.
+   - The four models under them, one line each: name, site, licence, link, what a concept borrows
+     from it. Offer four more.
+   - The pick, in bold, as the message's last question: which concept (a number), or "like model
+     N" (A: that model's parts kept), or "use it as it is" (D). The letters A to D are your words,
+     never shown.
+   - Just before it, what Phase 2 cannot take a default for, so it costs no stop of its own: an
+     unknown printer or slicer (Phase 2, step 1, in its words), a size the part must fit that no
+     source gives (Phase 2, step 3). Nothing else is asked here: the rest has a default the look
+     shows.
+
+   Every concept borrows from the references when they have something worth borrowing (B) or
+   starts from nothing (C); write in `_assumptions` which it was. A user who asked for a new
+   design gets concepts that borrow nothing.
+
+**Step by step.** When the user asks to go step by step, show the table first and stop for the
+choice: **A** reference one model (say which parts of it), **B** mix ideas from several, **C**
+original, **D** use one as it is (say so when one already does the job), and "show 4 more". The
+concepts then follow B or C as their own stop. Choice A has no concepts.
 
 A has no concepts: when the user chooses it, write the parts of the reference they keep ("its
 latch", "its rounded lid") as `feature` or `look` promises in `.3dprint/params.json` (below,
@@ -75,7 +91,7 @@ judged against anything (Phase 3), and `finalize.py` reports the shape as not ve
 Ask the user for a photo of a missing side when the shape there matters (a replacement part, a
 fit against something they own).
 
-## Concepts (STOP, after choice B or C)
+## Concepts (in the pick)
 
 Before modeling in detail, show 2–3 **concept variants**: low-detail shapes (no holes, no
 fillets) that differ in one or two things that matter: proportions, where the opening is, a
@@ -86,11 +102,13 @@ what differs and what it costs (print time, supports, strength). Rough sizes fro
 the references are enough here; exact ones come in Phase 2. Write each variant's promises as you
 describe it (below). Then **stop** for the user's pick; a "you decide" given to another
 question (the rod's length, the room around it) is not a pick, so show the concepts and stop
-even then. The chosen variant's parameters and
+even then. A reply that picks a concept and hands back the rest ("the first, you decide the
+rest") picks it. The chosen variant's parameters and
 promises become the first `params.json`. Keep it to a few minutes of
 work: concepts prove the idea, not the fit. Concept builds go to `out/concepts/` and are not
 gated: with no `expect` or printer yet their verdicts decide nothing; the checks start in
-Phase 3. Choice A and D skip this step. Unattended runs take the first variant (SKILL.md).
+Phase 3. Choice A (a model to follow) and D skip this step. Unattended runs take the first
+variant (SKILL.md).
 
 ## Promises (`_verify.promises`)
 
