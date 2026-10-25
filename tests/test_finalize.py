@@ -1417,6 +1417,29 @@ class FinalizePromises(Workspace):
                          ["taken by the user without verifying it: I'll try it on the first print", "no evidence yet",
                           self.BY_HAND])
 
+    def test_a_use_done_by_hand_the_user_took_unproven_is_a_prototype(self):
+        """0.8.2: the user told the motion was not confirmed takes it as a prototype ("확인 안 된 것은
+        시제품으로 받을게요"). Its _assumptions line marks it a prototype while no passed print confirms
+        it, whatever its fits give; it keeps that state."""
+        reply = '(the user: "확인 안 된 것은 시제품으로 받을게요.")'
+        line = f"seat: delivered as a prototype, not verified {reply}"
+        hand = dict(self.SEAT, by_hand=True)
+        out = self.run_use(self.verify([hand], dims=[]), _assumptions=[line])
+        seat = self.promise(out, "seat")
+        self.assertEqual((out["use"], seat["state"], seat.get("prototype")), ("verified", "verified", True))
+        self.assertEqual(seat["reasons"], [self.BY_HAND])
+        self.assertEqual(out["summary"][0], "use: verified (1 promise: 1 verified; delivered as a prototype: seat)")
+        # Without by_hand, a prototype line on a verified promise is still an assumption of its own.
+        plain = self.run_use(self.verify([self.SEAT], dims=[]), _assumptions=[line])
+        self.assertNotIn("prototype", self.promise(plain, "seat"))
+        self.assertEqual(plain["summary"][0], "use: verified (1 promise: 1 verified; 1 assumption not linked to a "
+                                              "promise)")
+        # An assumed by_hand use (it rests on a size nobody measured) takes it too, and stays assumed.
+        out = self.run_use(self.verify([dict(self.CABLE, by_hand=True)]),
+                           _assumptions=[line.replace("seat:", "cable-out:")])
+        cable = self.promise(out, "cable-out")
+        self.assertEqual((cable["state"], cable.get("prototype")), ("assumed", True))
+
     def test_by_hand_is_declared_on_a_use_as_true_or_false(self):
         feature = {"id": "notch", "kind": "feature", "text": "a notch", "success": "6 mm wide",
                    "evidence": [{"joint": "lid on box"}]}

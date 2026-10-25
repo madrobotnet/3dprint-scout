@@ -98,7 +98,10 @@ its `reasons` end with "the motion by hand is not confirmed by a print (no passe
 among its evidence)". In `open` that reason is part of the promise's line when it is not
 verified, and its own line, `promise '<id>' (use): the motion by hand is not confirmed by a
 print (...)`, when it is verified. A passed test print of it takes the line away. Without
-`by_hand` (or with `false`) nothing is said.
+`by_hand` (or with `false`) nothing is said. When the user takes the motion unproven, the
+prototype line in `_assumptions` (`"<id>: delivered as a prototype, not verified"`, with their
+reply) marks the promise `"prototype": true` whatever its fits give (verified, assumed or
+accepted): it keeps that state, and the use summary names it.
 
 **Reading the tier.** Read `use` before `geometry`. Each promise's `reasons` say what is missing;
 what each state asks of you, in the tier's order:
@@ -116,7 +119,8 @@ what each state asks of you, in the tier's order:
   excludes it. A decision never makes it `assumed`. At delivery it is named first. A prototype's promise
   carries `"prototype": true` (finalize reads its `_assumptions` line, `"<id>: delivered as a
   prototype, not verified"`, and its note: phase-4, "Leaving Phase 4") and the use summary
-  names it ("delivered as a prototype: ...").
+  names it ("delivered as a prototype: ..."). So does a `by_hand` use whose motion no passed
+  print confirms, in any state its fits give ("A use done by hand", above).
 - `excluded`: the user took it unproven. Repeat their reason at delivery.
 - `assumed`: a size nobody measured (`rests_on` names the dims entry): ask the user to measure
   it (`references/phase-2-printer-dimensions.md`, step 3, records it), or offer a test print, or

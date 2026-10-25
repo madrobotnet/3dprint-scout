@@ -123,7 +123,9 @@ material cannot be read), accepted (it passed with a WARN the user accepted) or 
 A not verified promise delivered unproven has the _assumptions line "<id>: delivered as a
 prototype, not verified", optionally ending in a note in parentheses that says who chose it
 (the user's reply, or "(unattended run)"): it is marked "prototype": true, named in the use
-summary and not counted as an assumption on its own.
+summary and not counted as an assumption on its own. A by_hand use whose motion no passed test
+print confirms takes the same line whatever its state: it keeps that state and is marked a
+prototype too.
 
 The report has five tiers and never folds them into one PASS:
   use       the worst state of its promises (error, failed, not verified, excluded, assumed,
@@ -267,6 +269,7 @@ from finalize_evidence import (# noqa: E402, F401  (every name stays importable 
     strength_link,
     user_file_problems)
 from finalize_promises import (# noqa: E402, F401  (every name stays importable from finalize)
+    BY_HAND,
     check_promises,
     evidence_index,
     judged_evidence,
@@ -415,18 +418,28 @@ def _prototypes(out):
     # A promise delivered unproven (phase 4, "Leaving Phase 4") is recorded as the _assumptions
     # line "<id>: delivered as a prototype, not verified", with an optional note in parentheses
     # saying who chose it: it belongs to that promise while the promise is not verified, so it is
-    # not counted as an assumption on its own.
+    # not counted as an assumption on its own. A use done by hand that no passed print confirms
+    # (BY_HAND among its reasons) takes the line too, whatever its fits give: the motion is what
+    # the user took unproven, and the report says so.
     by_id = {p["id"]: p for p in out["promises"] if isinstance(p.get("id"), str)}
     prototypes = []
     for a in out["assumptions"]:
         m = PROTOTYPE.match(a) if isinstance(a, str) else None
-        if m and m.group(1) in by_id and by_id[m.group(1)]["state"] == "not verified" and m.group(1) not in prototypes:
+        if m and m.group(1) in by_id and _takes_prototype(by_id[m.group(1)]) and m.group(1) not in prototypes:
             prototypes.append(m.group(1))
             by_id[m.group(1)]["prototype"] = True
     unlinked = (sum(1 for a in out["assumptions"] if not (isinstance(a, str) and PROTOTYPE.match(a)
                                                           and PROTOTYPE.match(a).group(1) in prototypes))
                 + len(out["unverified_dimensions"]))
     return prototypes, unlinked
+
+
+def _takes_prototype(p):
+    """Whether a promise can go out as a prototype: one not verified, or a use done by hand whose
+    motion no passed print confirms (its state stays what its fits give: verified, assumed or
+    accepted)."""
+    return p["state"] == "not verified" or (p.get("by_hand") is True and BY_HAND in (p.get("reasons") or [])
+                                             and p["state"] in ("verified", "assumed", "accepted"))
 
 
 def _summary(out, use, prototypes, unlinked, geometry_ok, n_open, shape, deliver):
