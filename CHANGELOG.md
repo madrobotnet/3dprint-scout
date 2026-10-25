@@ -1,5 +1,61 @@
 # Changelog
 
+## 0.8.1 — 2026-10-25
+
+Two things 0.8.0 left for later, and two small ones its scenario runs found. A project folder
+can now move or go to someone else and still finalize, and the agent's decision on a soft
+check finalize leaves to it is recorded instead of staying "yours to decide". The plan (in
+Korean) is in `docs/plans/v0.8.1.md`.
+
+- **Relative paths in the build JSON**:
+  - `build.py run` and `record` write `parts[].stl`, `parts[].validate.files[].path`,
+    `source`, `threemf`, `blend` and `engine_info.blend` relative to the folder they ran in,
+    as `sources` and `params` already were. A path on another Windows drive stays absolute,
+    and so do `engine_info`'s tool paths (`path`, `python`).
+  - finalize, the bundle and `bambu3mf.py` read a build JSON from before 0.8.1, with its
+    absolute paths, as before.
+  - A skill library a build recorded among `sources` (`references/engines/blender_builder.py`
+    for every Blender build, `scripts/parts.py` when a generator imports it) is reached by a
+    relative path too, which leads nowhere once the project moves to another depth or to a
+    machine where the skill sits elsewhere. finalize then left geometry not verified (so did
+    0.8.0). It now reads the installed skill's file of that name when the recorded path is
+    gone and is a library file at its place in a skill folder; its hash still decides R3, so
+    a skill whose library changed since the build still asks for a new build.
+  - The bundle still builds a proxy again rather than carrying its build JSON (decided in the
+    plan: building it again shows the verdict is reached again).
+- **`_verify.decided`**: one entry per soft check finalize leaves to the agent (P3 when the
+  wall check was skipped, P4, P5, P6): `{"check": "<part> <check>", "result": "holds" | "warn",
+  "reason", "sha256"}`.
+  - `holds` takes the line out of `open` and lists it under the report's new `decided`.
+  - `warn` turns it into `<part> <check> WARN (decided): <reason>`, which the user accepts in
+    `_verify.accepted` or has fixed, like any WARN.
+  - A decision for another build of the part (its `sha256`) leaves the line, saying to decide
+    again. A decided P3 that the wall check now judges again lapses quietly.
+  - Any other check, or a malformed entry, is a declaration error (`use` `error`).
+  - Soft checks never touch the gate or `geometry`. A project without `decided` gets the same
+    output as in 0.8.0. Phase 5, step 2 records each decision; `checks.md` and `outputs.md`
+    describe it.
+- **Guidance**:
+  - Phase 1: a "you decide" given to another question (the rod's length) is not a concept pick:
+    show the concepts and stop.
+  - `compensation.elephant_foot` may be `unknown`: a 0.3 mm chamfer on the outer bottom edges
+    only, for looks, never where a fit sits on the bed.
+  - Phase 6, item 2: with a compensation `unknown`, the delivery says that a hole that must fit
+    may print tight or loose because the slicer's hole settings are not known, and that the
+    bottom chamfer comes out a little smaller if the slicer's elephant-foot compensation is on.
+- **Golden comparison with v0.8.0**: of 109 build and finalize outputs, the example build JSONs
+  differ in their path strings only. The harness's copied run folders, whose skill library
+  path led nowhere, are now judged against this skill: builds from 0.7.0 read R3 FAIL (the
+  library changed since), later ones verified.
+- **Conversation scenarios** (`docs/scenarios/results-v0.8.1.md`): the four the changes touch
+  (given-answers, holes-unknown, unattended, a2-unmeasured) were run again with Claude. All
+  four match, and no must item that held in 0.8.0 fails. holes-unknown matched on a re-run,
+  after the Phase 6 line above; both holes-unknown runs stopped for the concept pick after the
+  fallback, which 0.8.0's run did not.
+- **Upgrading**: nothing to do. A build JSON from 0.8.0 keeps working; build again to get
+  relative paths.
+- **Tests**: 459 (was 441), passing on Python 3.13 + bpy 5.2.2, 3.11 + bpy 4.5.14 and 3.9.
+
 ## 0.8.0 — 2026-10-24
 
 The same skill, smaller and in one piece. Over 0.7.0 the guidance had grown to about 4,300

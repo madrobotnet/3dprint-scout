@@ -42,6 +42,10 @@ is missing is reported as "not declared", which keeps its tier from being verifi
                  {"check": "object box P2", "reason": "..."},
                  {"check": "joint lid on box F3", "reason": "a snug lid"},
                  {"promise": "wave-back", "reason": "the user judges it on the print", "by": "user"}],
+    "decided":  [{"check": "lid P6", "result": "holds", "reason": "the preview shows no bed edge that flares",
+                  "sha256": "..."},
+                 {"check": "lid P4", "result": "warn", "reason": "a 30 mm bridge under the rim needs supports",
+                  "sha256": "..."}],
     "unverified": ["wall behind the label: estimated from a photo"],
     "references": {"lid": {"front": "real", "top": "real", "back": "estimated", "bottom": "assumed"}}
   }
@@ -68,7 +72,16 @@ of a print, paths in the project folder, which the bundle carries; they are no e
 accepted: WARNs the user accepted, named "<part> <check>" or "object <name> <check>", with their
 reason; any other WARN is open
 ("<part> D1" also accepts a D1 whose expect was copied from the model, when no intended size
-exists); and promises the user takes without verifying them ("by": "user"). unverified:
+exists); and promises the user takes without verifying them ("by": "user"). decided: your
+decision on a soft check finalize leaves to you (a line "<part> <check> UNVERIFIED (yours to
+decide)": P3 when the wall check was skipped, P4, P5, P6), named "<part> <check>", with result
+holds or warn, a one-line reason, and sha256, the part's STL as the build JSON records it. It
+stands while the part's STL is that one; a stale one leaves the line in open, saying "decided
+for another build of the part: decide again". holds takes the line out of open and lists the
+decision in the report's `decided`; warn lists it there too and leaves "<part> <check> WARN
+(decided): <reason>" in open for the user, which they accept in accepted as "<part> <check>".
+Naming any other check (a hard one, a part not in this build), or a result, reason or sha256
+missing, is a declaration error. Soft checks never change the geometry tier. unverified:
 estimated sizes no promise rests on (a real-world size a promise rests on is a dims entry,
 assumed when nobody measured it). references: for each object, which directions a
 reference shows (`real`), or was generated or inferred (`estimated`), or given up on
@@ -117,8 +130,10 @@ The report has five tiers and never folds them into one PASS:
   slicing   unverified                  nothing here slices; say so at delivery
   print     unverified                  test prints and their results, if any
 plus `open`: every promise that is not verified and why, every reason the geometry is not
-verified, every unaccepted WARN, the soft checks left to you (P3 skipped, P4, P5, P6), every
-unverified dimension and assumption, in plain lines for the delivery message.
+verified, every unaccepted WARN, the soft checks left to you (P3 skipped, P4, P5, P6) that
+_verify.decided does not settle, every unverified dimension and assumption, in plain lines for
+the delivery message; and with _verify.decided, `decided`: each decision that stands (check,
+result, reason).
 
 --deliver DIR checks the delivery folder: every STL in it must be one of the verified STLs,
 every 3MF must carry a manifest (`<file>.3mf.manifest.json`, written by build.py and bambu3mf.py
@@ -143,7 +158,7 @@ each seen image and its sidecar; the test print photos; and with --deliver the d
 and 3MFs, each 3MF with its manifest beside it (REPRODUCE.md re-checks them with --deliver).
 Every file keeps its path relative to the project folder, so the commands run as written
 inside the bundle; the parts and the proxies built by `run` are built again there, not copied
-(their build JSON records paths of this machine; a proxy no longer built from its params file
+(building them again shows the verdict is reached again; a proxy no longer built from its params file
 is carried as it was, its build JSON listed as left out), with the build's engine, core 3MF
 choice and settings. A file that is named but not found is listed in REPRODUCE.md and in
 bundle_missing (a missing report is missing in the verdict too; so is a missing printers.json
@@ -169,6 +184,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from finalize_common import (# noqa: E402, F401  (every name stays importable from finalize)
     ALLOWED,
     COVERAGE,
+    DECIDED_KEYS,
+    DECIDED_RESULTS,
     DIM_KEYS,
     DIM_SOURCES,
     DIM_STATE,
@@ -218,8 +235,10 @@ from finalize_common import (# noqa: E402, F401  (every name stays importable fr
     text_field,
     valid_check_entry)
 from finalize_geometry import (# noqa: E402, F401  (every name stays importable from finalize)
+    STALE_DECISION,
     assembly_drift,
     check_build,
+    check_decided,
     check_objects,
     check_parts,
     check_prints,
@@ -277,11 +296,13 @@ def finalize(args):
            "use": None, "geometry": None, "shape": {}, "slicing": "unverified", "print": "unverified",
            "settings": {f: getattr(settings, f) for f in SETTINGS} | {"wall_check": settings.wall_check},
            "parts": [], "objects": [], "joints": [], "strength": [], "test_prints": [], "open": [],
-           "accepted": [], "assumptions": list(params.get("_assumptions") or []),
+           "accepted": [], **({"decided": []} if "decided" in verify else {}),
+           "assumptions": list(params.get("_assumptions") or []),
            "unverified_dimensions": list(verify.get("unverified") or []), "warnings": [], "errors": []}
     out["settings"]["printer"] = rel(settings.printer)
     reasons = check_build(build)
-    parts, r, warns, to_decide, copied, same_as_build = check_parts(build, specs, args.params, settings)
+    soft = []
+    parts, r, warns, to_decide, copied, same_as_build = check_parts(build, specs, args.params, settings, soft)
     out["parts"] = parts
     reasons += r
     drift = settings_drift(build, settings)
@@ -296,6 +317,9 @@ def finalize(args):
     accepted = verify.get("accepted") or []
     out["accepted"] = accepted
     taken = {norm(a["check"]) for a in accepted if valid_check_entry(a)}   # a malformed entry accepts nothing
+    to_decide, decided, decided_errors = check_decided(verify, parts, soft, taken)
+    if decided is not None:
+        out["decided"] = decided
     joints, r, notes = check_joints(verify, parts, taken)
     out["joints"] = joints
     reasons += r
@@ -325,7 +349,7 @@ def finalize(args):
     print_info, print_errors = check_print_evidence(verify, parts, params, specs, current_printer(settings),
                                                     material_evidence, presets)
     use = check_promises(verify, params, joints, strength, parts, measurements, seen, print_info, material_evidence)
-    extra = seen_errors + print_errors + check_material_contract(params, specs)
+    extra = seen_errors + print_errors + check_material_contract(params, specs) + decided_errors
     if extra:
         use["errors"] += extra
         use["open"][:0] = extra

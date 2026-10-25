@@ -30,6 +30,7 @@ reports, the user's files (`ref/`) and photos (`photos/`) inside the project fol
 | `seen` | `name`, `image`, `image_sha256` (copied from the image's sidecar when the user judges it), `by` (`user` or `agent`), `promises`, `result` (`passed` or `failed`); optional `note` |
 | `test_prints` | below |
 | `accepted` | A WARN the user accepted: `{"check": "<name>", "reason": "<the user's reason>"}`, named as `open` lists it: `<part> <check>` (`lid A2`), `object <name> <check>`, `joint <name> <check>` or `member <name>`; a FAIL cannot be accepted. A promise the user takes unverified: `{"promise": "<id>", "reason": "<their words>", "by": "user"}`. Either `reason` is the user's reply, word for word, to a question that named it (`references/phase-4-features-joints.md`, "What counts as agreement") |
+| `decided` | Your decision on a soft check finalize leaves to you (`<part> <check> UNVERIFIED (yours to decide)`: P3 when the wall check was skipped, P4, P5, P6): `{"check": "<part> <check>", "result": "holds" or "warn", "reason": "<one line>", "sha256": "<the part's sha256 in the build JSON>"}`. `holds` takes the line out of `open`; `warn` leaves it as a WARN the user decides (`accepted`); a part built again into another STL makes the decision stale: decide again. Any other check is a declaration error |
 | `unverified` | Lines of text: estimated sizes no promise rests on (a size a promise rests on is a `dims` entry) |
 | `references` | Per object, each direction (`front`, `back`, `left`, `right`, `top`, `bottom`): `real`, `estimated` or `assumed` |
 

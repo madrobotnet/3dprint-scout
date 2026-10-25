@@ -43,7 +43,8 @@ all times; `references/checks.md` has the `_verify` declarations).
    `references/tolerances.md`). finalize lists every soft check
    left to you as "UNVERIFIED (yours to decide)": P6, P4 (bridges) and P5 (small features),
    which no script checks, and P3 when the wall check was skipped. Decide each now, before the
-   delivery, from the preview and the generator: one that holds needs nothing more; one that
+   delivery, from the preview and the generator, and record it in `_verify.decided`
+   (`references/checks.md`): one that holds needs nothing more; one that
    needs the user (supports under a bridge, a feature too thin to print) is a WARN they decide
    (step 3). The delivery message carries only what the user must know or do.
 3. On a hard FAIL, go where its `return_to` says (the checklist table in SKILL.md), fix the

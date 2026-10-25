@@ -902,7 +902,9 @@ class BlenderEngine(Base):
         self.assertEqual(out["engine_info"]["path"], exe)
         self.assertEqual(out["engine_info"]["boolean_solver"], "MANIFOLD")
         self.assertEqual([p["name"] for p in out["parts"]], ["body", "peg"])
-        self.assertEqual(out["blend"], os.path.join(os.path.abspath(self.out), "gen_blender.blend"))
+        # Recorded relative to the folder build.py ran in (0.8.1), as every path of the build JSON.
+        self.assertEqual(out["blend"], os.path.relpath(os.path.join(self.out, "gen_blender.blend")))
+        self.assertEqual(out["engine_info"]["blend"], out["blend"])
         self.assertTrue(os.path.isfile(out["blend"]))
         for p in out["parts"]:
             self.assertTrue(os.path.isfile(p["stl"] + ".manifest.json"))
@@ -1418,6 +1420,84 @@ class ThreeMF(Base):
         rep = json.loads(r.stdout)                                           # refuses to overwrite, in JSON
         self.assertEqual((r.returncode, rep["ran"]), (1, False))
         self.assertIn("already exists", rep["errors"][0])
+
+
+class RelativePaths(Base):
+    """0.8.1: every path the build JSON records is relative to the folder build.py ran in, also
+    when the paths given are absolute and when the engine (Python, Blender) reports absolute ones,
+    so that the project folder can be moved or given away."""
+
+    def setUp(self):
+        super().setUp()
+        self.cwd = os.getcwd()
+        os.chdir(self.d)
+
+    def tearDown(self):
+        os.chdir(self.cwd)            # before the folder goes: Windows cannot remove the working folder
+        super().tearDown()
+
+    def no_machine_path(self, out):
+        text = json.dumps(out)
+        for folder in {self.d, os.path.realpath(self.d)}:
+            self.assertNotIn(folder, text)
+
+    @unittest.skipUnless(HAS_M3D, "manifold3d not installed")
+    def test_run_python_records_relative_paths(self):
+        src = self.write("gen.py", PYGEN)
+        prm = self.params({"_parts": {"body": {}, "peg": {}}, "w": 40, "d": 30, "h": 20, "wall": 2})
+        code, out = run("run", src, "--params", prm, "--out", self.out, "--no-wall-check")
+        self.assertEqual((code, out["errors"]), (0, []))   # gate INCOMPLETE: no printer (D2)
+        self.assertEqual([p["stl"] for p in out["parts"]], [os.path.join("out", "body.stl"), os.path.join("out", "peg.stl")])
+        self.assertEqual([p["validate"]["files"][0]["path"] for p in out["parts"]], [p["stl"] for p in out["parts"]])
+        self.assertEqual((out["threemf"], out["source"], out["sources"], out["params"]),
+                         (os.path.join("out", "gen.3mf"), "gen.py", ["gen.py"], "params.json"))
+        self.no_machine_path(out)
+        self.assertTrue(all(os.path.isfile(p["stl"]) for p in out["parts"]))
+        # A proxy build (--proxy) records its paths the same way.
+        proxy = self.write("proxy.json", json.dumps({"w": 40, "d": 30, "h": 20, "wall": 2}))
+        code, prox = run("run", src, "--params", proxy, "--proxy", "peg", "--out", os.path.join(self.d, "px"),
+                         "--no-wall-check")
+        self.assertEqual((code, prox["proxy"], [p["stl"] for p in prox["parts"]]), (0, True, [os.path.join("px", "peg.stl")]))
+        self.no_machine_path(prox)
+
+    def test_record_records_relative_paths(self):
+        stl = os.path.join(self.out, "lid.stl")
+        os.makedirs(self.out)
+        write_stl(stl, box(20, 20, 2))
+        src = self.write("gen_fusion.py", "def run(context=None):\n    pass\n")
+        code, out = run("record", stl, "--source", src, "--out", self.out, "--no-wall-check")
+        self.assertEqual(code, 0, out.get("errors"))
+        self.assertEqual((out["parts"][0]["stl"], out["parts"][0]["validate"]["files"][0]["path"], out["threemf"],
+                          out["source"]), (os.path.join("out", "lid.stl"), os.path.join("out", "lid.stl"),
+                                           os.path.join("out", "lid.3mf"), "gen_fusion.py"))
+        self.no_machine_path(out)
+        code, rel = run("record", os.path.join("out", "lid.stl"), "--source", "gen_fusion.py", "--out", "out",
+                        "--no-wall-check")                                   # given relative: kept as given
+        self.assertEqual((rel["parts"][0]["stl"], rel["threemf"]), (os.path.join("out", "lid.stl"), os.path.join("out", "lid.3mf")))
+
+    def test_another_windows_drive_stays_absolute(self):
+        here = os.path.abspath("model.stl")
+        with mock.patch.object(build.os.path, "relpath", side_effect=ValueError("path is on mount 'D:'")):
+            self.assertEqual(build._recorded(here), here)
+        self.assertEqual(build._recorded(here), "model.stl")
+        self.assertEqual(build._recorded(os.path.join(".", "out", "a.stl")), os.path.join(".", "out", "a.stl"))
+        self.assertIsNone(build._recorded(None))
+
+    @unittest.skipUnless(HAS_BPY, "bpy module not installed")
+    def test_run_blender_records_relative_paths(self):
+        src = self.write("gen_blender.py", BLENDER_GEN)
+        prm = self.params({"_parts": {"body": {"expect": [30, 20, 8]},
+                                      "peg": {"expect": [8, 8, 5], "object": "body", "role": "fused"}}})
+        with mock.patch.object(build, "find_blender", return_value=None):
+            code, out = run("run", src, "--params", prm, "--out", self.out, "--blender-python", sys.executable,
+                            "--no-wall-check")
+        self.assertEqual((code, out["errors"]), (0, []))   # gate INCOMPLETE: no printer (D2)
+        blend = os.path.join("out", "gen_blender.blend")
+        self.assertEqual((out["blend"], out["engine_info"]["blend"]), (blend, blend))
+        self.assertEqual([p["stl"] for p in out["parts"]], [os.path.join("out", "body.stl"), os.path.join("out", "peg.stl")])
+        self.assertEqual(out["threemf"], os.path.join("out", "gen_blender.3mf"))
+        self.assertTrue(os.path.isfile(blend))
+        self.assertNotIn(self.d, json.dumps({k: v for k, v in out.items() if k != "engine_info"}))
 
 
 class Usage(Base):

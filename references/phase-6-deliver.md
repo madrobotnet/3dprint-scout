@@ -98,7 +98,12 @@ list and `_assumptions` included. In this order:
    showed, that nothing was sliced here, the test prints and their results; then what `open`
    holds beyond the promises already named, in plain words: what the user must know or do (a
    warning they accepted or must decide, one they handed back to you that stays, a size still
-   estimated, each `_assumptions` line that changes how they print or use the part). Never
+   estimated, each `_assumptions` line that changes how they print or use the part). A
+   `compensation` that is `unknown` in `printers.json` (`references/tolerances.md`) is said
+   here, one line each, also when an earlier message said it: a hole that must fit may print
+   tight or loose, because the slicer's hole settings are not known (a tight one can be drilled,
+   a loose one cannot be fixed); the bottom chamfer comes out a little smaller if the slicer's
+   elephant-foot compensation is on. Never
    paste a line as finalize wrote it ("sled P6 UNVERIFIED (yours to decide)"): the soft checks
    left to you were decided before delivery (Phase 5, step 2), and only what the user must act
    on reaches the message. A fit test or mechanism-first print offered and skipped is said as
