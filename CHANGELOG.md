@@ -1,5 +1,59 @@
 # Changelog
 
+## 0.8.2 — 2026-10-25
+
+Three judgement items known since 0.7.0. finalize itself now says when a use done by hand has
+no print behind it, P3 no longer reads a wall thin where a slope meets the bed, and a user's own
+Bambu filament preset is traced to the material it inherits. The plan (in Korean) is in
+`docs/plans/v0.8.2.md`.
+
+- **A use done by hand** (`by_hand`):
+  - A `use` promise a person does with their hands (pushing a phone in, a peg in and out) is
+    marked `"by_hand": true`. A non-boolean, or `by_hand` on a `feature` or `look`, is a
+    declaration error of that promise.
+  - Its state stays what the evidence gives. While no passed test print is among that evidence,
+    its `reasons` end with "the motion by hand is not confirmed by a print (no passed test print
+    among its evidence)", and `open` says it: a verified promise gets its own line.
+  - When the user takes the motion unproven, the prototype line in `_assumptions` marks it
+    `"prototype": true` whatever its fits give (verified, assumed or accepted), and the use
+    summary names it. Before, finalize read that line only for a promise `not verified`.
+  - Phase 2 says which uses get `by_hand`. Phase 4 decides an unconfirmed motion like a promise
+    not verified. Phase 6 says the line on that promise.
+  - Without `by_hand`, the output is unchanged, except that the "unknown field" message lists
+    `by_hand` among the fields.
+- **P3 at an acute bed edge** (`validate.py`):
+  - Ray origins are spread over the surface by area (fixed seed, 2000 rays).
+  - No ray starts on a bed face. A floor is still measured from its top face down.
+  - The 0.7.0 holder whose sides meet the bed at 74° read 0.35 mm; it reads 3.0 mm now, as
+    measured by hand then. A 0.8 mm plate on the bed, raised or as a cup's floor, still reads
+    WARN.
+- **Inherited Bambu filament presets**:
+  - `bambu3mf.py` writes `inherits` (the parent preset, from `inherits_group`) and
+    `filament_type` for each filament slot into the 3MF manifest. The slot order of
+    `inherits_group` is taken from Bambu Studio's `PresetBundle::full_fff_config()`: 0 the
+    process, k filament slot k, n+1 the printer.
+  - When the settings name gives no material, finalize uses the parent's material, but only
+    when `filament_type` agrees with it, and records `material_from: "inherits"`. Otherwise the
+    filament stays assumed, and the `open` line says why. Older manifests read as before.
+- **Golden comparison with v0.8.1**: of 130 build and finalize outputs, 7 differ, all from P3.
+  These are the 0.7.0 given-answers holder (P3 PASS, geometry verified) and the example build
+  JSONs (new P3 values and ray counts). Nothing went from PASS to WARN. `strength.py` is
+  byte-identical to 0.8.1's, since it is a hashed source of every build that imports
+  `parts.py`; a first candidate that added a helper there made all of those builds stale.
+- **Conversation scenarios** (`docs/scenarios/results-v0.8.2.md`):
+  - holes-unknown, bambu-template, given-answers and a2-unmeasured were run with Claude. All
+    four match, and no must item that held before fails.
+  - In the first pass, two runs called a verified `by_hand` promise a prototype, as the user's
+    reply had taken it, and finalize ignored the prototype line. That is the prototype change
+    above; both scenarios ran again.
+- **Known, for later**:
+  - Whether a use is `by_hand` rests on the agent's reading; a drop-in pocket with a wide
+    clearance was marked in one run and not in another.
+  - P3 still reads WARN on a very small part with an acute bed edge (a 6 × 5 mm block, 1.09 mm).
+- **Upgrading**: nothing to do. A project from 0.8.1 gives the same report, apart from P3 values
+  where the wall check runs.
+- **Tests**: 468 (was 459), passing on Python 3.13 + bpy 5.2.2, 3.11 + bpy 4.5.14 and 3.9.
+
 ## 0.8.1 — 2026-10-25
 
 Two things 0.8.0 left for later, and two small ones its scenario runs found. A project folder
