@@ -76,6 +76,9 @@ def check_parts(build, specs, params_path, settings, soft=None):
     return entries, reasons, warns, to_decide, copied, same_as_build
 
 
+SOFT_LEFT = ("p3", "p4", "p5", "p6")          # the soft checks finalize can leave to you (norm'd)
+
+
 def check_decided(verify, parts, soft, taken):
     """_verify.decided: the agent's decision on a soft check finalize leaves to it (the to_decide
     lines: P3 when the wall check was skipped, P4, P5, P6), each {"check": "<part> <check>",
@@ -109,7 +112,7 @@ def check_decided(verify, parts, soft, taken):
             errs.append(f"{label}: decided more than once")
         elif key not in left and part is None:
             errs.append(f"{label}: names no part of this build (\"<part> <check>\", as finalize names it)")
-        elif key not in left and part in judged:
+        elif key not in left and part in judged and key[len(norm(part)) + 1:] not in SOFT_LEFT:
             errs.append(f"{label}: not a check finalize leaves you to decide (only the soft checks it lists as "
                         "UNVERIFIED (yours to decide): " + (", ".join(s["check"] for s in soft) or "none now") + ")")
         if e.get("result") not in DECIDED_RESULTS:
@@ -123,8 +126,8 @@ def check_decided(verify, parts, soft, taken):
         if errs:
             errors += errs
             continue
-        if key not in left:                       # a part not validated again now: its reasons say why
-            continue
+        if key not in left:                       # a part not validated again now (its reasons say why), or a
+            continue                              # P3 that the wall check now decides itself
         if e["sha256"] != left[key]["sha256"]:
             stale.add(key)
             continue

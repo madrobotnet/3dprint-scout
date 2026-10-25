@@ -2738,6 +2738,18 @@ class FinalizeDecided(Workspace):
         self.assertEqual([k for k in empty if k != "decided"], list(out))
         self.assertEqual(list(empty).index("decided"), list(empty).index("accepted") + 1)
 
+    def test_a_p3_the_wall_check_now_decides_lapses_quietly(self):
+        """A P3 decided while the wall check was skipped, once the check runs again: no line is left
+        to decide, and the old decision is no declaration error (it simply no longer applies)."""
+        from finalize_geometry import check_decided
+        parts = [{"name": "box", "checks": {"P3": "PASS"}}]
+        soft = [{"check": "box P6", "line": self.LINE, "sha256": self.sha["box"]}]
+        v = {"decided": [self.entry("box P3", reason="walls 2 mm by design")]}
+        lines, decided, errors = check_decided(v, parts, soft, set())
+        self.assertEqual((lines, decided, errors), ([self.LINE], [], []))
+        v = {"decided": [self.entry("box P2")]}
+        self.assertTrue(check_decided(v, parts, soft, set())[2])       # a check never left to you stays an error
+
     def test_holds_takes_the_line_out_of_open(self):
         out = self.decide(self.entry(), self.entry("Lid  p3", reason="the walls are 2 mm by design", part="lid"))
         self.assertEqual(out["decided"], [
