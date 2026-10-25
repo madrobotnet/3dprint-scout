@@ -1655,10 +1655,11 @@ class FinalizePromises(Workspace):
         out = self.run_linked(v, _material=None, _print={"preset": self.STANDARD}, materials={"box": None, "lid": None})
         self.assertEqual(out["material_drift"], [])                            # none then, none now
 
-    def bambu_project(self, filaments=None, process=STANDARD, parts=("box", "lid"), name="set.3mf"):
+    def bambu_project(self, filaments=None, process=STANDARD, parts=("box", "lid"), name="set.3mf", slots=None):
         """A delivered Bambu project and its manifest as bambu3mf.py writes it (contract 3 of step
         4): the parts' sha256, each part's filament slot and settings name, the process preset.
-        filaments=False or process=False leave the key out, as a core 3MF of build.py."""
+        filaments=False or process=False leave the key out, as a core 3MF of build.py. slots adds
+        fields to a part's filament entry ({"lid": {"inherits": ..., "filament_type": ...}}, 0.8.2)."""
         import validate
         os.makedirs("deliver", exist_ok=True)
         path = os.path.join("deliver", name)
@@ -1668,7 +1669,8 @@ class FinalizePromises(Workspace):
              "parts": {n: validate.file_sha256(os.path.join("out", n + ".stl")) for n in parts}}
         if filaments is not False:
             fil = dict({n: self.BAMBU_PLA for n in parts}, **(filaments or {}))
-            m["filaments"] = {n: {"slot": i + 1, "settings": s} for i, (n, s) in enumerate(sorted(fil.items()))}
+            m["filaments"] = {n: dict({"slot": i + 1, "settings": s}, **(slots or {}).get(n, {}))
+                              for i, (n, s) in enumerate(sorted(fil.items()))}
         if process is not False:
             m["process"] = {"settings": process}
         with open(path + ".manifest.json", "w") as f:
@@ -1729,6 +1731,54 @@ class FinalizePromises(Workspace):
                                  ["test print 'lid fit': the slicer's filament for lid is not checked"])
                 self.assertTrue(any(o.startswith("deliver/set.3mf: the slicer's filament for lid is not checked") and why in o
                                     for o in out["open"]), out["open"])
+
+    def test_a_users_own_preset_takes_the_material_it_inherits(self):
+        """0.8.2 C: "My PLA", saved from Bambu PLA Basic, is PLA Basic when the slot's filament type
+        is PLA; a preset switched to another type, or without a type, stays not checked."""
+        v = self.delivered_verify()
+        parent = self.BAMBU_PLA
+        self.bambu_project({"lid": "My PLA"}, slots={"lid": {"inherits": parent, "filament_type": "PLA"}})
+        out = self.run_linked(v, deliver="deliver", _print={"preset": self.STANDARD})
+        self.assertEqual(self.states(out), {"holds": "verified", "seat": "verified", "stands": "verified"}, out["open"])
+        self.assertEqual(out["delivered"][0]["filaments"]["lid"],
+                         {"slot": 2, "settings": "My PLA", "material": "pla_basic", "material_from": "inherits",
+                          "inherits": parent})
+        self.assertEqual(out["delivered"][0]["filaments"]["box"], {"slot": 1, "settings": parent,
+                                                                   "material": "pla_basic"})
+        self.assertFalse(any("filament" in o for o in out["open"]), out["open"])
+        # Inherited, but of another material than the part's: not verified, as a system preset would be.
+        self.bambu_project({"lid": "My PETG"}, slots={"lid": {"inherits": "Bambu PETG HF @BBL X1C",
+                                                               "filament_type": "petg"}})
+        out = self.run_linked(v, deliver="deliver", _print={"preset": self.STANDARD})
+        self.assertEqual(self.states(out), {"holds": "not verified", "seat": "not verified", "stands": "verified"})
+        self.assertIn("deliver/set.3mf: lid is printed in My PETG (petg_hf, inherited from Bambu PETG HF @BBL X1C), the "
+                      "part is pla_basic: choose the filament of its material in the project, or change the part's "
+                      "material and build again", out["open"])
+        self.assertEqual(out["delivered"][0]["filaments"]["lid"]["material_from"], "inherits")
+        # The type disagrees with the parent's, or is not recorded: not checked, as before.
+        for ftype, why in (("PETG", 'it inherits "Bambu PLA Basic @BBL X1C" (pla_basic), but its filament type is '
+                                    "PETG, not PLA"),
+                           ("PLA-CF", "but its filament type is PLA-CF, not PLA"),
+                           (None, "but the project records no filament type for its slot"),
+                           ("", "but the project records no filament type for its slot")):
+            with self.subTest(filament_type=ftype):
+                self.bambu_project({"lid": "My PLA"}, slots={"lid": {"inherits": parent, "filament_type": ftype}})
+                out = self.run_linked(v, deliver="deliver", _print={"preset": self.STANDARD})
+                self.assertEqual(self.states(out), {"holds": "assumed", "seat": "assumed", "stands": "verified"})
+                self.assertEqual(out["delivered"][0]["filaments"]["lid"], {"slot": 2, "settings": "My PLA",
+                                                                           "material": None})
+                line = next(o for o in out["open"] if o.startswith("deliver/set.3mf: the slicer's filament for lid"))
+                self.assertIn('("My PLA" is not a filament of a known material; ', line)
+                self.assertIn(why, line)
+        # A parent finalize cannot name either, or none: as before.
+        for slots in ({"lid": {"inherits": "Generic PLA @BBL X1C", "filament_type": "PLA"}},
+                      {"lid": {"inherits": None, "filament_type": "PLA"}}, {"lid": {"inherits": ["x"]}}, None):
+            with self.subTest(slots=slots):
+                self.bambu_project({"lid": "My PLA"}, slots=slots)
+                out = self.run_linked(v, deliver="deliver", _print={"preset": self.STANDARD})
+                self.assertEqual(self.states(out), {"holds": "assumed", "seat": "assumed", "stands": "verified"})
+                self.assertIn("deliver/set.3mf: the slicer's filament for lid is not checked (\"My PLA\" is not a "
+                              "filament of a known material); set it to pla_basic in the slicer", out["open"])
 
     def test_without_a_bambu_project_the_print_files_material_is_assumed(self):
         v = self.delivered_verify()

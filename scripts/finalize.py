@@ -145,7 +145,9 @@ delivered in one or the other; a malformed manifest is a reason, not an error. A
 project's manifest (bambu3mf.py) also names each part's filament and the process preset: a
 filament of another material than the part's leaves the part's material-dependent evidence (a
 --from-build member of it, a test print of it) not verified, one finalize cannot name
-(strength.material_of_filament) leaves it assumed, as does a part in no Bambu project (another
+(strength.material_of_filament; a user's own preset such as "My PLA" takes the material of the
+one it inherits from when the slot's filament_type is that material's type, "material_from":
+"inherits") leaves it assumed, as does a part in no Bambu project (another
 slicer: the print file's material is not checked); a process preset other than _print.preset
 keeps test prints of its parts from verifying, and without _print.preset it is the delivered
 preset they are compared with; a project that names no process preset leaves them assumed. These are open lines, not geometry reasons. --bundle DIR

@@ -35,6 +35,14 @@ class Tables(unittest.TestCase):
         self.assertEqual(strength.MATERIALS["pla_basic"]["tensile"], {"xy": 35, "z": 31})
         self.assertEqual(strength.MATERIALS["petg_basic"]["flex"], {"xy": 75, "z": 56})
 
+    def test_each_material_has_its_slicer_filament_type(self):
+        """finalize compares it with a Bambu project's filament_type (an inherited preset, 0.8.2)."""
+        self.assertEqual({k: strength.material_type(k) for k in strength.MATERIALS},
+                         {"pla_basic": "PLA", "pla_matte": "PLA", "pla_pure": "PLA", "petg_basic": "PETG",
+                          "petg_hf": "PETG", "abs": "ABS", "asa": "ASA"})
+        for bad in ("pla", "PLA", "nylon_x", None, 3):
+            self.assertIsNone(strength.material_type(bad), bad)
+
     def test_loads_have_a_source_and_a_design_rule(self):
         self.assertIn("Ergonomics 46(15)", strength.LOADS_SOURCE["citation"])
         fp = strength.LOADS["finger_push"]
