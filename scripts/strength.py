@@ -664,12 +664,6 @@ def snap_strain(length: float, thickness: float, deflection: float, q: float = 1
     return 1.5 * thickness * deflection / (length ** 2 * q)
 
 
-def material_type(key):
-    """The filament type of a MATERIALS key, as Bambu Studio's filament_type names it: pla_basic
-    -> PLA, petg_hf -> PETG, abs -> ABS; None for a key that is not in MATERIALS."""
-    return key.split("_")[0].upper() if isinstance(key, str) and key in MATERIALS else None
-
-
 def snap_family(mat: dict) -> str:
     """The SNAP_STRAIN family of a Bambu material key: pla_basic -> PLA, petg_hf -> PETG."""
     family = mat["key"].split("_")[0].upper()

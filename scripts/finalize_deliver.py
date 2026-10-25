@@ -110,6 +110,15 @@ def check_delivered(deliver, parts, build):
             reasons.append(f"{p['name']}: not in the delivery ({rel(deliver)}) as an STL or in a 3MF")
     return entries, reasons, projects
 
+def material_type(key):
+    """The filament type of a strength.py MATERIALS key, as Bambu Studio's filament_type names it:
+    pla_basic -> PLA, petg_hf -> PETG, abs -> ABS; None for a key that is not in MATERIALS. Kept
+    here, not in strength.py: strength.py is a source every build that imports parts.py hashes, so
+    a change there would make those builds stale."""
+    import strength
+    return key.split("_")[0].upper() if isinstance(key, str) and key in strength.MATERIALS else None
+
+
 NO_PROJECT = "the print file's material is not checked (no Bambu project)"
 
 
@@ -127,7 +136,7 @@ def _inherited_material(key, settings, f, strength):
     if pkey is None:
         return key, False, None
     ftype = f.get("filament_type") if isinstance(f.get("filament_type"), str) else ""
-    want = strength.material_type(pkey)
+    want = material_type(pkey)
     if ftype.strip().upper() == want:
         return pkey, True, None
     return key, False, (f"{json.dumps(settings)} is not a filament of a known material; it inherits "
