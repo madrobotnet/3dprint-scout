@@ -92,6 +92,9 @@ user does with the object: needs conditions and success), `feature` (needs succe
 Evidence names a declared joint, member, measurement, seen image or test print; a use takes
 joints, members, measurements and test prints, a feature joints, measurements and test prints,
 a look seen images and test prints; a part's own check (box M1) is never evidence of a promise.
+A use done by hand ("by_hand": true: pushing a phone in, a peg in and out) keeps the state its
+evidence gives; without a passed test print among that evidence, its reasons and open say "the
+motion by hand is not confirmed by a print".
 seen: a person's judgement of a preview image (by user or agent, the promises judged, passed or
 failed, and image_sha256, the digest they looked at); it stands while the image is those bytes,
 its sidecar says so, and every STL the sidecar lists is a part of this build now; only the

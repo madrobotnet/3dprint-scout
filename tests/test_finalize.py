@@ -1365,6 +1365,76 @@ class FinalizePromises(Workspace):
         out = judge(None, _material="pla")
         self.assertIn("_material must be a strength.py material key", " ".join(out["promise_errors"]))
 
+    BY_HAND = "the motion by hand is not confirmed by a print (no passed test print among its evidence)"
+
+    def test_a_use_done_by_hand_says_a_print_has_not_confirmed_it(self):
+        """0.8.2 A: a use done by hand keeps the state its evidence gives, and finalize itself says
+        the motion is not confirmed until a passed test print is among that evidence."""
+        import validate
+        hand = dict(self.SEAT, by_hand=True)
+        out = self.run_use(self.verify([hand], dims=[]))
+        seat = self.promise(out, "seat")
+        self.assertEqual((out["use"], seat["state"], seat["by_hand"]), ("verified", "verified", True))
+        self.assertEqual(seat["reasons"], [self.BY_HAND])
+        self.assertIn("promise 'seat' (use): " + self.BY_HAND, out["open"])
+        self.assertEqual(out["summary"][0], "use: verified (1 promise: 1 verified; 1 assumption not linked to a "
+                                            "promise)")
+        self.assertEqual(out["promise_counts"], {"use": {"verified": 1}})
+        plain = self.run_use(self.verify([self.SEAT], dims=[]))                # no by_hand: as before
+        self.assertNotIn(self.BY_HAND, json.dumps(plain))
+        self.assertNotIn("by_hand", self.promise(plain, "seat"))
+        self.assertEqual(plain["open"], [o for o in out["open"] if self.BY_HAND not in o])
+        off = self.run_use(self.verify([dict(self.SEAT, by_hand=False)], dims=[]))
+        self.assertEqual((self.promise(off, "seat")["reasons"], off["open"]), ([], plain["open"]))
+        # A test print among its evidence: a passed one takes the line away, any other keeps it.
+        lid = validate.file_sha256("out/lid.stl")
+        printed = {"name": "lid fit", "status": "passed", "promises": ["seat"], "printer": "x2d",
+                   "orientation": "as built", "by": "user", "preset": "0.20mm Standard",
+                   "parts": {"lid": {"sha256": lid, "material": "pla_basic"}}}
+        hand = dict(hand, evidence=[{"joint": "lid on box"}, {"test_print": "lid fit"}])
+        contract = {"_material": "pla_basic", "_print": {"preset": "0.20mm Standard"}}
+        out = self.run_use(self.verify([hand], dims=[], test_prints=[printed]), **contract)
+        seat = self.promise(out, "seat")
+        self.assertEqual((seat["state"], seat["reasons"]), ("verified", []))
+        self.assertFalse(any(self.BY_HAND in o for o in out["open"]), out["open"])
+        for status, state in (("failed", "failed"), ("skipped", "not verified"), ("pending", "not verified")):
+            with self.subTest(status=status):
+                out = self.run_use(self.verify([hand], dims=[], test_prints=[dict(printed, status=status)]), **contract)
+                seat = self.promise(out, "seat")
+                self.assertEqual(seat["state"], state)
+                self.assertEqual(seat["reasons"][-1], self.BY_HAND)
+                lines = [o for o in out["open"] if self.BY_HAND in o]      # in the promise's own line, once
+                self.assertEqual(len(lines), 1, out["open"])
+                self.assertTrue(lines[0].startswith(f"promise 'seat' (use) {state}: "), lines[0])
+        # A stale print (of another lid) is no passed print either.
+        out = self.run_use(self.verify([hand], dims=[], test_prints=[
+            dict(printed, parts={"lid": {"sha256": "0" * 64, "material": "pla_basic"}})]), **contract)
+        self.assertEqual(self.promise(out, "seat")["reasons"][-1], self.BY_HAND)
+        # The user took it without verifying it: its reasons still say so.
+        out = self.run_use(self.verify([dict(self.SEAT, by_hand=True, evidence=[])], dims=[], accepted=[
+            {"promise": "seat", "reason": "I'll try it on the first print", "by": "user"}]))
+        self.assertEqual(self.promise(out, "seat")["reasons"],
+                         ["taken by the user without verifying it: I'll try it on the first print", "no evidence yet",
+                          self.BY_HAND])
+
+    def test_by_hand_is_declared_on_a_use_as_true_or_false(self):
+        feature = {"id": "notch", "kind": "feature", "text": "a notch", "success": "6 mm wide",
+                   "evidence": [{"joint": "lid on box"}]}
+        look = {"id": "label", "kind": "look", "text": "the name on the front"}
+        for promise, message in ((dict(self.SEAT, by_hand="yes"), "by_hand must be true or false"),
+                                 (dict(self.SEAT, by_hand=1), "by_hand must be true or false"),
+                                 (dict(feature, by_hand=True), "by_hand is for a use promise (a motion done by hand), "
+                                                               "not a feature"),
+                                 (dict(look, by_hand=False), "by_hand is for a use promise (a motion done by hand), "
+                                                             "not a look")):
+            with self.subTest(promise=promise):
+                out = self.run_use(self.verify([promise], dims=[]))
+                p = out["promises"][0]
+                self.assertEqual((out["use"], p["state"]), ("error", "error"))
+                self.assertIn(message, p["reasons"])
+                self.assertIn(message, "\n".join(out["open"]))
+                self.assertNotIn(self.BY_HAND, p["reasons"])
+
     def test_the_tier_is_the_worst_promise(self):
         nothing = {"id": "label", "kind": "look", "text": "the name on the front"}
         out = self.run_use(self.verify([self.SEAT, self.CABLE, nothing]))

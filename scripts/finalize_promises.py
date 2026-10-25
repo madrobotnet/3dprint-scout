@@ -71,6 +71,8 @@ def promise_state(errs, failed, notver, excluded, assumed, accepted):
         return "accepted"
     return "verified"
 
+BY_HAND = "the motion by hand is not confirmed by a print (no passed test print among its evidence)"
+
 WHERE_OF = {"joint": "_verify.joints", "strength": "_verify.strength", "measurement": "_verify.measurements",
             "seen": "_verify.seen", "test_print": "_verify.test_prints"}
 
@@ -183,14 +185,23 @@ def _judge_promise(i, pr, ids, excluded, ctx, out):
     reasons = v["errs"] + v["failed"] + v["notver"] + v["assumed"] + v["acc"]
     if state == "excluded":
         reasons.insert(0, f"taken by the user without verifying it: {excluded[pid]}")
+    # A motion done by hand (pushing a phone in, a peg in and out): the fit numbers say nothing of
+    # how it moves, or whether the printed hole comes out at its size. Its state stays what its
+    # evidence gives; without a passed test print among that evidence, finalize says so itself.
+    by_hand = kind == "use" and pr.get("by_hand") is True and not any(
+        "test_print" in ev and ev.get("result") == "passed" for ev in v["ev"])
+    if by_hand:
+        reasons.append(BY_HAND)
     entry = {"id": pid, "kind": kind, "text": pr.get("text")}
-    entry.update({f: pr[f] for f in ("conditions", "success") if f in pr})
+    entry.update({f: pr[f] for f in ("conditions", "success", "by_hand") if f in pr})
     entry.update(state=state, reasons=reasons, evidence=v["ev"], rests_on=rests_on)
     out["promises"].append(entry)
     counts = out["counts"].setdefault(kind if kind in KINDS else "?", {})
     counts[state] = counts.get(state, 0) + 1
     if state != "verified":
         out["open"].append(f"{label} ({kind}) {state}: {'; '.join(reasons)}")
+    elif by_hand:                                  # a verified promise has no line of its own
+        out["open"].append(f"{label} ({kind}): {BY_HAND}")
 
 
 def _promise_declaration(pr, pid, kind, ok_id, ids, v):
@@ -212,6 +223,11 @@ def _promise_declaration(pr, pid, kind, ok_id, ids, v):
             errs.append(f"a {kind} promise needs {f} ("
                         + ("under which conditions it must hold" if f == "conditions" else "what counts as success")
                         + ")")
+    if "by_hand" in pr:
+        if not isinstance(pr["by_hand"], bool):
+            errs.append("by_hand must be true or false")
+        elif kind in KINDS and kind != "use":
+            errs.append(f"by_hand is for a use promise (a motion done by hand), not a {kind}")
     assumes = pr.get("assumes", [])
     if not (isinstance(assumes, list) and all(isinstance(x, str) for x in assumes)):
         errs.append("assumes must be a list of _verify.dims ids")
