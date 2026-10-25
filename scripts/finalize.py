@@ -158,7 +158,7 @@ each seen image and its sidecar; the test print photos; and with --deliver the d
 and 3MFs, each 3MF with its manifest beside it (REPRODUCE.md re-checks them with --deliver).
 Every file keeps its path relative to the project folder, so the commands run as written
 inside the bundle; the parts and the proxies built by `run` are built again there, not copied
-(their build JSON records paths of this machine; a proxy no longer built from its params file
+(building them again shows the verdict is reached again; a proxy no longer built from its params file
 is carried as it was, its build JSON listed as left out), with the build's engine, core 3MF
 choice and settings. A file that is named but not found is listed in REPRODUCE.md and in
 bundle_missing (a missing report is missing in the verdict too; so is a missing printers.json

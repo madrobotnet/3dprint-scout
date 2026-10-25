@@ -122,7 +122,7 @@ class _Contents:
 
     def proxy(self, path, joint, tied):
         """A proxy's build: one `build.py run --proxy` made is made again by REPRODUCE.md, as the
-        parts are (its build JSON records paths of this machine, as the main one does): its
+        parts are (built again, it shows the verdict is reached again, as the parts do): its
         generator and params file are carried, its STLs, manifests and JSON are not. Any other
         (a recorded proxy) is carried as it is, with its inputs."""
         b = json_object(path) if isinstance(path, str) and os.path.isfile(path) else {}
