@@ -91,8 +91,10 @@ list and `_assumptions` included. In this order:
    | `not verified` | Not checked, and why ("the strength was calculated for the 6 mm base; it is 6.5 mm now"). |
    | `failed` | Not kept, and what failed ("the lip is 10 mm high; holding the phone needs 12 mm"). |
 
-   A size taken from a spec is in `open` with its URL and the place of each number: give both,
-   so the user can check them.
+   A `by_hand` promise with no passed test print keeps finalize's line that the motion by hand
+   is not confirmed by a print: say it on that promise's line, whatever its state (the fit was
+   checked, the motion was not). A size taken from a spec is in `open` with its URL and the
+   place of each number: give both, so the user can check them.
 2. **The other tiers and `open`**, summarised: the model's sizes, mesh and fits (`geometry`:
    when it is verified, one line saying they all passed), which sides of the shape a reference
    showed, that nothing was sliced here, the test prints and their results; then what `open`
