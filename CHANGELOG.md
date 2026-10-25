@@ -48,7 +48,10 @@ Korean) is in `docs/plans/v0.8.1.md`.
   path led nowhere, are now judged against this skill: builds from 0.7.0 read R3 FAIL (the
   library changed since), later ones verified.
 - **Conversation scenarios** (`docs/scenarios/results-v0.8.1.md`): the four the changes touch
-  were run again with Claude.
+  (given-answers, holes-unknown, unattended, a2-unmeasured) were run again with Claude. All
+  four match, and no must item that held in 0.8.0 fails. holes-unknown matched on a re-run,
+  after the Phase 6 line above; both holes-unknown runs stopped for the concept pick after the
+  fallback, which 0.8.0's run did not.
 - **Upgrading**: nothing to do. A build JSON from 0.8.0 keeps working; build again to get
   relative paths.
 - **Tests**: 459 (was 441), passing on Python 3.13 + bpy 5.2.2, 3.11 + bpy 4.5.14 and 3.9.

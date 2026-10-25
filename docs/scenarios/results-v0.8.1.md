@@ -17,7 +17,7 @@ The scripted replies arrived labelled as a coordinator's message.
 | Scenario | Prompt | Agent and model | Skill commit | Asked | Did | Claimed | finalize | Result |
 |---|---|---|---|---|---|---|---|---|
 | given-answers | `given-answers.md` @ v0.8.0 | Claude Code-based harness subagent, claude-opus-5-5 | c6cfdea | Concept pick (3); Phase 2 table with a 0.3 or 1 mm clearance, the widest point stated as assumed (not asked); the base-shape look, naming two confirmed values it changed (wall 2.7 → 3.2, lead-in 1.5 → 1.0) and an optional test piece; after a 0.1 mm pocket-floor fix, the new look | Table without an A–D stop; `printers.json` from the message (holes and elephant foot `unknown`); both remotes caliper/user; Blender holder; proxy fits, depth and footprint measurements; P4–P6 in `_verify.decided`; STL + core 3MF + .blend + bundle | Five promises verified with what showed each; the feel of putting a remote in not confirmed (no test print); the elephant-foot line | `use` verified, `geometry` verified; big-in, small-in, no-tip, flared-foot, side-by-side verified | Matches (0.8.0's should miss, the widest-point question, holds) |
-| holes-unknown | `holes-unknown.md` @ v0.8.0 | same | 0b1e286 (re-run) | RERUN-ASKED | RERUN-DID | RERUN-CLAIMED | RERUN-FINAL | RERUN-RESULT |
+| holes-unknown | `holes-unknown.md` @ v0.8.0 | same | 0b1e286 (re-run) | A–D, rod length and place (fallback); the concept pick (3); the use list and table with a hole note and fit-test rings or go on; the base shape with a section | Concept stop held after the fallback; rod length 30 cm an `assumed` dims entry, recorded as handed back; holes and elephant foot `unknown`; socket 12.4 mm, no compensation; rings offered and skipped, with the reply; P4–P6 decided; Blender stand; STL + core 3MF + .blend + bundle | Fit checked on the model, the printed hole and the motion not confirmed; upright only for the assumed 30 cm rod; tight because the hole settings are unknown (drill), loose cannot be fixed; the elephant-foot line | `use` assumed (stands-upright rests on the rod length), `geometry` verified; rod-in-out, blind-bore, disc-base verified | Matches (0.8.0's should miss, the concept stop, holds) |
 | unattended | `unattended.md` @ v0.8.0 | same | c6cfdea | The case size (and an optional cable path) | Defaults recorded (C, the first concept, purpose general, use list and base shape not reviewed); case caliper/user; elephant foot `unknown` with a 0.3 mm outer bottom chamfer; P4–P6 decided; Blender stand; STL + core 3MF + .blend + bundle | Opens with what it decided alone (no verdict before it), then the promise verified with what the fit does not cover; the elephant-foot line | `use` verified, `geometry` verified; stand-upright verified | Matches |
 | A2 (a2-unmeasured) | `a2-unmeasured.md` @ v0.8.0 | same | c6cfdea | Measure the plug, a test print, or go on assumed | The user's measurement as caliper/user; proxy and holder rebuilt; fit again; P4–P6 decided; Bambu project + STL + bundle | Three promises verified with what showed each; the plug at rest, not the cable bending | `use` verified, `geometry` verified; seat, cable-out, holds verified | Matches |
 
@@ -26,7 +26,7 @@ The scripted replies arrived labelled as a coordinator's message.
 | Scenario | 0.8.0 | 0.8.1 |
 |---|---|---|
 | given-answers | Matches; should missed: the widest-point question | Matches; the widest point stated as assumed, not asked |
-| holes-unknown | Matches; should missed: the concept stop after the fallback | RERUN-COMPARED |
+| holes-unknown | Matches; should missed: the concept stop after the fallback | Matches at the re-run; the concept stop held in both passes |
 | unattended | Matches (re-run) | Matches at the first pass |
 | A2 | Matches | Matches |
 
@@ -43,7 +43,7 @@ No must item that held in 0.8.0 fails in the rows above.
 - **The concept stop.** Both holes-unknown runs got the A–D answer with the fallback to its
   optional questions, and both stopped for the concept pick.
 - **Elephant foot `unknown`.** given-answers, unattended and holes-unknown wrote `unknown`, put a
-  0.3 mm chamfer on the outer bottom edges only, and (RERUN-EF) said at delivery that the
+  0.3 mm chamfer on the outer bottom edges only, and (all three) said at delivery that the
   slicer's compensation, if on, makes that edge a little smaller.
 
 ## Found while checking, changed in 0.8.1
@@ -61,4 +61,9 @@ what to do when it prints tight; the reason, that the slicer's hole settings are
 that it may print loose were only in the message before it, which offered the fit-test rings.
 The new elephant-foot line was missing too. Both rules lived in `tolerances.md` alone. 0b1e286
 says them in Phase 6, item 2, where the delivery is written, and the scenario ran again.
-RERUN-NOTE
+
+The re-run at 0b1e286 matches: the last message gives the reason and both directions, and the
+elephant-foot line. It also differs from 0.8.0 in one way the kit allows: the stand's upright
+promise now rests on a rod length the agent chose after the fallback, a `_verify.dims` entry
+`assumed`, so `use` reads `assumed` and the message names the 30 cm and what would settle it.
+0.8.0's run checked the same promise on socket depth and base size alone.
