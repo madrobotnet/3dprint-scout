@@ -902,7 +902,9 @@ class BlenderEngine(Base):
         self.assertEqual(out["engine_info"]["path"], exe)
         self.assertEqual(out["engine_info"]["boolean_solver"], "MANIFOLD")
         self.assertEqual([p["name"] for p in out["parts"]], ["body", "peg"])
-        self.assertEqual(out["blend"], os.path.join(os.path.abspath(self.out), "gen_blender.blend"))
+        # Recorded relative to the folder build.py ran in (0.8.1), as every path of the build JSON.
+        self.assertEqual(out["blend"], os.path.relpath(os.path.join(self.out, "gen_blender.blend")))
+        self.assertEqual(out["engine_info"]["blend"], out["blend"])
         self.assertTrue(os.path.isfile(out["blend"]))
         for p in out["parts"]:
             self.assertTrue(os.path.isfile(p["stl"] + ".manifest.json"))
