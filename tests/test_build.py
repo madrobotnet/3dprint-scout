@@ -1429,9 +1429,12 @@ class RelativePaths(Base):
 
     def setUp(self):
         super().setUp()
-        cwd = os.getcwd()
+        self.cwd = os.getcwd()
         os.chdir(self.d)
-        self.addCleanup(os.chdir, cwd)
+
+    def tearDown(self):
+        os.chdir(self.cwd)            # before the folder goes: Windows cannot remove the working folder
+        super().tearDown()
 
     def no_machine_path(self, out):
         text = json.dumps(out)
