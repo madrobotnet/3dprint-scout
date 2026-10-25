@@ -2953,7 +2953,8 @@ class MovedSkillLibrary(unittest.TestCase):
         self.assertEqual((code, out["gate"]), (0, "PASS"), out["errors"])
         self.lib = [s for s in out["sources"] if os.path.basename(s) == "parts.py"]
         self.assertEqual(len(self.lib), 1, out["sources"])
-        self.assertFalse(os.path.isabs(self.lib[0]))
+        if os.path.isabs(self.lib[0]):           # Windows: the temp folder on another drive than the skill
+            self.skipTest("the skill is on another drive: its path stays absolute and survives a move")
         with open("out/build.json", "w") as f:
             json.dump(out, f)
 
@@ -2996,6 +2997,11 @@ class MovedSkillLibrary(unittest.TestCase):
         with mock.patch.object(finalize_common, "LIBRARY_PLACES", ((newer, ("scripts",)),)):
             out = self.finalize()
         self.assertEqual(out["geometry"], "not verified")
+
+
+class SkillLibraryPlace(unittest.TestCase):
+    """finalize_common.skill_library: only a recorded path that is gone and names one of the
+    skill's library files at its place in a skill folder is read from this skill."""
 
     def test_only_a_library_at_its_place_is_read_from_this_skill(self):
         lib = finalize_common.skill_library
