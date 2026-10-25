@@ -286,6 +286,11 @@ with `--only`, so it shows `seconds` per part and a `partial` object):
   (plus `partial` and `gate` when it is one part of a larger object built with `--only`).
 - `command` is `run` or `record` (since 0.7.0): `finalize.py --bundle` builds a `run` again and asks
   for a `record`'s STLs to be exported again, whatever `engine` says (`record --engine blender`).
+- Paths (`stl`, `validate.files[].path`, `source`, `sources`, `params`, `threemf`, `blend`) are
+  relative to the folder build.py ran in (since 0.8.1), so the project folder can move; a path
+  on another Windows drive stays absolute, and so do `engine_info`'s tool paths. A skill library
+  among `sources` (`references/engines/blender_builder.py`, `scripts/parts.py`) that a moved
+  project no longer reaches is read from the installed skill; its hash still decides R3.
 - `params` is the params file the engine got. A `--proxy` build (`references/measure.md`) carries
   `"proxy": true` and no `threemf`.
 - `parameters` is what the parts were built with. `values` holds the params.json engine keys
