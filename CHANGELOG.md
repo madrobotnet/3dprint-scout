@@ -1,5 +1,51 @@
 # Changelog
 
+## 0.9.0 — 2026-10-25
+
+Fewer stops. A part to design used to stop four or five times before the files came: the A–D
+choice, the concepts, the parameter table, the base shape and the Phase 4 question. 0.9.0 stops
+twice by default, for everyone: **the pick** and **the look**. Verdicts, checks and file formats
+are unchanged; only the conversation is.
+
+- **The pick** (Phase 1): the concepts come first, each an image and a line on what differs and
+  what it costs, with the four references under them, one line each (name, site, licence, link,
+  what a concept borrows). A reference that already does the job is said first. The user answers
+  with a number, "like model N" or "use it as it is"; the letters A to D are no longer shown.
+  What cannot wait is asked in the same message: an unknown printer or slicer, a size the part
+  must fit that nobody measured.
+- **The look** (Phase 3): a simple part is built with its features and checked through Phase 4
+  first. The look then shows, in one message and in this order:
+  - the part;
+  - its promises in the user's words, with what showed each;
+  - the three to six sizes the user judges, and any confirmed value that changed;
+  - the checks in one line;
+  - a test print offer when one is due (a use done by hand, a fit not known exactly, a mechanism
+    to print first), naming the promise and what skipping it costs;
+  - one question in bold, last;
+  - the full parameter table under a "details" line.
+
+  The reply settles the shape, the use list, the sizes and the offer. The offer is the Phase 4
+  question for the promises it names.
+- **Stops in between** only for something new: a check that fails, a confirmed value that
+  changes, a promise newly not verified, a mechanism that would grow the object. A part with
+  several bodies or a mechanism still shows its shell first (three stops).
+- **Step by step on request.** Asked to go step by step, the phases stop as in 0.8.x; each phase
+  file says where under "Step by step".
+- **Every message**: its question in bold, last; passed checks in one line; no script names,
+  check ids, JSON keys or A–D letters.
+- **Unattended runs** are unchanged: they take the defaults at each stop and stop only for a size
+  the part must fit that no source gives.
+- **Scenario kit**: the expected behaviour of "Request already gives..." now names the pick and
+  the look. given-answers, holes-unknown and bambu-template grade a new must item: no stop for the
+  table or the use list on their own. choice-d allows the concept builds the pick shows. Runs
+  record their stop count.
+- **Conversation scenarios** (`docs/scenarios/results-v0.9.0.md`): all nine were run with Claude
+  in one pass and all match. The three design scenarios stopped twice (they stopped four or five
+  times in 0.8.x), and no must item that held before fails.
+- **Upgrading**: nothing to do; projects, reports and commands from 0.8.2 work unchanged. To keep
+  the old stops, ask to go step by step.
+- **Tests**: unchanged, 468, passing on Python 3.13 + bpy 5.2.2, 3.11 + bpy 4.5.14 and 3.9.
+
 ## 0.8.2 — 2026-10-25
 
 Three judgement items known since 0.7.0. finalize itself now says when a use done by hand has

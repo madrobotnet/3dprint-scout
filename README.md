@@ -13,18 +13,19 @@ Studio, that is a project file with the print settings already set per object.
 
 ## How a request runs
 
-1. **References** — four existing models from Printables, Thingiverse, MakerWorld and others, with
-   their licenses. You pick: **A** reference one, **B** mix ideas, **C** original, **D** use as is.
-2. **Concepts** — for B and C, two or three quick low-detail variants with preview images, so you
-   choose the direction before the detailed work starts.
-3. **Printer and slicer** — asked in plain words ("Which printer do you have, and which program do
-   you open print files in? It's fine if you don't know the program."). Sensible defaults when you don't know.
-4. **Dimensions** — a table of every dimension with its source (your caliper, an official spec,
+1. **References and concepts (the pick)** — four existing models from Printables, Thingiverse,
+   MakerWorld and others, with their licenses, and two or three quick low-detail concepts with
+   preview images that borrow from them. You pick a concept by number, or say "like model 2", or
+   "use it as it is" when one already does the job.
+2. **Printer and slicer** — asked in plain words in the same message when they are not saved
+   ("Which printer do you have, and which program do you open print files in? It's fine if you
+   don't know the program."). Sensible defaults when you don't know.
+3. **Dimensions** — a table of every dimension with its source, shown in the look (your caliper, an official spec,
    or two secondary sources that agree). Nothing is invented. For parts that must fit an object of
    uncertain shape, it makes small fit-test pieces first (three clearance steps, marked 1, 2, 3).
    With it comes the list of what the part must let you do (hold the phone, let the cable out),
    written with you; each item is later checked by its own evidence.
-5. **Modeling** — [Blender](https://www.blender.org) first, for every shape, when it is there
+4. **Modeling** — [Blender](https://www.blender.org) first, for every shape, when it is there
    (your own Blender through MCP, a `blender` binary, or the `bpy` module): fillets with a true
    radius, rounds along curves in the profile, Manifold booleans, text in any font, an editable
    `.blend` next to the STLs, and the Python part library's mechanical helpers when Blender's
@@ -36,7 +37,7 @@ Studio, that is a project file with the print settings already set per object.
    with its own job or a likely colour of its own (a latch, a lever, a label) is modelled as a
    separate part of the same object, so you can give it another filament in the slicer without
    remodelling; print-in-place pieces keep their clearance.
-6. **Verification** — every part is checked: size, bed fit, watertight mesh, overhangs, wall
+5. **Verification** — every part is checked: size, bed fit, watertight mesh, overhangs, wall
    thickness, fresh evidence (the STL must match the current source and parameters). An object
    made of several parts is checked as a whole (bed fit, overhang on the union, that fused parts
    touch and free parts keep their gap). Mating parts are checked against each other: overlap,
@@ -47,7 +48,7 @@ Studio, that is a project file with the print settings already set per object.
    printed first, a few grams; a print-in-place lid hinge always gets that coupon, on top of
    its margin. Every part gets a preview image (iso, front, right, top) rendered without a
    display, and a Blender render in your filament's colour when Blender is there.
-7. **Delivery** — a final report first (`finalize.py`): each thing you were promised, verified
+6. **Delivery** — a final report first (`finalize.py`): each thing you were promised, verified
    only by its own evidence on the current parts (otherwise named as assumed, not verified or a
    prototype); then geometry verified or not, the shape by the directions the references cover,
    and slicing and printing as not verified here, with every open item listed. Then STL per
@@ -55,10 +56,12 @@ Studio, that is a project file with the print settings already set per object.
    one line naming the separate parts and how to recolour them, and a bundle with the generator,
    the parameters, the evidence and the commands that rebuild them and reach the same verdict.
 
-The agent stops for your choice after references, after the concepts, after the dimension table
-and after the base shape. Before delivery it names each promise that is not verified yet and
-decides it with you: measure it, print a test piece, take it unproven as a prototype, or drop
-the promise. If you hand it a file of the thing the part must fit (a manufacturer's kit, a
+The agent stops twice: for the pick, and for the look at the part as built and checked, which
+shows its promises, the sizes you judge, the full table and, when one is due, a test print
+offer. In between it stops only for something new (a check that failed, a value you confirmed
+that had to change). Each promise not verified yet is decided with you, in the look or when it
+comes up: measure it, print a test piece, take it unproven as a prototype, or drop the promise.
+Ask it to go step by step to stop at every phase instead. If you hand it a file of the thing the part must fit (a manufacturer's kit, a
 reference model), it measures the interface dimensions from the file and copies nothing.
 
 ## Examples
@@ -162,6 +165,12 @@ the X2D and H2D, objects that need both nozzles are placed where both can reach.
 | a new delivery folder | Final files. Existing files are never overwritten |
 
 ## Status
+
+**v0.9.0** stops less. A new part now asks you twice before the files come: once to pick one of
+two or three concepts (the existing models it found are listed under them), and once to look at
+the part as built and checked, with its sizes and, when it matters, the offer of a quick test
+print. The parameter table, the use list and the test print question no longer stop on their
+own. Ask it to go step by step if you want the old stops back.
 
 **v0.8.2** settles three judgement items. A use you do by hand (pushing a phone in, a peg in
 and out) is marked as such, and the final check itself says when no test print has confirmed
@@ -275,7 +284,7 @@ subprocess is using it. Skill changes also need the conversation scenarios in
 [`docs/scenarios/`](docs/scenarios/README.md), which are not shipped with the skill; Python unit
 tests alone do not exercise agent decisions. The kit holds nine scenarios, each with an opening
 message, scripted replies and a grading checklist, a script that sets up each start state, and
-the graded runs of 0.7.0, 0.8.0, 0.8.1 and 0.8.2.
+the graded runs of 0.7.0, 0.8.0, 0.8.1, 0.8.2 and 0.9.0.
 
 `SKILL.md` is the entry point: the rules that hold at all times, a short skeleton of each phase
 and the checklist. Each phase's how-to (`references/phase-0-detect.md` to `phase-6-deliver.md`),
