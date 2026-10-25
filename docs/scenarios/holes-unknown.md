@@ -30,12 +30,12 @@ An empty folder: `python3 docs/scenarios/setup.py holes-unknown FOLDER`.
 
 | When the agent | Reply, word for word |
 |---|---|
-| Shows existing models and asks which way to go (A–D) | `기존 모델 말고 새로 만들어 주세요.` |
-| Shows concept variants and asks which one | `첫 번째 안으로 할게요.` |
+| Shows existing models and asks which way to go (A–D), without concepts (step by step) | `기존 모델 말고 새로 만들어 주세요.` |
+| Shows concept variants and asks which one (the pick, the models under them) | `첫 번째 안으로 할게요.` |
 | Asks which filament | `PLA요.` |
 | Asks again for something the opening message gave (printer, slicer, bed, the dowel's size, the slicer's settings or hole compensation) | `전에 말씀드린 그대로예요.` |
-| Shows the use list and the parameter table and asks to confirm | `네, 그대로 진행해 주세요.` |
-| Shows the base shape (a preview) and asks for a look | `모양 좋아요. 계속해 주세요.` |
+| Shows the use list and the parameter table and asks to confirm (on its own, or in the look) | `네, 그대로 진행해 주세요.` |
+| Shows the base shape or the part (a preview) and asks for a look | `모양 좋아요. 계속해 주세요.` |
 | Offers a fit test or a test print before the final part | `지금은 시험 출력할 시간이 없어요. 그냥 진행해 주세요.` |
 | Asks which print profile (process preset) the user prints with | `프로필 이름은 잘 모르겠어요.` |
 | Names promises not verified and asks how to go on (Phase 4) | `측정이나 시험 출력은 지금 못 해요. 가정한 것은 그대로 두고, 확인 안 된 것은 시제품으로 받을게요.` |
@@ -64,7 +64,11 @@ The compensation decision (each item is in the row):
 Asking:
 - [ ] **must** Does not ask again for the printer, the slicer, the bed, the dowel's size or the
   slicer's settings.
-- [ ] **should** Stops for the reference choice, the concept pick and the base-shape look.
+- [ ] **must** Does not stop for the parameter table or the use list on their own (0.9.0): they
+  are in the look. A test print offer is in the look too, or in a stop for something new (a check
+  that failed, a confirmed value that changed).
+- [ ] **should** Stops twice before delivering: the pick (the concepts with the references under
+  them, no question with the letters A to D) and the look.
 
 Doing:
 - [ ] **should** The dowel is a `_verify.dims` entry, `"source": "caliper"`, `"by": "user"`, 12.0.

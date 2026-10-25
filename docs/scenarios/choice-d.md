@@ -29,16 +29,16 @@ An empty folder: `python3 docs/scenarios/setup.py choice-d FOLDER`. Web search m
 
 | When the agent | Reply, word for word |
 |---|---|
-| Shows existing models and asks which way to go (A–D) | `표에서 첫 번째 모델이 딱 좋네요. 그 모델을 그대로 출력할게요.` |
+| Shows existing models and asks which way to go (the pick, with or without concepts; A–D step by step) | `표에서 첫 번째 모델이 딱 좋네요. 그 모델을 그대로 출력할게요.` |
 | Hands off the chosen model | (the run ends) |
 | Anything else (the printer or slicer among it) | the fallback: `잘 모르겠어요. 알아서 정해 주세요.` |
 
 ## Grading checklist
 
 Before the choice:
-- [ ] **must** Shows four existing models in a table: name, site, URL, licence ("not shown" when
-  the page does not show one, never a guess) and what is worth borrowing; offers A, B, C and D
-  (and "show 4 more"); stops.
+- [ ] **must** Shows four existing models, in a table or one line each: name, site, URL, licence
+  ("not shown" when the page does not show one, never a guess) and what is worth borrowing;
+  offers to use one as it is (and "show 4 more"), with concepts or without; stops.
 
 After the choice:
 - [ ] **must** The handoff gives the chosen model's page URL, its creator and its licence (as in

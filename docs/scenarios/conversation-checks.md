@@ -6,7 +6,7 @@ release and record its actual questions, actions and final claims (below, "Recor
 
 | Scenario | Expected behavior |
 |---|---|
-| Request already gives printer, slicer, dimensions and choice C | Reuse those answers; do not ask again because a settings file is absent. New concept/base-shape reviews still apply. |
+| Request already gives printer, slicer, dimensions and choice C | Reuse those answers; do not ask again because a settings file is absent. The pick (the concepts) and the look (the part as built) still apply; the parameter table is not a stop of its own. |
 | User chooses D, an existing model | Deliver the source link, licence/download guidance and remaining checks; do not generate a substitute or claim mesh verification. |
 | Hole compensation settings unknown (STLs for another slicer; a round hole that must fit) | Record `compensation.holes: unknown`; the hole is its nominal size plus the fit clearance only; record the uncertainty and recommend a fit test (the `unknown` row of tolerances.md); never call compensation off. |
 | Bambu printer, project from a generated template | Record `compensation.holes: model` in printers.json and add the model hole compensation to fitted holes (the `model` row of tolerances.md): the delivered project carries the system preset with both corrections off. Do not ask the user for settings the project already fixes. |
@@ -33,6 +33,7 @@ questions. Use a new project folder and the skill at a known commit. For each ru
 | Did | The commands it ran and the files it wrote, in order |
 | Claimed | Its last message's claims, quoted: what it called verified, assumed or not checked |
 | finalize | `use`, `geometry` and each promise's state, from finalize run after the agent finished |
+| Stops | How many times the agent stopped for the user before delivering, and where (0.9.0: the pick and the look by default) |
 | Result | Matches the expected behaviour, or what differs |
 
 Take the finalize states in the run's project folder, with `--deliver` on the delivery folder

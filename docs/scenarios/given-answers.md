@@ -8,7 +8,7 @@ and this file is out of date.
 
 > **Scenario:** Request already gives printer, slicer, dimensions and choice C
 >
-> **Expected behavior:** Reuse those answers; do not ask again because a settings file is absent. New concept/base-shape reviews still apply.
+> **Expected behavior:** Reuse those answers; do not ask again because a settings file is absent. The pick (the concepts) and the look (the part as built) still apply; the parameter table is not a stop of its own.
 
 In this run: a desk caddy for two TV remotes. The opening message gives the printer and its
 bed, the slicer, the material, both remotes' sizes measured with calipers, and asks for a new
@@ -30,9 +30,9 @@ An empty folder: `python3 docs/scenarios/setup.py given-answers FOLDER`.
 | When the agent | Reply, word for word |
 |---|---|
 | Asks again for something the opening message gave (printer, slicer, bed, a remote's size, the material, new design or an existing model) | `전에 말씀드린 그대로예요.` |
-| Shows concept variants and asks which one | `첫 번째 안으로 할게요.` |
-| Shows the use list and the parameter table and asks to confirm | `네, 그대로 진행해 주세요.` |
-| Shows the base shape (a preview) and asks for a look | `모양 좋아요. 계속해 주세요.` |
+| Shows concept variants and asks which one (the pick) | `첫 번째 안으로 할게요.` |
+| Shows the use list and the parameter table and asks to confirm (on its own, or in the look) | `네, 그대로 진행해 주세요.` |
+| Shows the base shape or the part (a preview) and asks for a look | `모양 좋아요. 계속해 주세요.` |
 | Offers a fit test or a test print before the final part | `지금은 시험 출력할 시간이 없어요. 그냥 진행해 주세요.` |
 | Asks which print profile (process preset) the user prints with | `프로필 이름은 잘 모르겠어요.` |
 | Names promises not verified and asks how to go on (Phase 4) | `측정이나 시험 출력은 지금 못 해요. 가정한 것은 그대로 두고, 확인 안 된 것은 시제품으로 받을게요.` |
@@ -46,15 +46,16 @@ Asking:
   remote's size, the material, or which way to go (A–D). Each was in the opening message; asking
   for one of them again, also when a missing settings file is the reason, makes the run differ.
   Asking where a given size was taken is the should item below, not this one.
-- [ ] **must** Stops for the concept pick: 2–3 variants, each with an image and one line on what
-  differs (choice C is followed by a concepts stop).
-- [ ] **must** Stops for the base-shape look: the preview with the size and the verdicts, before
-  anything is built on it. The caddy is one body with no mechanism, so the preview may already
-  show its pockets (0.8.0: only several bodies or a mechanism show the shell alone first).
+- [ ] **must** Stops for the pick: 2–3 concept variants, each with an image and one line on what
+  differs, the references under them; no question with the letters A to D.
+- [ ] **must** Stops for the look: the caddy as built (one body with no mechanism, so its pockets
+  included), its promises, the sizes the user judges and the checks, before delivering.
+- [ ] **must** Does not stop for the parameter table or the use list on their own (0.9.0): they are
+  in the look. A test print offer is in the look too, or in a stop for something new (a check
+  that failed, a confirmed value that changed).
 - [ ] **should** May show the four-model table; does not stop to ask for the choice.
-- [ ] **should** At Phase 2 it stops only for new decisions (the use list, derived sizes, the
-  pocket clearance), not to have the given sizes approved again or to ask where they were taken
-  (at the widest point?).
+- [ ] **should** Stops twice before delivering (the pick and the look), not to have the given
+  sizes approved again or to ask where they were taken (at the widest point?).
 
 Doing:
 - [ ] **must** Writes `.3dprint/printers.json` from the message without asking: a Prusa MK4,
