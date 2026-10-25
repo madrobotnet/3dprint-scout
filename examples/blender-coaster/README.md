@@ -35,7 +35,7 @@ Blender 4.5 LTS or newer is there: a `blender` binary or the `bpy` module.
   colour; an unknown name would give neutral grey and a warning); `preview.py` would draw the
   same views without Blender.
 - **A soft warning, left for you.** The build passes with one warning, P3 on the medallion:
-  the 5th-percentile wall thickness from ray casting is the letter strokes, about 0.9 mm,
+  the 5th-percentile wall thickness from ray casting is the letter strokes, about 1.0 mm,
   under the 1.2 mm wall rule. Text follows the text rule instead (strokes ≥ 0.8 mm,
   `references/design.md`), so in a real request the skill explains it and moves on.
 
