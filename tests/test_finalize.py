@@ -2922,5 +2922,92 @@ class RelativeBuildJSON(unittest.TestCase):
         self.assertEqual((verdict(again), again["decided"]), (verdict(out), out["decided"]))
 
 
+class MovedSkillLibrary(unittest.TestCase):
+    """0.8.1: a skill library the generator imported (parts.py, blender_builder.py) is a source
+    recorded relative to the folder the build ran in. Once that folder moves to another depth, or
+    the project goes to a machine where the skill sits elsewhere, the path leads nowhere: finalize
+    reads this skill's file of that name, and its hash still decides freshness."""
+
+    GEN = ("import manifold3d as m3d\n"
+           "import parts\n"
+           "def build(p):\n"
+           "    return {'sled': m3d.Manifold.cube([40, 12, 8])}\n")
+
+    def setUp(self):
+        self.root = tempfile.mkdtemp(prefix="3dps-lib-")
+        self.addCleanup(shutil.rmtree, self.root, ignore_errors=True)
+        self.addCleanup(os.chdir, os.getcwd())
+        self.project = os.path.join(self.root, "project")
+        os.makedirs(os.path.join(self.project, ".3dprint"))
+        os.chdir(self.project)
+        with open("gen.py", "w") as f:
+            f.write(self.GEN)
+        with open(".3dprint/printers.json", "w") as f:
+            json.dump(X2D, f)
+        with open(".3dprint/params.json", "w") as f:
+            json.dump({"_parts": {"sled": {"expect": [40, 12, 8]}},
+                       "_verify": {"joints": [], "strength": [], "test_prints": [],
+                                   "references": {"sled": {d: "real" for d in finalize.DIRECTIONS}}}}, f)
+        code, out = run(build, "run", "gen.py", "--params", ".3dprint/params.json", "--printer",
+                        ".3dprint/printers.json", "--out", "out", "--no-wall-check")
+        self.assertEqual((code, out["gate"]), (0, "PASS"), out["errors"])
+        self.lib = [s for s in out["sources"] if os.path.basename(s) == "parts.py"]
+        self.assertEqual(len(self.lib), 1, out["sources"])
+        self.assertFalse(os.path.isabs(self.lib[0]))
+        with open("out/build.json", "w") as f:
+            json.dump(out, f)
+
+    def finalize(self, *extra):
+        code, out = run(finalize, "--build", "out/build.json", "--params", ".3dprint/params.json", *extra)
+        self.assertEqual(code, 0, out["errors"])
+        return out
+
+    def move_deeper(self):
+        here = self.finalize()
+        os.chdir(self.root)
+        deeper = os.path.join(self.root, "a", "b", "c")
+        os.makedirs(deeper)
+        shutil.move(self.project, os.path.join(deeper, "project"))
+        os.chdir(os.path.join(deeper, "project"))
+        self.assertFalse(os.path.isfile(self.lib[0]))               # the recorded path leads nowhere now
+        return here
+
+    def test_a_project_moved_to_another_depth_still_finalizes(self):
+        here = self.move_deeper()
+        there = self.finalize()
+        self.assertEqual(there["geometry"], "verified", there["open"])
+        self.assertEqual(there, here)
+
+    def test_the_bundle_of_a_moved_project_leaves_the_library_out(self):
+        self.move_deeper()
+        out = self.finalize("--bundle", "bundle")
+        self.assertEqual(out["geometry"], "verified", out["open"])
+        self.assertFalse(os.path.exists(os.path.join("bundle", "parts.py")))
+        self.assertEqual(verdict(reproduce("bundle")), verdict(out))
+
+    def test_a_library_that_changed_still_asks_for_a_new_build(self):
+        self.move_deeper()
+        newer = os.path.join(self.root, "newer-skill", "scripts")      # the skill as updated since the build
+        os.makedirs(newer)
+        with open(finalize_common.skill_library(self.lib[0]), encoding="utf-8") as f:
+            text = f.read()
+        with open(os.path.join(newer, "parts.py"), "w", encoding="utf-8") as f:
+            f.write(text + "\n# changed since the build\n")
+        with mock.patch.object(finalize_common, "LIBRARY_PLACES", ((newer, ("scripts",)),)):
+            out = self.finalize()
+        self.assertEqual(out["geometry"], "not verified")
+
+    def test_only_a_library_at_its_place_is_read_from_this_skill(self):
+        lib = finalize_common.skill_library
+        self.assertTrue(lib("gone/references/engines/blender_builder.py"))
+        self.assertTrue(lib("../../gone/scripts/parts.py"))
+        self.assertTrue(lib("C:\\gone\\scripts\\parts.py"))
+        self.assertIsNone(lib("parts.py"))                         # the project's own file of that name
+        self.assertIsNone(lib("gone/parts.py"))
+        self.assertIsNone(lib("gone/scripts/my_generator.py"))     # not one of the skill's files
+        self.assertIsNone(lib("gen.py"))
+        self.assertIsNone(lib(None))
+
+
 if __name__ == "__main__":
     unittest.main()
