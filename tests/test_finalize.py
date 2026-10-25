@@ -2689,5 +2689,226 @@ class BundleFromABlenderBuild(unittest.TestCase):
         self.assertEqual({n: validate.file_sha256(os.path.join("deliver/source/out", n + ".stl")) for n in sha}, sha)
 
 
+
+class FinalizeDecided(Workspace):
+    """0.8.1: _verify.decided records the agent's decision on each soft check finalize leaves to
+    it ("<part> <check> UNVERIFIED (yours to decide)": P3 with the wall check skipped, P4, P5, P6),
+    tied to the part's STL by sha256. Soft checks never touch the geometry tier."""
+
+    LINE = "box P6 UNVERIFIED (yours to decide): needs a look at the preview image"
+
+    def decide(self, *decided, accepted=None, **verify):
+        v = dict(self.full_verify(), **verify)
+        if decided != (None,):
+            v["decided"] = list(decided)
+        if accepted is not None:
+            v["accepted"] = accepted
+        self.params(v)
+        code, out = self.finalize()
+        self.assertEqual(code, 0, out["errors"])
+        return out
+
+    def setUp(self):
+        super().setUp()
+        self.params(self.full_verify())
+        self.sha = {p["name"]: p["sha256"] for p in self.record()["parts"]}
+        self.base = self.decide(None)
+
+    def entry(self, check="box P6", result="holds", reason="the bed edges are plain and the foot is compensated",
+              part="box", **change):
+        e = {"check": check, "result": result, "reason": reason, "sha256": self.sha[part]}
+        e.update(change)
+        return {k: v for k, v in e.items() if v is not None}
+
+    def test_without_decided_the_report_is_as_before(self):
+        out = self.base
+        self.assertNotIn("decided", out)
+        self.assertEqual(out["geometry"], "verified", out["open"])
+        soft = [o for o in out["open"] if "(yours to decide)" in o]
+        self.assertEqual([o.split(" UNVERIFIED")[0] for o in soft],
+                         [f"{n} {c}" for n in ("box", "lid") for c in ("P3", "P4", "P5", "P6")])
+        self.assertIn(self.LINE, out["open"])
+        # Accepting a soft check that is UNVERIFIED does nothing, as before 0.8.1.
+        again = self.decide(None, accepted=[{"check": "box P6", "reason": "fine"}])
+        self.assertEqual(again["open"], out["open"])
+        self.assertNotIn("decided", again)
+        # An empty list declares the key: the report says so, nothing else changes.
+        empty = self.decide()
+        self.assertEqual((empty["decided"], empty["open"], empty["use"]), ([], out["open"], out["use"]))
+        self.assertEqual([k for k in empty if k != "decided"], list(out))
+        self.assertEqual(list(empty).index("decided"), list(empty).index("accepted") + 1)
+
+    def test_holds_takes_the_line_out_of_open(self):
+        out = self.decide(self.entry(), self.entry("Lid  p3", reason="the walls are 2 mm by design", part="lid"))
+        self.assertEqual(out["decided"], [
+            {"check": "box P6", "result": "holds", "reason": "the bed edges are plain and the foot is compensated"},
+            {"check": "lid P3", "result": "holds", "reason": "the walls are 2 mm by design"}])
+        self.assertEqual(out["open"], [o for o in self.base["open"]
+                                       if o != self.LINE and not o.startswith("lid P3 UNVERIFIED")])
+        self.assertEqual((out["geometry"], out["use"], out["promise_errors"]),
+                         (self.base["geometry"], self.base["use"], []))
+
+    def test_warn_is_a_warn_the_user_decides_and_can_accept(self):
+        out = self.decide(self.entry("box P4", "warn", "a 30 mm bridge under the rim: supports, or a chamfer"))
+        line = "box P4 WARN (decided): a 30 mm bridge under the rim: supports, or a chamfer"
+        at = next(i for i, o in enumerate(self.base["open"]) if o.startswith("box P4 UNVERIFIED"))
+        self.assertEqual(out["open"], self.base["open"][:at] + [line] + self.base["open"][at + 1:])
+        self.assertEqual(out["decided"], [{"check": "box P4", "result": "warn",
+                                           "reason": "a 30 mm bridge under the rim: supports, or a chamfer"}])
+        self.assertEqual(out["geometry"], "verified")                   # a soft check: not a geometry reason
+        accepted = [{"check": "box p4", "reason": "the user: slicer supports are fine there"}]
+        out = self.decide(self.entry("box P4", "warn", "a 30 mm bridge under the rim: supports, or a chamfer"),
+                          accepted=accepted)
+        self.assertEqual(out["open"], self.base["open"][:at] + self.base["open"][at + 1:])
+        self.assertEqual((out["accepted"], out["decided"][0]["result"], out["geometry"]), (accepted, "warn", "verified"))
+
+    def test_a_decision_for_another_stl_is_stale(self):
+        out = self.decide(self.entry(sha256="0" * 64))
+        self.assertIn(self.LINE + "; decided for another build of the part: decide again", out["open"])
+        self.assertNotIn(self.LINE, out["open"])
+        self.assertEqual((out["decided"], out["promise_errors"], out["use"]), ([], [], self.base["use"]))
+        # The part exported again in another shape: the decision made for the old STL is stale.
+        decided = self.entry()
+        write_stl("out/box.stl", box(40, 30, 22))
+        self.params(dict(self.full_verify(), decided=[decided]))
+        self.record()
+        code, out = self.finalize()
+        self.assertEqual(out["decided"], [])
+        self.assertTrue(any(o.startswith("box P6 UNVERIFIED (yours to decide)") and
+                            o.endswith("; decided for another build of the part: decide again") for o in out["open"]))
+
+    def test_declaration_errors(self):
+        cases = [
+            (self.entry("box D1"), "decided 'box D1': not a check finalize leaves you to decide"),
+            (self.entry("box P2"), "decided 'box P2': not a check finalize leaves you to decide"),
+            (self.entry("cup P6"), "decided 'cup P6': names no part of this build"),
+            (self.entry("box"), "decided 'box': names no part of this build (\"<part> <check>\""),
+            (self.entry(check=None), "decided entry 1: needs check"),
+            (self.entry(check=" "), "decided entry 1: needs check"),
+            (self.entry(check=6), "decided entry 1: needs check"),
+            (self.entry(result="ok"), "decided 'box P6': result must be holds or warn"),
+            (self.entry(result=None), "decided 'box P6': result must be holds or warn"),
+            (self.entry(reason=None), "decided 'box P6': needs a reason"),
+            (self.entry(reason="  "), "decided 'box P6': needs a reason"),
+            (self.entry(sha256=None), "decided 'box P6': needs sha256"),
+            (self.entry(sha256=12), "decided 'box P6': needs sha256"),
+            (self.entry(by="agent"), "decided 'box P6': unknown field by (fields: check, result, reason, sha256)"),
+        ]
+        for entry, error in cases:
+            with self.subTest(entry=entry):
+                out = self.decide(entry)
+                self.assertEqual(out["use"], "error")
+                self.assertEqual(len(out["promise_errors"]), 1, out["promise_errors"])
+                self.assertTrue(out["promise_errors"][0].startswith(error), out["promise_errors"])
+                self.assertEqual(out["open"][0], out["promise_errors"][0])
+                self.assertIn(self.LINE, out["open"])                    # a wrong entry decides nothing
+                self.assertEqual((out["decided"], out["geometry"]), ([], "verified"))
+                self.assertIn("1 declaration error", out["summary"][0])
+        out = self.decide(self.entry(), self.entry(result="warn"))
+        self.assertEqual(out["promise_errors"], ["decided 'box P6': decided more than once"])
+        self.assertEqual(out["decided"], [{"check": "box P6", "result": "holds",
+                                           "reason": "the bed edges are plain and the foot is compensated"}])
+        for bad in ({"check": "box P6"}, ["box P6"]):                   # not a list of objects, as accepted
+            self.params(dict(self.full_verify(), decided=bad if isinstance(bad, dict) else bad))
+            code, out = self.finalize()
+            self.assertEqual((code, out["errors"]), (1, ["_verify.decided must be a list of objects"]))
+
+    def test_a_part_not_validated_again_decides_nothing_and_is_no_error(self):
+        os.remove("out/box.stl")
+        out = self.decide(self.entry())
+        self.assertEqual((out["decided"], out["promise_errors"]), ([], []))
+        self.assertTrue(any(o.startswith("box: STL out/box.stl not found") for o in out["open"]), out["open"])
+
+
+@unittest.skipUnless(HAS_M3D, "manifold3d and numpy not installed")
+class RelativeBuildJSON(unittest.TestCase):
+    """0.8.1: a build JSON written by build.py run records paths relative to the folder it ran in:
+    finalize reads it from that folder wherever the folder is now, and still reads a build JSON
+    from before 0.8.1, whose paths are absolute."""
+
+    GEN = ("import manifold3d as m3d\n"
+           "def build(p):\n"
+           "    return {'sled': m3d.Manifold.cube([40, 12, 8]), 'cap': m3d.Manifold.cube([10, 10, 4])}\n")
+
+    def setUp(self):
+        self.root = tempfile.mkdtemp(prefix="3dps-rel-")
+        self.addCleanup(shutil.rmtree, self.root, ignore_errors=True)
+        self.cwd = os.getcwd()
+        self.addCleanup(os.chdir, self.cwd)
+        self.project = os.path.join(self.root, "project")
+        os.makedirs(os.path.join(self.project, ".3dprint"))
+        os.chdir(self.project)
+        with open("gen.py", "w") as f:
+            f.write(self.GEN)
+        with open(".3dprint/printers.json", "w") as f:
+            json.dump(X2D, f)
+        with open(".3dprint/params.json", "w") as f:
+            json.dump({"_parts": {"sled": {"expect": [40, 12, 8]}, "cap": {"expect": [10, 10, 4]}},
+                       "_verify": {"joints": [], "strength": [], "test_prints": [],
+                                   "references": {n: {d: "real" for d in finalize.DIRECTIONS} for n in ("sled", "cap")}}},
+                      f)
+        here = os.path.abspath(".")                                       # absolute arguments, as an agent may give
+        code, out = run(build, "run", os.path.join(here, "gen.py"), "--params", os.path.join(here, ".3dprint/params.json"),
+                        "--printer", os.path.join(here, ".3dprint/printers.json"), "--out", os.path.join(here, "out"),
+                        "--no-wall-check")
+        self.assertEqual((code, out["gate"]), (0, "PASS"), out["errors"])
+        self.assertEqual([p["stl"] for p in out["parts"]], [os.path.join("out", "sled.stl"), os.path.join("out", "cap.stl")])
+        self.build = out
+        self.save("out/build.json", out)
+
+    @staticmethod
+    def save(path, obj):
+        with open(path, "w") as f:
+            json.dump(obj, f)
+
+    def finalize(self, build_json="out/build.json"):
+        code, out = run(finalize, "--build", build_json, "--params", ".3dprint/params.json")
+        self.assertEqual(code, 0, out["errors"])
+        return out
+
+    def test_the_project_moved_elsewhere_still_finalizes(self):
+        here = self.finalize()
+        self.assertEqual(here["geometry"], "verified", here["open"])
+        os.chdir(self.root)
+        shutil.move(self.project, os.path.join(self.root, "moved"))     # the old folder is gone
+        os.chdir(os.path.join(self.root, "moved"))
+        there = self.finalize()
+        self.assertEqual(there, here)
+        self.assertTrue(all(p["same_as_build"] for p in there["parts"]))
+
+    def test_a_build_json_with_absolute_paths_still_finalizes(self):
+        old = json.loads(json.dumps(self.build))
+        for p in old["parts"]:
+            p["stl"] = os.path.abspath(p["stl"])
+            p["validate"]["files"][0]["path"] = p["stl"]
+        old["threemf"], old["source"] = os.path.abspath(old["threemf"]), os.path.abspath(old["source"])
+        old["sources"] = [os.path.abspath(s) for s in old["sources"]]
+        self.save("out/old_build.json", old)
+        new, before = self.finalize(), self.finalize("out/old_build.json")
+        self.assertEqual(dict(before, build="out/build.json"), new)
+        self.assertEqual(new["geometry"], "verified", new["open"])
+        # --deliver looks for the core 3MF's manifest where the build wrote it, either way.
+        os.makedirs("deliver")
+        shutil.copyfile("out/gen.3mf", "deliver/gen.3mf")
+        for b in ("out/build.json", "out/old_build.json"):
+            code, out = run(finalize, "--build", b, "--params", ".3dprint/params.json", "--deliver", "deliver")
+            self.assertEqual((code, out["geometry"]), (0, "verified"), out["open"])
+
+    def test_a_bundle_carries_no_decision_file_and_reaches_the_same_decisions(self):
+        with open(".3dprint/params.json") as f:
+            params = json.load(f)
+        sha = {p["name"]: p["sha256"] for p in self.build["parts"]}
+        params["_verify"]["decided"] = [
+            {"check": "sled P6", "result": "holds", "reason": "plain bed edges", "sha256": sha["sled"]},
+            {"check": "cap P4", "result": "warn", "reason": "no bridge, but the user checks the top", "sha256": sha["cap"]}]
+        self.save(".3dprint/params.json", params)
+        code, out = run(finalize, "--build", "out/build.json", "--params", ".3dprint/params.json", "--bundle", "bundle")
+        self.assertEqual(code, 0, out["errors"])
+        self.assertEqual([d["check"] for d in out["decided"]], ["sled P6", "cap P4"])
+        self.assertIn("cap P4 WARN (decided): no bridge, but the user checks the top", out["open"])
+        again = reproduce("bundle")
+        self.assertEqual((verdict(again), again["decided"]), (verdict(out), out["decided"]))
+
+
 if __name__ == "__main__":
     unittest.main()
