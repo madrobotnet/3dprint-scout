@@ -4,7 +4,7 @@ from __future__ import annotations
 import os
 import validate
 
-from finalize_common import (COVERAGE, DECIDED_KEYS, DECIDED_RESULTS, DIRECTIONS, FinalizeError, PRINT_STATUS,
+from finalize_common import (source_file, COVERAGE, DECIDED_KEYS, DECIDED_RESULTS, DIRECTIONS, FinalizeError, PRINT_STATUS,
     norm, rel, text_field)
 
 STALE_DECISION = "decided for another build of the part: decide again"
@@ -16,7 +16,7 @@ def check_parts(build, specs, params_path, settings, soft=None):
     `soft`, a list, gets one {"check": "<part> <check>", "line", "sha256"} per to_decide line,
     in the same order (check_decided reads it)."""
     import build as build_mod
-    sources = build.get("sources") or []
+    sources = [source_file(s) for s in build.get("sources") or []]
     missing = [s for s in sources if not os.path.isfile(s)]
     entries, reasons, warns, to_decide, copied = [], [], [], [], []
     same_as_build = True

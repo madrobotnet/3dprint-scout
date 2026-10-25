@@ -8,7 +8,7 @@ import os
 import re
 import validate
 
-from finalize_common import (DIM_KEYS, DIM_SOURCES, DIM_STATE, FinalizeError, IMAGE_SCHEMA, LINKED_ORIGINS,
+from finalize_common import (source_file, DIM_KEYS, DIM_SOURCES, DIM_STATE, FinalizeError, IMAGE_SCHEMA, LINKED_ORIGINS,
     SEEN_KEYS, effective_material, finite, load_json, lookup, norm, rel, same_value, text_field)
 
 
@@ -120,7 +120,7 @@ def proxy_provenance(j, sides):
         return "stale", f"{rel(pb)} is not a build.py run / record report", None
     if not (isinstance(b.get("sources"), list) and isinstance(b.get("parts"), list)):
         return "stale", f"{rel(pb)} lists no sources or parts", None
-    sources = [s for s in b["sources"] if isinstance(s, str)]
+    sources = [source_file(s) for s in b["sources"] if isinstance(s, str)]
     missing = [s for s in sources if not os.path.isfile(s)]
     if not sources or missing:
         return "stale", f"the sources {rel(pb)} hashed are missing: {', '.join(missing) or 'none listed'}", None

@@ -76,6 +76,32 @@ def load_json(path, what):
         raise FinalizeError(f"{what} {path}: not JSON ({exc})")
 
 
+LIBRARY_PLACES = ((ENGINES_DIR, ("references", "engines")), (HERE, ("scripts",)))   # folder, its place in a skill
+
+
+def skill_library(path):
+    """This skill's own file for a recorded source that is one of the skill's library files
+    (blender_builder.py, parts.py, ...) at its place in a skill folder that is not there any more:
+    `.../references/engines/blender_builder.py` or `.../scripts/parts.py`. None for anything else,
+    and for a path that exists (it is read as it is)."""
+    if not isinstance(path, str) or os.path.isfile(path):
+        return None
+    bits = [b for b in path.replace("\\", "/").split("/") if b]
+    for folder, place in LIBRARY_PLACES:
+        n = len(place)
+        if len(bits) > n and tuple(bits[-1 - n:-1]) == place and os.path.isfile(os.path.join(folder, bits[-1])):
+            return os.path.join(folder, bits[-1])
+    return None
+
+
+def source_file(path):
+    """A build's recorded source as the file to read now. A skill library file recorded relative to
+    the folder the build ran in is gone once that folder moves, or on another machine where the skill
+    is installed elsewhere: it is this skill's file of that name. Its hash still decides freshness,
+    so a skill whose library changed still asks for a new build."""
+    return skill_library(path) or path
+
+
 def rel(path):
     """A path as the report shows it: relative to the working folder (no machine path)."""
     if not path:

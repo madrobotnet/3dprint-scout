@@ -9,16 +9,17 @@ import shlex
 import shutil
 import validate
 
-from finalize_common import (ENGINES_DIR, FinalizeError, finite, holds_machine_path, rel, same_file, scrub,
+from finalize_common import (ENGINES_DIR, FinalizeError, finite, holds_machine_path, rel, same_file, scrub, skill_library,
     HERE)
 from finalize_deliver import (manifest_folders, threemf_manifest_files)
 
 
 def own_sources(build):
-    """The generator's own files among the build's sources (not the skill's libraries)."""
+    """The generator's own files among the build's sources (not the skill's libraries, here or at
+    the place a moved project recorded them, finalize_common.skill_library)."""
     lib = {os.path.normcase(os.path.abspath(d)) for d in (HERE, ENGINES_DIR)}
     return [s for s in build.get("sources") or []
-            if os.path.normcase(os.path.dirname(os.path.abspath(s))) not in lib]
+            if os.path.normcase(os.path.dirname(os.path.abspath(s))) not in lib and not skill_library(s)]
 
 BUNDLE_OWN = ("params.json", "printers.json", "REPRODUCE.md", "verification.json", "build.json")   # build.json: rebuilt
 
