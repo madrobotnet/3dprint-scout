@@ -198,6 +198,10 @@ decide each one together:
   (`"flat-end: delivered as a prototype, not verified (the user: \"I have no time for a test
   print now, just go on\")"`). Otherwise it is recommended: `(the user handed the decision to
   me)`, or `(unattended run)`. It stays `not verified`, and the delivery message opens with it.
+  A `by_hand` use whose motion no passed print confirms is decided the same way, whatever its
+  fits give: name the motion as not confirmed, offer the test print, and when the user takes it
+  unproven, add the same line. finalize marks it a prototype and it keeps its state (verified on
+  its fits, say, with the motion unproven).
 - **The user excludes it**: drops it, or takes it unverified. It stays in the list as `excluded`,
   through an entry in `_verify.accepted` whose `reason` is their reply, word for word:
   `{"promise": "cable-bend", "reason": "I'll try it with my own cable", "by": "user"}`.
