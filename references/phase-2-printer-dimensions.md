@@ -16,7 +16,7 @@ Read `.3dprint/printers.json`. It is an envelope, not a flat profile:
 Per printer: `process` (`fdm`), `slicer` (`name`, and for Bambu Studio `template_3mf`,
 `template_kind`), `bed` (`area` polygon in mm, `height`, `exclude` zones, `source`), optional
 `tools` (one area and height per nozzle), `compensation` (`holes`: `slicer`, `model` or `unknown`;
-`elephant_foot`: `slicer` or `model`) and `tolerance` with its `source`. `default` names the printer the scripts use; with
+`elephant_foot`: `slicer`, `model` or `unknown`) and `tolerance` with its `source`. `default` names the printer the scripts use; with
 exactly one printer it may be omitted, with several pass `--printer-id`. A bed without
 `height` leaves D2 UNVERIFIED. Answers come as SKILL.md says (request, conversation, saved
 settings); write the file from confirmed answers without asking again because it was missing.
