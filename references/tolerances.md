@@ -49,7 +49,10 @@ system default says nothing about a preset the user picks for loose STLs.
   for looks only: it is not the correction, so the edge stays sharp or takes a small chamfer
   for its look. Never a fillet (P6). A chamfer that belongs to a standard's profile (the foot of
   a bin that sits in a baseplate) is geometry, not an elephant-foot chamfer: keep it at its size
-  whatever the slicer does.
+  whatever the slicer does. When nobody knows whether the slicer's compensation is on (STLs for
+  a preset nobody has seen): `"unknown"`, a 0.3 mm chamfer on the outer bottom edges only, for
+  looks, never where a fit sits on the bed, and one line at delivery that the slicer's
+  compensation, if on, makes that edge a little smaller.
 
 ## Limits
 

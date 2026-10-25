@@ -84,7 +84,9 @@ lid that lifts off or hinges, round or boxy. Build them quickly (any engine; `pa
 there: the same views, nicer, with the filament colour), and say in one line per variant
 what differs and what it costs (print time, supports, strength). Rough sizes from the request or
 the references are enough here; exact ones come in Phase 2. Write each variant's promises as you
-describe it (below). Then **stop** for the user's pick; the chosen variant's parameters and
+describe it (below). Then **stop** for the user's pick; a "you decide" given to another
+question (the rod's length, the room around it) is not a pick, so show the concepts and stop
+even then. The chosen variant's parameters and
 promises become the first `params.json`. Keep it to a few minutes of
 work: concepts prove the idea, not the fit. Concept builds go to `out/concepts/` and are not
 gated: with no `expect` or printer yet their verdicts decide nothing; the checks start in
