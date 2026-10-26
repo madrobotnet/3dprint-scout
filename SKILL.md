@@ -141,7 +141,8 @@ what cannot wait for it.
 - Material and preset in params.json (`_material`, `_parts.<name>.material`, `_print.preset`);
   purpose decorative, general or load-bearing, default general.
 - The use list, made with the user in plain words: what they will do with the part, under which
-  conditions, what counts as success; each a `use` promise (`conditions`, `success`).
+  conditions, what counts as success; each a `use` promise (`conditions`, `success`). A use done
+  by hand gets `by_hand`, one that carries a force `load` (verified only with a strength check).
 - Dimensions, each with its source (R2): the object's, caliper > official spec > two secondary
   sources that agree; sources that disagree are settled as the phase file says (a model the user
   already uses and that fits first). This printer's: the calibration log (`calibration.py lookup
