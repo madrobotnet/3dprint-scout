@@ -98,7 +98,7 @@ Checked against manifold3d 3.5.4 (`pip show manifold3d`).
 | 2D outline | `m3d.CrossSection([[[x, y], ...]])` (a **list of contours**), `CrossSection.square([w, d])`, `CrossSection.circle(r, segments)` |
 | Rounded 2D corners | `cs.offset(-r, m3d.JoinType.Round).offset(r, m3d.JoinType.Round)` or `parts.rounded_rect(w, d, r)` |
 | Extrude, revolve | `Manifold.extrude(cs, height, n_divisions, twist_degrees, (sx, sy))`, `Manifold.revolve(cs, segments)` |
-| Hull (chamfers, tapers) | `Manifold.batch_hull([a, b])` or `(a + b).hull()` |
+| Hull (chamfers, tapers) | `Manifold.batch_hull([a, b])` or `(a + b).hull()`. manifold3d gathers a hull of more than 3333 triangles on several threads, in another triangle order on each run; while `build()` runs under `build.py run` such a hull comes out sorted, so the rebuild writes the same STL. Build large hulls inside `build()` |
 | Cut flat, split | `.trim_by_plane(normal, offset)` keeps the side the normal points to; `.split_by_plane` |
 | Mesh in, mesh out | `parts.mesh_arrays(m)` → `(V, F)`; `parts.from_arrays(V, F)` (raises if not closed) |
 | Gap, overlap | `a.min_gap(b, search)`, `(a ^ b).volume()` (fit.py does the F3 check from STLs) |
