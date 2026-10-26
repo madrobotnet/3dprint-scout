@@ -420,20 +420,26 @@ def stl_hashes(stls):
     return {s: file_sha256(s) if os.path.isfile(s) else None for s in stls}   # a missing one fails when read
 
 
-def write_sidecar(image, stls, views, renderer, lang="en", hashes=None):
+def write_sidecar(image, stls, views, renderer, lang="en", hashes=None, proxies=None, extra=None):
     """`<image>.json`: what the image shows and the very bytes it is, so a judgement of it can be
     tied to the parts (finalize.py `_verify.seen`). Written after the image, from its bytes;
     `hashes` are the STLs' digests taken before drawing, and an STL that changed while it was
     drawn (rebuilt meanwhile) leaves the image without a sidecar: the image may show the old
-    bytes, so nothing ties it to the new ones."""
+    bytes, so nothing ties it to the new ones. `proxies` (render.py: stand-ins of a mating
+    part drawn for context) are listed apart from `stls`, never as parts; `extra` adds keys."""
     from validate import file_sha256
-    hashes = hashes or stl_hashes(stls)
-    changed = [s for s in stls if file_sha256(s) != hashes[s]]
+    proxies = list(proxies or [])
+    hashes = hashes or stl_hashes(list(stls) + proxies)
+    changed = [s for s in list(stls) + proxies if file_sha256(s) != hashes[s]]
     if changed:
         raise ValueError(f"{', '.join(changed)} changed while the image was drawn; draw it again (no sidecar written)")
     data = {"schema": IMAGE_SCHEMA, "image": os.path.basename(image), "image_sha256": file_sha256(image),
             "views": list(views), "lang": lang, "renderer": renderer,
             "stls": [{"path": s, "sha256": hashes[s]} for s in stls]}
+    if proxies:
+        data["proxies"] = [{"path": s, "sha256": hashes[s], "role": "proxy: drawn for context, not a part"}
+                           for s in proxies]
+    data.update(extra or {})
     with open(sidecar_path(image), "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
     return sidecar_path(image)

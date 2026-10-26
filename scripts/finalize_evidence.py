@@ -388,7 +388,8 @@ def user_file_problems(d, measurements):
             problems.append(f"{k}: measurement '{mname}' read {exp[0]['value']}, not {json.dumps(v)} within {d['tol']}")
     return problems
 
-MEASURE_ARGS = {"info": ("file",), "slice": ("file", "z", "axis", "object", "center", "max_loops"),
+MEASURE_ARGS = {"info": ("file",),
+                "slice": ("file", "z", "axis", "object", "center", "max_loops", "points", "max_points"),
                 "raymap": ("file", "axis", "sign", "u", "v", "max_depth", "object", "center")}
 
 
