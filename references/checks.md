@@ -15,7 +15,7 @@ tier is not declared. An empty list says there is nothing of that kind. Declare 
 you save it and name it in the `evidence` of the promise it checks.
 
 Every path is relative to the project folder, the folder the build runs in. Run `fit.py`,
-`measure.py`, `strength.py`, `preview.py` and `render.py` from there with relative paths: they
+`measure.py`, `strength.py`, `strength_cases.py`, `preview.py` and `render.py` from there with relative paths: they
 record the paths they are given, and an absolute one, even inside the project folder, makes
 `--bundle` refuse the report (and is a declaration error in a test print's `photos`). Keep the
 reports, the user's files (`ref/`) and photos (`photos/`) inside the project folder.

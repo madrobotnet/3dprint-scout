@@ -192,7 +192,7 @@ Goal: every hole, fit, snap and mechanism checked with numbers before anything i
 - Every joint from both sides with `fit.py` (F3); a moving part gets a sweep through its travel;
   with no closed mesh of the mating part, a proxy from its `dims` (`references/measure.md`).
 - Every pin, knuckle, lever and latch bar against its duty's P7 floors, plus `strength.py
-  --from-build` with a cited load. FAIL → redesign; WARN, or no proven reference → **print the
+  --from-build` (or `strength_cases.py`) with a cited load. FAIL → redesign; WARN, or no proven reference → **print the
   mechanism first** (`build.py run --only ...`); a lid hinge always, a wall-built one as a coupon.
 - **Fit test first** when the mating shape is not known exactly: `fit_test.py` pieces in three
   clearance steps, offered in the look; the user cannot test now → the middle step, recorded in
@@ -301,6 +301,7 @@ Scripts, run as `python3 "$SKILL_DIR/scripts/<name>.py"` (each has `--help`; the
 | `fit.py` | F3 between two placed STLs; `--sweep-*`; `--check REPORT` |
 | `fit_test.py` | Fit-test pieces in three clearance steps |
 | `strength.py` | Hand calculations (pin, beam, link, wall, `hinge`, `snap`); `--from-build` |
+| `strength_cases.py` | More hand calculations in the same report format: `tube` (a tube under a band or hose clamp), `post` (a post or block loaded across the layers), `snap --taper` / `--gap-worst`; `--from-build` |
 | `measure.py` | Numbers from a supplied STL / 3MF or the built part; `--expect` keeps one as evidence |
 | `calibration.py` | The user's print results: `add`, `show`, `lookup` |
 | `finalize.py` | The verification report: use tier, geometry, shape, `open`; `--deliver`, `--bundle` |

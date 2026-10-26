@@ -30,7 +30,8 @@ Contents:
   (`tolerances.md`). Fillet or chamfer the root (about half the wall thickness) [6].
 - `strength.py snap` (any engine) and `parts.snap_fit_check(L, t, y, material)` give the strain
   against the limit and the maximum deflection; `strength.py snap` adds the deflection force and
-  the insertion and release forces;
+  the insertion and release forces; a tapered arm, or the undercut when tolerances stack (the
+  worst gap), goes through `strength_cases.py snap --taper ... --gap-worst ...`;
   `parts.snap_hook(...)` refuses a beam over the limit; `parts.snap_window(...)` cuts the
   matching window with the snug clearance of `tolerances.md`.
 - A snap arm is exempt from the latch floors (`design-mechanisms.md`, "Mechanisms that carry load"). Its load case in

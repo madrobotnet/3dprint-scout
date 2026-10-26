@@ -126,7 +126,8 @@ not after the user asks whether it is strong enough: a reply that changes a wall
 stale. One line each: where, what loads it, how it was checked and the margin. Common ones: a
 tube under a band or worm-gear clamp (crushing), a root, post or block loaded across the layers
 (the weakest direction), a snap or tongue, a hinge, a screw boss, anything the part hangs from
-or is pulled by. Check each with `strength.py` when it has the case (`references/phase-4-mechanisms.md`)
+or is pulled by. Check each with `strength.py` or `strength_cases.py` when one has the case (`tube` for
+a clamped tube, `post` for a root or post across the layers, `snap --taper`; `references/phase-4-mechanisms.md`)
 or by a hand calculation whose formula, numbers and source go into `_assumptions`; a margin
 under the duty's floor is fixed before the look. A part that carries nothing but its own weight
 has an empty list: say so in one line.
