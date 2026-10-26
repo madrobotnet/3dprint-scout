@@ -185,8 +185,11 @@ cable notch:
   names, for each parameter, its saved `measure.py --expect` report in `_verify.measurements`
   (one report per parameter, one `=` expectation), and `tol` is how far the measured value may
   differ: `"from": {"plug_w": "plug head width"}, "tol": 0.2` (`references/measure.md`). Keep
-  the file inside the project folder (`ref/plug.stl`): `finalize.py --bundle` copies it and
-  refuses one outside.
+  the file inside the project folder (`ref/plug.stl`): `finalize.py --bundle` refuses one
+  outside. Say whose file it is: `"own": true` only when the user says they made it (their scan,
+  their drawing); someone else's model gets its `url` and `licence` (Phase 1 has them). The
+  bundle carries the file only when it is the user's own, and otherwise names it with its
+  source, so sharing the bundle never passes on another maker's model.
 - `assumed`: everything else: a typical size, a value from secondary sources (two that agree
   are still `assumed`), a guess. Say where the number came from in `note` (the links, "a
   typical right-angle plug").

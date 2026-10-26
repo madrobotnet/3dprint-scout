@@ -12,6 +12,15 @@ ids; a material spelt like `PLA Basic` is stored as `strength.py`'s `pla_basic`)
 reduces the risk, it cannot guarantee it: the script cannot tell a person's name in a note,
 so the agent never writes one, and values are numbers under 10 000 (mm, N).
 
+**The user-level file.** `~/.3dprint/calibration.json` (same schema) holds what the user chose
+to keep for every project: a housing's sleeve that fit, a clearance that held on this printer.
+`lookup` and `show` read it after the project file: every entry and every value they return
+names where it came from (`"from": "project"` or `"user"`), project entries come first, so a
+project value always wins for `worked`, `bounds` and `worked_set`, and `user_file` names the
+file (`~/...`). A user-level file that cannot be read is left out with a warning (never
+rewritten); `--no-user` leaves it out on purpose. Say which one a number came from in the table
+("your earlier X2D exhaust adapter, kept for every project, 2026-10-26").
+
 ## When to read it (Phase 2)
 
 Before the dimension table, always with the nozzle this print uses, and with the layer
@@ -77,6 +86,12 @@ or held), **ask once, in the user's language** (the gist: "Shall I record this f
 with PLA Basic, so the next design starts from it?"). On yes, run `add`; on no or no answer,
 do not write. Never write silently, never in an unattended run, and never record a failure
 as a success.
+
+A result that will matter beyond this project (a fit on the printer itself or on something the
+user keeps, like the exhaust housing; a clearance on this printer and filament) may also go
+into the user-level file: ask in the same question ("..., and keep it for your other designs
+too?") and run `add --user` with the same values only on a yes to that part. `--user` writes
+`~/.3dprint/calibration.json` instead of `--file`; give one of the two.
 
 ```bash
 python3 "$SKILL_DIR/scripts/calibration.py" add --file .3dprint/calibration.json --printer x2d --material pla_basic \

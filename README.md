@@ -160,6 +160,7 @@ the X2D and H2D, objects that need both nozzles are placed where both can reach.
 | `.3dprint/params.json` | Every dimension, with assumptions taken when you weren't asked; what you were promised and the evidence for each (`_verify`) |
 | `.3dprint/printers.json` | Your printer: bed, nozzles, slicer, template (no serials, access codes or IPs) |
 | `.3dprint/calibration.json` | Your own print results (which fit-test ring fit, which latch held or broke), written only after you say yes; a value here beats every table |
+| `~/.3dprint/calibration.json` (your home folder) | The results you chose to keep for every project, asked separately; a project's own result wins over it |
 | `.3dprint/templates/` | Bambu Studio template. A saved one holds your account ID: keep it private |
 | `out/` | Working folder, rewritten on every build: STLs, build manifests, a core 3MF, a `.blend` for Blender builds, preview images, fit-test pieces |
 | a new delivery folder | Final files. Existing files are never overwritten |
