@@ -1,5 +1,6 @@
 """Tests for scripts/measure.py: 3MF loading with transforms, slices with fits, ray depth maps."""
 import io
+import math
 import json
 import os
 import sys
@@ -186,6 +187,48 @@ class Slice(unittest.TestCase):
         code, rep = run("slice", opened, "--z", "5")
         self.assertTrue(any(not l["closed"] for l in rep["levels"][0]["loops"]))
         self.assertTrue(any("open chain" in w for w in rep.get("warnings", [])))
+
+    def test_points_give_a_notch_where_it_is(self):
+        """0.9.1: --points lists each loop's corners on plane_axes, so a notch can be found from
+        the slice alone; the default output is as before."""
+        # A 40 x 20 plate, 4 high, with a 6 x 4 notch in its front edge at x 10..16: walls along the
+        # outline (counter-clockwise), caps as three rectangles (they do not cross z = 2).
+        ring = [(0, 0), (10, 0), (10, 4), (16, 4), (16, 0), (40, 0), (40, 20), (0, 20)]
+        notched = []
+        for (x0, y0), (x1, y1) in zip(ring, ring[1:] + ring[:1]):
+            notched += [((x0, y0, 0), (x1, y1, 0), (x1, y1, 4)), ((x0, y0, 0), (x1, y1, 4), (x0, y0, 4))]
+        for xa, ya, xb, yb in ((0, 0, 10, 20), (10, 4, 16, 20), (16, 0, 40, 20)):
+            notched += [t for t in box(xb - xa, yb - ya, 4, xa, ya) if all(v[2] == t[0][2] for v in t)]   # caps only
+        p = os.path.join(self.d, "n.stl")
+        write_stl(p, notched)
+        import measure
+        code, plain = run("slice", p, "--z", "2")
+        self.assertEqual(code, 0, plain["errors"])
+        self.assertNotIn("vertices", plain["levels"][0]["loops"][0])
+        self.assertNotIn("points", plain["query"])                          # the default report is unchanged
+        code, rep = run("slice", p, "--z", "2", "--points")
+        self.assertEqual(code, 0, rep["errors"])
+        loop = rep["levels"][0]["loops"][0]
+        corners = sorted(map(tuple, loop["vertices"]))
+        self.assertEqual(corners, sorted([(0.0, 0.0), (10.0, 0.0), (10.0, 4.0), (16.0, 4.0), (16.0, 0.0), (40.0, 0.0),
+                                          (40.0, 20.0), (0.0, 20.0)]))
+        self.assertTrue(rep["query"]["points"])
+        import finalize_evidence                                            # finalize runs the query again
+        fresh, why = finalize_evidence.remeasure(rep)
+        self.assertIsNone(why)
+        self.assertEqual(fresh["levels"][0]["loops"][0]["vertices"], loop["vertices"])
+        # A fine circle is capped: at most --max-points, spread around it.
+        c = os.path.join(self.d, "c.stl")
+        write_stl(c, cylinder(6, 10, 96))
+        code, rep = run("slice", c, "--z", "5", "--points", "--max-points", "8")
+        loop = rep["levels"][0]["loops"][0]
+        self.assertLessEqual(len(loop["vertices"]), 8)
+        self.assertGreaterEqual(len(loop["vertices"]), 4)
+        self.assertTrue(all(abs(math.hypot(x, y) - 6) < 0.01 for x, y in loop["vertices"]))
+        self.assertGreater(loop["vertices_tol_mm"], 0.01)
+        code, rep = run("slice", c, "--z", "5", "--points", "--max-points", "2")
+        self.assertIn("--max-points", rep["errors"][0])
+        self.assertEqual(measure.simplify_loop([(0, 0), (1, 0), (2, 0), (2, 1), (0, 1)], 0.01), [0, 2, 3, 4])
 
     def test_negative_values_after_options(self):
         p = os.path.join(self.d, "c.stl"); write_stl(p, box(10, 10, 10, -5, -5, -5))
