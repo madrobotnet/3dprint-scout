@@ -1,8 +1,8 @@
 # Material data and hand forces for `strength.py`
 
 Read this when sizing a member that carries load (design-mechanisms.md, "Mechanisms that carry load").
-The numbers below are the ones `scripts/strength.py` uses; the script is the source, this
-file is the reading copy. Every value comes from an official Bambu Lab Technical Data Sheet
+The numbers below are the ones `scripts/strength.py` uses (and `scripts/strength_cases.py`, which
+reads them from it); the script is the source, this file is the reading copy. Every value comes from an official Bambu Lab Technical Data Sheet
 (PDF on store.bblcdn.com, retrieved 2026-10-18); nothing is interpolated. Another maker's
 filament needs its own data sheet before it can be used (the script refuses unknown names).
 
@@ -14,6 +14,7 @@ Contents:
 - [Inputs from the build](#inputs-from-the-build)
 - [The pin model](#the-pin-model)
 - [The hinge model](#the-hinge-model)
+- [Tube, post and tapered snap (`strength_cases.py`)](#tube-post-and-tapered-snap-strength_casespy)
 - [What the model does not see](#what-the-model-does-not-see)
 
 ## Bambu Lab filaments (MPa; X-Y = loaded within the layer plane, Z = across layers)
@@ -181,6 +182,60 @@ same 36 mm the one moving knuckle takes all 98 N on an 11.8 mm span: bending 0.9
 not what every hinge passes with). A three-knuckle coupon of the real knuckle
 length (`parts.md`) is a harder test than the full hinge for the same reason: its one moving
 knuckle takes the whole pull, twice this hinge's share.
+
+## Tube, post and tapered snap (`strength_cases.py`)
+
+Three more cases, in `strength.py`'s report format (the same tables, verdicts, `--from-build`
+and `inputs_from`; finalize reads them as it reads `strength.py`'s). They live in a file of their
+own because `strength.py` is a source every build that imports `parts.py` hashes: a change there
+would make all of those builds stale.
+
+- **`strength_cases.py tube`**: a printed tube under a band (worm-gear) hose clamp, outside Ø d
+  where the band sits (`--d`), wall t (`--t`), band width w (`--band-w`), band tension T
+  (`--tension`, N). Cut tube and band in half: the band's two ends pull T each, so the ring
+  under the band carries a hoop compression T, σ = T / (w t) (the thin-ring p r / t with the
+  band's pressure p = T / (r w)), checked against the compressive strength, taken equal to the
+  tensile strength (compression is not on the data sheets). The tube beyond the band carries
+  part of it too, which is left out (conservative). Also reported: the radial shrink under the
+  band, T r / (E w t) with the tensile modulus (short-term; PLA creeps under a held load and the
+  clamp loosens), and the band tension the tube carries at the safety factor
+  (`tension_at_sf_N`). There is no default tension and no table: clamp makers publish a
+  tightening torque, not a tension (Oetiker worm drive clamps 126/177: 2 to 5 N·m by size
+  [Oetiker TDS](https://eu-assets.contentstack.com/v3/assets/bltbc4004bca00989b0/blt23d91fe28d85613c/696e2e4cec97921772d47db5/oet_tds_Worm_Drive_Clamp_126-177_EN.pdf)),
+  and turning a torque into a tension rests on screw friction nobody knows. Ring buckling is
+  reported, not checked: a free ring buckles under a pressure that stays normal to it at
+  q_cr = 3 E I / r³ per unit length of its centre line (Timoshenko & Gere, *Theory of Elastic
+  Stability*, 2nd ed., 1961, ch. 7; the exact value in the
+  [Abaqus ring benchmark](https://abaqus-docs.mit.edu/2017/English/SIMACAEBMKRefMap/simabmk-c-ringbuckling.htm)),
+  p_cr = E t³ / (4 r³) with the bending modulus; that is the number for a pressure from outside,
+  such as suction in a duct. The band's own pressure is far above it on any printed spigot (a
+  100 mm PETG tube with a 3 mm wall would "buckle" under a 9 mm band at about 50 N), yet tubes under
+  clamps crush, they do not buckle: a member in complete contact with the tendon that compresses
+  it cannot be buckled by that tendon (ACI 318-11, commentary R18.2.5), and a band locked by its
+  screw is such a tendon. p_cr still shows the ring's stiffness, which grows with t³ (a 3 mm wall
+  is 3.4 × a 2 mm one).
+- **`strength_cases.py post`**: a post or block on its root pushed sideways, F (`--load`) at a
+  height L (`--length`) above the root, section b × h (`--b` across the force, `--h` along it)
+  or round (`--d`). Root bending σ = F L c / I (rectangle I = b h³ / 12, c = h / 2; circle
+  σ = 32 F L / (π d³)) against the bending strength, root shear 3/2 F / A (rectangle) or 4/3
+  F / A (circle) against 0.58 × tensile, deflection F L³ / (3 E I). The default orientation z is
+  the case itself: a post standing on the bed has its layers across it, so the root's bending
+  stress crosses them (the data sheet's Z bending strength) and the shear slides layer on layer
+  (Z tensile). `strength.py beam --support cantilever --orientation z` gives the same bending for
+  a rectangle; a straight pull along a post is `strength.py link --orientation z`.
+- **`strength_cases.py snap`**: `strength.py snap` plus a taper and a worst-case undercut. With
+  `--taper a` (thickness at the hook / at the root) or `--h-tip`, the thickness falls linearly to
+  a h; integrating the tip deflection of such a beam gives ε = 1.5 h y / (L² Q K) and
+  P = 3 E I y / (Q L³ K) with the root section's I and K = 3 (−ln a + 2a − a²/2 − 3/2) / (1 − a)³.
+  At a = 1/2, K = 1.636: Bayer's design type 2, y = 1.09 ε L² / h against 0.67 for a uniform arm
+  (Bayer MaterialScience, *Snap-Fit Joints for Plastics*, Table 1, which gives only the half
+  taper; Bayer's own K, its Fig. 10, is for ring-segment sections); the formula reproduces the
+  tapered-hook K table of [designerdata.nl](https://designerdata.nl/calculatoren/klikvingers/klikvinger-taps-rechthoekig)
+  to ±0.0005 for a = 0.33 to 1. Below a = 1/2 the strain peaks inside the arm, a / (1 − a) of
+  the length from the hook, at 1 / (4 a (1 − a)) × the root's; that peak is checked (Bayer's
+  type 2 stops at 1/2). `--gap-worst g` adds the undercut a tolerance stack can add: strain,
+  force and ramp forces are given at y and y + g, and both are checked, so the worst case decides
+  the gate.
 
 ## What the model does not see
 
