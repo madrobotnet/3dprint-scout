@@ -31,7 +31,7 @@ Find what works:
 - **None** — in a disposable sandbox (a cloud code-execution container, not the user's own
   machine) `pip install manifold3d numpy rtree matplotlib` is fine: say so in one line and do
   it, and install `bpy` first (a few hundred MB; the Python version must match a published
-  wheel; `detect` prints the command): Blender is the first engine for every shape, so a
+  wheel; `detect` gives the command in `suggest`): Blender is the first engine for every shape, so a
   sandbox that lacks it installs it, and builds with another engine only when the install
   fails, with the reason in `_assumptions`. On the user's machine, ask before installing anything. Never
   try `apt` or `brew` for OpenSCAD in a sandbox (minutes lost, and there is no display). If
