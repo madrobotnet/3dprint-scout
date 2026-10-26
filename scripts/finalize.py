@@ -142,7 +142,9 @@ result, reason).
 
 --deliver DIR checks the delivery folder: every STL in it must be one of the verified STLs,
 every 3MF must carry a manifest (`<file>.3mf.manifest.json`, written by build.py and bambu3mf.py
-next to the 3MF; copy it along) that lists exactly the verified STLs, and every part must be
+next to the 3MF; copy it along) that lists exactly the verified STLs (a source bundle in the
+folder, deliver/2026-10-21/source, is not part of the delivery: its files are not judged and its
+manifests are not read), and every part must be
 delivered in one or the other; a malformed manifest is a reason, not an error. A Bambu
 project's manifest (bambu3mf.py) also names each part's filament and the process preset: a
 filament of another material than the part's leaves the part's material-dependent evidence (a
@@ -163,6 +165,12 @@ read that is not a part (a measured user file); a proxy's generator and params f
 recorded proxy also with its build JSON, STLs and build manifests: it cannot be built again);
 each seen image and its sidecar; the test print photos; and with --deliver the delivered STLs
 and 3MFs, each 3MF with its manifest beside it (REPRODUCE.md re-checks them with --deliver).
+A file a `user-file` dims entry was measured on is copied only when an entry declares it the
+user's own ("own": true); any other may be someone else's model and is named instead, with its
+sha256 (and the entry's url and licence), in bundle_withheld and under "Files to obtain" in
+REPRODUCE.md, as is a recorded proxy's STL built from it. A bundle inside the delivery folder
+(--bundle deliver/2026-10-21/source) copies none of the delivered files: bundle_delivered and
+REPRODUCE.md name each with its sha256, and the re-check reads them where they are (--deliver ..).
 Every file keeps its path relative to the project folder, so the commands run as written
 inside the bundle; the parts and the proxies built by `run` are built again there, not copied
 (building them again shows the verdict is reached again; a proxy no longer built from its params file

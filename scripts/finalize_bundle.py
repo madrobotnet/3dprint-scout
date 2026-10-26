@@ -72,33 +72,119 @@ def bundle_contents(verify, build, deliver=None, joints=None):
     """What a bundle carries besides the generator, params.json and printers.json, so that the
     verdict can be reached again from the bundle alone: every report _verify names, and each
     file a report read by its sha256 that REPRODUCE.md does not build again (a measured user
-    file, a recorded proxy's STL with its build manifest; never a part); a proxy's generator and
-    params file (a `build.py run --proxy` proxy tied to them, joints[i].proxy_build "tied" in the
-    report, is built again; a recorded one is carried with its build JSON); each seen image and
-    its sidecar; the test print photos; and with --deliver
+    file the user declared their own, a recorded proxy's STL with its build manifest; never a
+    part); a proxy's generator and params file (a `build.py run --proxy` proxy tied to them,
+    joints[i].proxy_build "tied" in the report, is built again; a recorded one is carried with
+    its build JSON); each seen image and its sidecar; the test print photos; and with --deliver
     every delivered STL and 3MF with the manifest finalize compares it with. Returns (files:
     {place: (path, what)}, missing: {place: what}, proxies: {build JSON place: {joint, out: the
     folder it is built into, writes: the places it writes, command: the `build.py run --proxy`
     command that builds it again}}, outside: the paths outside the project folder). A
     place is the path relative to the project folder; a 3MF's manifest found only elsewhere
-    (out/, which a rebuild rewrites) goes beside the 3MF."""
-    c = _Contents(build)
-    _carry_proxies(c, verify, joints)
-    _carry_reports(c, verify)
-    _carry_delivery(c, deliver, build)
+    (out/, which a rebuild rewrites) goes beside the 3MF. What is named but not copied (a
+    measured file not declared the user's own, the delivered files of a bundle inside the
+    delivery folder): collect_contents."""
+    c = collect_contents(verify, build, deliver, joints)
     return c.files, c.missing, c.proxies, c.outside
 
 
-class _Contents:
-    """What bundle_contents collects: files carried, missing, proxies built again, paths outside."""
+def collect_contents(verify, build, deliver=None, joints=None, deliver_from=None):
+    """bundle_contents, as the _Contents it collects: besides files, missing, proxies and outside,
+    `withheld` ({place: record}: a file a `user-file` dims entry was measured on that no entry
+    declares the user's own, or a recorded proxy's STL built from one: named with its sha256,
+    never copied, measured_files) and `delivered` ({place: record}: with `deliver_from`, the
+    path from the bundle folder to the delivery folder it is inside, the delivered files named
+    with their sha256 and not copied)."""
+    c = _Contents(build, verify)
+    _carry_proxies(c, verify, joints)
+    _carry_reports(c, verify)
+    _carry_delivery(c, deliver, build, deliver_from)
+    return c
 
-    def __init__(self, build):
+
+def measured_files(verify):
+    """The files `user-file` dims entries rest on (each parameter's `from` measurement, the file
+    its report read): {normcase abspath: {path, dims: [ids], own: [the entries' own], url: [...],
+    licence: [...]}}. A file is the user's own when an entry names it with "own": true and none
+    with "own": false; any other may be someone else's work (a maker's model the user downloaded)
+    and is not copied: sharing the bundle would pass it on."""
+    reports = {m.get("name"): m.get("report") for m in verify.get("measurements") or [] if isinstance(m, dict)}
+    out = {}
+    for d in verify.get("dims") or []:
+        if not (isinstance(d, dict) and d.get("source") == "user-file" and isinstance(d.get("from"), dict)):
+            continue
+        for mname in d["from"].values():
+            report = reports.get(mname) if isinstance(mname, str) else None
+            path = json_object(report).get("file") if isinstance(report, str) and os.path.isfile(report) else None
+            if not (isinstance(path, str) and path.strip()):
+                continue
+            info = out.setdefault(os.path.normcase(os.path.abspath(path)),
+                                  {"path": path, "dims": [], "own": [], "url": [], "licence": []})
+            did = d.get("id") if isinstance(d.get("id"), str) else "?"
+            if did not in info["dims"]:
+                info["dims"].append(did)
+                info["own"].append(d.get("own"))
+                for k in ("url", "licence"):
+                    if isinstance(d.get(k), str) and d[k].strip() and d[k].strip() not in info[k]:
+                        info[k].append(d[k].strip())
+    return out
+
+
+def withheld_why(info):
+    """Why a measured file is left out of the bundle, in one line."""
+    named = ", ".join(f"'{i}'" for i in info["dims"])
+    if info.get("from"):
+        return (f"built from {info['from']}, which is left out: a file the user supplied that is not declared their "
+                "own may be someone else's work, and sharing the bundle would pass it on")
+    if False in info["own"]:
+        head = f"declared not the user's own (\"own\": false on dims {named})"
+    else:
+        head = f"a file the user supplied that its dims entry ({named}) does not declare their own (\"own\": true)"
+    return head + ": it may be someone else's work, and sharing the bundle would pass it on"
+
+
+class _Contents:
+    """What bundle_contents collects: files carried, missing, proxies built again, paths outside,
+    files withheld and delivered files named but not copied."""
+
+    def __init__(self, build, verify=None):
         self.built = {os.path.normcase(os.path.abspath(p["stl"])) for p in build.get("parts") or []
                       if isinstance(p, dict) and isinstance(p.get("stl"), str)}
         self.files, self.missing, self.proxies, self.outside = {}, {}, {}, []
+        self.withheld, self.delivered = {}, {}
+        self.held = {k: v for k, v in measured_files(verify or {}).items()     # a part of this build is no user's file
+                     if k not in self.built and not (True in v["own"] and False not in v["own"])}
+        self.held_sha = {}
+        for k, v in self.held.items():
+            if os.path.isfile(v["path"]):
+                self.held_sha.setdefault(validate.file_sha256(v["path"]), k)
+
+    def held_info(self, path):
+        """The measured file's record when this path is one the bundle does not copy (the file
+        itself, or a copy of it by its sha256), else None."""
+        if not (self.held and isinstance(path, str) and path.strip()):
+            return None
+        key = os.path.normcase(os.path.abspath(path))
+        if key not in self.held and self.held_sha and os.path.isfile(path):
+            key = self.held_sha.get(validate.file_sha256(path), key)
+        return self.held.get(key)
+
+    def hold(self, path, base):
+        """Withhold this file too: it was built from the withheld file at bundle place `base`."""
+        if isinstance(path, str) and path.strip():
+            self.held.setdefault(os.path.normcase(os.path.abspath(path)),
+                                 {"path": path, "dims": [], "own": [], "url": [], "licence": [], "from": base})
+
+    def withhold(self, path, place, what, info):
+        record = {"file": place, "sha256": validate.file_sha256(path), "what": what, "why": withheld_why(info)}
+        for k in ("url", "licence"):
+            if info[k]:
+                record[k] = "; ".join(info[k])
+        self.withheld.setdefault(place, record)
 
     def carry(self, path, what, place=None):
-        """Carry the file at its place (True), or note it missing or outside (False)."""
+        """Carry the file at its place (True), or note it missing or outside (False). A measured
+        file that is not the user's own is named, not carried (True: it is there)."""
         if not (isinstance(path, str) and path.strip()):
             return False
         own = bundle_path(path)
@@ -110,8 +196,19 @@ class _Contents:
         if not os.path.isfile(path):
             self.missing.setdefault(place, what)
             return False
+        info = self.held_info(path)
+        if info is not None:
+            self.withhold(path, place, what, info)
+            return True
         self.files.setdefault(place, (path, what))
         return True
+
+    def named(self, path, what, at):
+        """A delivered file named with its sha256, not copied: `at` is its path from the bundle."""
+        place = bundle_path(path)
+        if place:
+            self.delivered.setdefault(place, {"file": place, "sha256": validate.file_sha256(path), "what": what,
+                                              "at": at})
 
     def hashed(self, path, what):
         """A file a report read by its sha256: a part of this build is rebuilt; any other file is
@@ -136,6 +233,10 @@ class _Contents:
         self.carry(b.get("params"), f"params file of the proxy of {joint}")
         stls = ([p for p in b["parts"] if isinstance(p, dict) and isinstance(p.get("stl"), str)]
                 if isinstance(b.get("parts"), list) else [])
+        base = next((bundle_path(s) or os.path.basename(s) for s in own_sources({"sources": srcs}) + [b.get("params")]
+                     if self.held_info(s) is not None), None)
+        for p in stls if base else ():                           # built from a withheld file: withheld too
+            self.hold(p["stl"], base)
         src, prm, place = b.get("source"), b.get("params"), bundle_path(path)
         out = bundle_path(os.path.dirname(stls[0]["stl"]) or ".") if stls else None
         if not (b.get("proxy") is True and made_by_run(b) and isinstance(src, str) and bundle_path(src)
@@ -199,23 +300,33 @@ def _carry_reports(c, verify):
             c.carry(p, f"photo of test print '{t.get('name')}'")
 
 
-def _carry_delivery(c, deliver, build):
-    """Every delivered STL and 3MF, each 3MF with the manifest check_delivered judged it by."""
+def _carry_delivery(c, deliver, build, deliver_from=None):
+    """Every delivered STL and 3MF, each 3MF with the manifest check_delivered judged it by. With
+    `deliver_from` (the bundle is inside the delivery folder; the path from the bundle to it) the
+    delivered files, and a manifest beside them, are named with their sha256, not copied: the
+    re-check reads them where they are."""
     if deliver and bundle_path(deliver) is None:
         c.outside.append(deliver)
     elif deliver and os.path.isdir(deliver):
         manifests = threemf_manifest_files(manifest_folders(deliver, build))
+        top = os.path.normcase(os.path.abspath(deliver))
         for fn in sorted(os.listdir(deliver)):                 # the files check_delivered judges
             path = os.path.join(deliver, fn)
             if not (os.path.isfile(path) and fn.lower().endswith((".stl", ".3mf"))):
                 continue
-            c.carry(path, "delivered file")
+            if deliver_from:
+                c.named(path, "delivered file", posixpath.join(deliver_from, fn))
+            else:
+                c.carry(path, "delivered file")
             if not fn.lower().endswith(".3mf") or bundle_path(path) is None:
                 continue
             place = bundle_path(path)
             chosen = manifests.get(validate.file_sha256(path))   # the one check_delivered judged it by
             if chosen:
                 pick, mine = chosen[0], bundle_path(chosen[0])
+                if deliver_from and os.path.normcase(os.path.abspath(os.path.dirname(pick))) == top:
+                    c.named(pick, f"manifest of {place}", posixpath.join(deliver_from, os.path.basename(pick)))
+                    continue                                    # in the delivery folder: the re-check finds it there
                 c.carry(pick, f"manifest of {place}" + ("" if mine == place + ".manifest.json" else f", found at {mine}"),
                         place=place + ".manifest.json")     # beside its 3MF: out/ is written again by the rebuild
 
@@ -304,6 +415,7 @@ def write_bundle(folder, build, params_path, settings, report, verify=None, deli
     if os.path.lexists(folder):
         raise FinalizeError(f"{folder} exists; the bundle goes into a new folder (never overwrites)")
     c = {"deliver_found": bool(deliver) and os.path.isdir(deliver)}  # before the bundle folder, which may be inside it
+    c["deliver_from"] = deliver_from(folder, deliver) if c["deliver_found"] else None
     _bundle_preflight(c, build, params_path, settings, stale)
     _rebuild_plan(c, build, given)
     inputs, missing, proxies = _bundle_inputs(c, build, params_path, verify, deliver, report)
@@ -311,6 +423,18 @@ def write_bundle(folder, build, params_path, settings, report, verify=None, deli
     delivered = bundle_path(deliver) if deliver else None    # named even when missing: the rerun says so too
     reproduce_text = _reproduce_text(c, delivered, inputs, missing, proxies)
     return _write_files(folder, c, params_path, report, delivered, inputs, missing, proxies, reproduce_text)
+
+
+def deliver_from(folder, deliver):
+    """The path from the bundle folder to the delivery folder ("..") when the bundle is inside it
+    (deliver/2026-10-21/source), else None: the delivered files are there already, so the
+    bundle names them with their sha256 instead of copying them, and the re-check reads them there."""
+    top, inner = os.path.realpath(deliver), os.path.realpath(folder)
+    try:
+        inside = inner != top and os.path.commonpath([top, inner]) == top
+    except ValueError:                                   # another drive on Windows
+        return None
+    return os.path.relpath(top, inner).replace(os.sep, "/") if inside else None
 
 
 def _bundle_preflight(c, build, params_path, settings, stale):
@@ -420,8 +544,16 @@ def _bundle_inputs(c, build, params_path, verify, deliver, report):
     """The evidence files the verdict reads ({place: (source, what)}), those named but missing, and
     the proxies built again; refused where one would take a place the bundle writes itself."""
     reserved, places = c["reserved"], c["places"]
-    inputs, missing, proxies, far = bundle_contents(verify or {}, build, deliver, report.get("joints"))
-    taken = sorted(place for place in missing if place.lower() in reserved)
+    got = collect_contents(verify or {}, build, deliver, report.get("joints"), c["deliver_from"])
+    inputs, missing, proxies, far = got.files, got.missing, got.proxies, got.outside
+    for src in c["srcs"]:                                        # a source that is a withheld file: not copied either
+        info = got.held_info(src)
+        if info is not None:
+            got.withhold(src, places[src], "a source of the build", info)
+    c.update(withheld=got.withheld, delivered=got.delivered,
+             held_srcs={src for src in c["srcs"] if places[src] in got.withheld})
+    taken = sorted(place for place in list(missing) + list(got.withheld) + list(got.delivered)
+                   if place.lower() in reserved)
     if taken:                         # REPRODUCE.md would make it, and the verdict would read that, not "missing"
         raise FinalizeError(f"{', '.join(taken)} would take the place of a file the bundle writes itself; rename it")
     if far:
@@ -474,9 +606,10 @@ def _check_rewrites(c, build, inputs, missing, proxies):
                                 "its JSON under another name")
         for w in [place] + px["writes"]:
             writes[w.lower()] = (w, f"the proxy of {px['joint']}")
+    named = [(p, r["what"]) for p, r in list(c["withheld"].items()) + list(c["delivered"].items())]
     rewritten = [f"{place} ({what}; REPRODUCE.md writes {writes[place.lower()][1]} there)"
-                 for place, what in sorted([(p, w) for p, (_s, w) in inputs.items()] + list(missing.items())
-                                           + [(p, "a source") for p in c["places"].values()])
+                 for place, what in sorted(set([(p, w) for p, (_s, w) in inputs.items()] + list(missing.items())
+                                               + [(p, "a source") for p in c["places"].values()] + named))
                  if place.lower() in writes]
     if rewritten:
         raise FinalizeError(f"{'; '.join(rewritten)}: the commands in REPRODUCE.md write this again, so the bundle "
@@ -515,10 +648,14 @@ def _reproduce_text(c, delivered, inputs, missing, proxies):
                    "files as the parts are (a fit report holds while each STL is the one it measured):", False),
                   ("", False), ("```bash", False)]
         lines += [(px["command"], True) for _place, px in sorted(proxies.items())] + [("```", False), ("", False)]
-    lines += [("Then re-check" + (f", with the delivered files in `{delivered}`" if delivered else "") + ":", False),
+    up = c["deliver_from"]
+    where = (f", with the delivered files where they are: the delivery folder `{delivered}` this bundle is in "
+             f"(`{up}` from here)" if up else f", with the delivered files in `{delivered}`" if delivered else "")
+    lines += [("Then re-check" + where + ":", False),
               ("", False), ("```bash", False),
               ('python3 "$SKILL_DIR/scripts/finalize.py" --build build.json --params params.json'
-               + "".join(f" {q(w)}" for w in c["recheck"]) + (f" --deliver {q(delivered)}" if delivered else ""), True),
+               + "".join(f" {q(w)}" for w in c["recheck"]) + (f" --deliver {q(up or delivered)}" if delivered else ""),
+               True),
               ("```", False), ("", False),
               ("`verification.json` is the report this delivery was made with: what was verified, and what was not.",
                False), ("", False)]
@@ -529,6 +666,25 @@ def _reproduce_text(c, delivered, inputs, missing, proxies):
                    "above make them, and a report holds while each STL it read is the same (sha256).", False),
                   ("", False)]
         lines += [(f"- `{place}`: {inputs[place][1]}", False) for place in sorted(inputs)] + [("", False)]
+    if c["delivered"]:
+        lines += [("## The delivered files", False), ("", False),
+                  (f"Not copied: this bundle is inside the delivery folder `{delivered}`, and the re-check above reads "
+                   f"them there (`{up}` from here). Each is named with the sha256 the verdict judged; a file whose "
+                   "sha256 differs is not the one judged:", False), ("", False)]
+        lines += [(f"- `{r['file']}` (`{r['at']}`): {r['what']}, sha256 `{r['sha256']}`", False)
+                  for _p, r in sorted(c["delivered"].items())] + [("", False)]
+    if c["withheld"]:
+        lines += [("## Files to obtain", False), ("", False),
+                  ("Read by the evidence but not copied: a file the user supplied is carried only when its dims "
+                   "entry declares it the user's own work (`\"own\": true`). Obtain each from where it came from and "
+                   "put it at its place in this folder before the re-check; a report holds while the file's sha256 "
+                   "is the same (a file `measure.py info --extract` wrote is extracted again from its file):", False),
+                  ("", False)]
+        lines += [(f"- `{r['file']}`: {r['what']}, sha256 `{r['sha256']}`"
+                   + (f"; from {r['url']}" if r.get("url") else "") + (f"; licence {r['licence']}" if r.get("licence")
+                                                                          else "")
+                   + f". Left out: {r['why']}.", False)
+                  for _p, r in sorted(c["withheld"].items())] + [("", False)]
     if missing:
         lines += [("## Not in this bundle", False), ("", False),
                   ("Named, but not here: not there when the bundle was made, unless the line says why. A re-check "
@@ -541,12 +697,15 @@ def _write_files(folder, c, params_path, report, delivered, inputs, missing, pro
     """Copy the files, make the folders REPRODUCE.md writes into, write REPRODUCE.md and
     verification.json; never a half-written bundle. Returns the files written."""
     srcs, places, printers = c["srcs"], c["places"], c["printers"]
-    copies = ([(src, places[src]) for src in srcs] + [(params_path, "params.json")]
+    copies = ([(src, places[src]) for src in srcs if src not in c["held_srcs"]] + [(params_path, "params.json")]
               + ([(printers, "printers.json")] if printers else []) + [(inputs[p][0], p) for p in sorted(inputs)])
-    made = ([delivered] if delivered and c["deliver_found"] else []) + [posixpath.dirname(p) for p in proxies]
+    made = (([delivered] if delivered and c["deliver_found"] and not c["deliver_from"] else [])
+            + [posixpath.dirname(p) for p in proxies])
     written = [rel(os.path.join(folder, *place.split("/"))) for _src, place in copies]
     written += [rel(os.path.join(folder, "REPRODUCE.md")), rel(os.path.join(folder, "verification.json"))]
-    final = dict(report, bundle=written, bundle_missing=[f"{place}: {missing[place]}" for place in sorted(missing)])
+    final = dict(report, bundle=written, bundle_missing=[f"{place}: {missing[place]}" for place in sorted(missing)],
+                 bundle_delivered=[c["delivered"][p] for p in sorted(c["delivered"])],
+                 bundle_withheld=[c["withheld"][p] for p in sorted(c["withheld"])])
     verification_text = scrub(json.dumps(final, indent=2, ensure_ascii=False))
     bad = not_utf8([place for _src, place in copies] + list(missing) + list(proxies) + made) or not_utf8([folder])
     if bad:
@@ -577,5 +736,5 @@ def _write_files(folder, c, params_path, report, delivered, inputs, missing, pro
         shutil.rmtree(top, ignore_errors=True)
         raise FinalizeError(f"writing the bundle failed ({exc}); what this run had written of {rel(folder)} was "
                             "taken away again") from exc
-    report.update(bundle=final["bundle"], bundle_missing=final["bundle_missing"])
+    report.update({k: final[k] for k in ("bundle", "bundle_missing", "bundle_delivered", "bundle_withheld")})
     return written

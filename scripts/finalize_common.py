@@ -48,7 +48,9 @@ DIM_SOURCES = ("assumed", "caliper", "spec", "user-file")
 
 DIM_STATE = {"assumed": "assumed", "caliper": "measured", "spec": "spec", "user-file": "measured"}
 
-DIM_KEYS = ("id", "what", "unit", "params", "source", "tol", "by", "url", "where", "from", "note")
+DIM_KEYS = ("id", "what", "unit", "params", "source", "tol", "by", "url", "where", "from", "own", "licence", "note")
+
+DIM_FILE_KEYS = ("own", "licence")                     # what a user-file entry says of the file it was measured on
 
 STATES = ("error", "failed", "not verified", "excluded", "assumed", "accepted", "verified")
 
