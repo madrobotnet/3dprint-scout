@@ -10,6 +10,7 @@ import validate
 
 from finalize_common import (source_file, DIM_FILE_KEYS, DIM_KEYS, DIM_SOURCES, DIM_STATE, FinalizeError, IMAGE_SCHEMA,
     LINKED_ORIGINS, SEEN_KEYS, effective_material, finite, load_json, lookup, norm, rel, same_value, text_field)
+from finalize_section import compare_section, section_problem
 
 
 def check_joints(verify, parts, taken=frozenset()):
@@ -545,10 +546,19 @@ def check_print_evidence(verify, parts, params, specs, printer_id, material_evid
     with neither, the print is assumed. material_evidence ({part: {notver, assumed}}) adds what
     is known of each printed part's material since the build and in the delivered print file.
     A 0.6 entry (no promises) is left to the print tier; photos, on any entry, must be paths in
-    the project folder (photos_problem)."""
+    the project folder (photos_problem).
+
+    A printed part with a `section` ({"box": [[x0, y0, z0], [x1, y1, z1]], "stl": ...}) is a
+    piece of the part: its sha256 is the piece's as printed, and the piece must be the part as it
+    is now cut by the box (finalize_section.compare_section: `sections` in the info, by part); a
+    piece that differs leaves the print stale, one that cannot be compared (gone, not the one
+    printed, no manifold3d) leaves it missing. A part printed in another material than its own
+    is named in `other_material` (each line also in `notver`): check_promises lets such a print,
+    and a section, stand for a geometric promise only."""
     import strength
     mats = sorted(strength.MATERIALS)
     by_name = {p.get("name"): p.get("sha256") for p in parts}
+    stl_of = {p.get("name"): p.get("stl") for p in parts}
     pr_cfg = params.get("_print")
     preset = pr_cfg.get("preset") if isinstance(pr_cfg, dict) else None
     preset = preset if isinstance(preset, str) and preset.strip() else None
@@ -570,6 +580,9 @@ def check_print_evidence(verify, parts, params, specs, printer_id, material_evid
                                                    and v.get("material") in mats for v in pp.values())):
             errs.append(f"{label}: parts must map each printed part to its sha256 (from the build JSON handed over) "
                         f"and the material it was printed in ({', '.join(mats)})")
+        else:
+            errs += [f"{label}: {why}" for why in (section_problem(v["section"], n) for n, v in pp.items()
+                                                    if "section" in v) if why]
         errs += [f"{label}: needs {k}" for k in ("printer", "orientation", "by") if not text_field(t, k)]
         if "preset" in t and not text_field(t, "preset"):
             errs.append(f"{label}: preset must be the slicer's process preset name")
@@ -582,10 +595,27 @@ def check_print_evidence(verify, parts, params, specs, printer_id, material_evid
             info["state"] = "error"
             errors += errs
             continue
-        notver, assumed = [], []
-        stale = [n for n, v in pp.items() if by_name.get(n) is None or by_name[n] != v["sha256"]]
+        notver, assumed, other, sections, missing = [], [], [], {}, False
+        stale = [n for n, v in pp.items()                  # a section piece is compared with its part below
+                 if "section" not in v and (by_name.get(n) is None or by_name[n] != v["sha256"])]
         if stale:
             notver.append(f"it printed {', '.join(stale)} as they were then, not the parts of this build now")
+        for n, v in pp.items():
+            if "section" not in v:
+                continue
+            if by_name.get(n) is None:
+                stale.append(n)
+                notver.append(f"it printed a section of {n}, which is not a part of this build")
+                continue
+            sec = sections[n] = compare_section(stl_of[n], v["section"], v["sha256"])
+            if sec["state"] == "differs":
+                stale.append(n)
+                notver.append(f"the section piece {sec['piece']} is not {n} cut by its box as {n} is now "
+                              f"({sec['difference_mm3']:g} mm3 differ, more than {sec['tolerance_mm3']:g}): it printed "
+                              f"{n} as it was then, or another box")
+            elif sec["state"] != "same":
+                missing = True
+                notver.append(f"the section piece of {n} is not compared with {n}: {sec['note']}")
         if t["by"] != "user":
             notver.append("only the user prints: by must be \"user\"")
         for n, v in pp.items():
@@ -594,6 +624,7 @@ def check_print_evidence(verify, parts, params, specs, printer_id, material_evid
                 notver.append(f"no material is declared for {n} (_material, or _parts.{n}.material)")
             elif eff != v["material"]:
                 notver.append(f"{n} was printed in {v['material']}, the part is {eff}")
+                other.append({"line": notver[-1], "part": n, "printed": v["material"], "material": eff})
             for key, into in (("notver", notver), ("assumed", assumed)):
                 into += [r for r in (material_evidence.get(n) or {}).get(key, []) if r not in into]
         if printer_id is None:
@@ -613,7 +644,11 @@ def check_print_evidence(verify, parts, params, specs, printer_id, material_evid
         for p in targets:
             if t.get("preset") != p:
                 notver.append(f"printed with preset {json.dumps(t.get('preset'))}, the delivery uses {json.dumps(p)}")
-        info.update(state="stale" if stale else "fresh", notver=notver, assumed=assumed)
+        info.update(state="stale" if stale else "missing" if missing else "fresh", notver=notver, assumed=assumed)
+        if other:
+            info["other_material"] = other
+        if any("section" in v for v in pp.values()):
+            info["sections"] = sections
     return out, errors
 
 

@@ -94,7 +94,9 @@ joints, members, measurements and test prints, a feature joints, measurements an
 a look seen images and test prints; a part's own check (box M1) is never evidence of a promise.
 A use done by hand ("by_hand": true: pushing a phone in, a peg in and out) keeps the state its
 evidence gives; without a passed test print among that evidence, its reasons and open say "the
-motion by hand is not confirmed by a print".
+motion by hand is not confirmed by a print". A use that carries a force ("load": true: it holds a
+weight, is clamped, pulled or levered) is not verified without a strength item among its
+evidence ("it carries a load and no strength check names it").
 seen: a person's judgement of a preview image (by user or agent, the promises judged, passed or
 failed, and image_sha256, the digest they looked at); it stands while the image is those bytes,
 its sidecar says so, and every STL the sidecar lists is a part of this build now; only the
@@ -102,8 +104,19 @@ user's judgement verifies. A test print that lists promises stands for them when
 parts as they are now (parts: name -> sha256, material), in each part's material (_material,
 _parts.<name>.material: strength.py keys) unchanged since the build, on the build's printer, as
 built, under the delivered preset (_print.preset, and with --deliver the process preset of the
-Bambu project the part is in; none recorded leaves it assumed), by the user. A member is
-evidence of a use only from a --from-build report with nothing typed in. measurements:
+Bambu project the part is in; none recorded leaves it assumed), by the user. A print in another
+material than the part's shows the geometry only: it stands for a geometric promise (its evidence
+item reads "scope": "geometry"; a fit it confirms with under 0.2 mm of play is named in open),
+never for a use that carries a force ("load": true, or strength evidence). A printed part with
+"section": {"box": [[x0, y0, z0], [x1, y1, z1]], "stl": "out/piece/lid.stl"} is a piece of it,
+the part cut by that box in its own coordinates, and its sha256 is the piece's: the print stands
+while the piece is the part as it is now cut by the box (manifold3d: their symmetric difference
+within the larger of 0.1 mm3 and 1e-6 of the piece's volume), for a geometric promise only, and
+only when each joint and measurement of the promise that checks the part checks it inside the
+box (the part outside the box keeps 1 mm, plus the fit's largest play, from the mating part as
+the fit placed it, through its sweep too; 1 mm from a plane or rays measure.py read); the print
+tier's entry lists `sections`. A member is evidence of a use only from a --from-build report with
+nothing typed in. measurements:
 saved `measure.py ... --expect` reports, each fresh while the file it read is unchanged (its
 sha256), passed when every expectation passed (finalize runs the report's command again on the
 file and reads each value itself); as evidence it must have read a part of this
@@ -163,8 +176,9 @@ commands that rebuild the parts and each proxy `build.py run --proxy` made, then
 and the evidence: every report _verify names (fit, strength, measurement) with each file it
 read that is not a part (a measured user file); a proxy's generator and params file (a
 recorded proxy also with its build JSON, STLs and build manifests: it cannot be built again);
-each seen image and its sidecar; the test print photos; and with --deliver the delivered STLs
-and 3MFs, each 3MF with its manifest beside it (REPRODUCE.md re-checks them with --deliver).
+each seen image and its sidecar; the test print photos and section pieces; and with --deliver
+the delivered STLs and 3MFs, each 3MF with its manifest beside it (REPRODUCE.md re-checks them
+with --deliver).
 A file a `user-file` dims entry was measured on is copied only when an entry declares it the
 user's own ("own": true); any other may be someone else's model and is named instead, with its
 sha256 (and the entry's url and licence), in bundle_withheld and under "Files to obtain" in
@@ -278,10 +292,21 @@ from finalize_evidence import (# noqa: E402, F401  (every name stays importable 
     user_file_problems)
 from finalize_promises import (# noqa: E402, F401  (every name stays importable from finalize)
     BY_HAND,
+    CLOSE_PLAY_MM,
+    LOAD,
     check_promises,
     evidence_index,
     judged_evidence,
+    judged_print,
     promise_state)
+from finalize_section import (# noqa: E402, F401  (every name stays importable from finalize)
+    DIFF_FLOOR_MM3,
+    DIFF_REL,
+    MARGIN_MM,
+    SECTION_KEYS,
+    Regions,
+    compare_section,
+    section_problem)
 from finalize_deliver import (# noqa: E402, F401  (every name stays importable from finalize)
     NO_PROJECT,
     check_delivered,
@@ -364,6 +389,10 @@ def finalize(args):
             mine["assumed"] += e["assumed"]
     print_info, print_errors = check_print_evidence(verify, parts, params, specs, current_printer(settings),
                                                     material_evidence, presets)
+    for entry, t in zip(prints, verify.get("test_prints") or []):          # a section: the piece against the part now
+        info = next((i for i in print_info.get(t.get("name"), []) if i.get("_raw") is t), None)
+        if info and info.get("sections"):
+            entry["sections"] = info["sections"]
     use = check_promises(verify, params, joints, strength, parts, measurements, seen, print_info, material_evidence)
     extra = seen_errors + print_errors + check_material_contract(params, specs) + decided_errors
     if extra:

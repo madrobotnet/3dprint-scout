@@ -42,7 +42,7 @@ IMAGE_SCHEMA = "3dprint-scout.image/1"
 
 NEEDS = {"use": ("conditions", "success"), "feature": ("success",), "look": ()}
 
-PROMISE_KEYS = ("id", "kind", "text", "conditions", "success", "evidence", "assumes", "by_hand", "note")
+PROMISE_KEYS = ("id", "kind", "text", "conditions", "success", "evidence", "assumes", "by_hand", "load", "note")
 
 DIM_SOURCES = ("assumed", "caliper", "spec", "user-file")
 
