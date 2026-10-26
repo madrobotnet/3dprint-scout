@@ -399,6 +399,125 @@ class Profiles(unittest.TestCase):
         self.assertTrue(any(abs(p[0]) < 1e-9 and 0.9 < p[1] < 19.1 for p in pts))
 
 
+def sphere_points(n, seed=7):
+    """`n` points on a 20 mm sphere, no four in one plane."""
+    import numpy as np
+    pts = np.random.default_rng(seed).normal(size=(n, 3))
+    return np.ascontiguousarray(20.0 * pts / np.linalg.norm(pts, axis=1)[:, None])
+
+
+def barrel_points(n=340):
+    """Five rings of `n` points on a convex barrel (40 mm across, 12 mm high). Their hull is
+    3396 triangles (10 188 half-edges, just over manifold3d's threshold): 1360 flat quads, each
+    split in two, between the rings and two flat caps, as a holder's rounded top is built."""
+    import numpy as np
+    a = 2 * np.pi * np.arange(n) / n
+    return np.ascontiguousarray(np.vstack([np.stack([r * np.cos(a), r * np.sin(a), np.full(n, z)], 1)
+                                           for z, r in ((0.0, 15.0), (3.0, 18.0), (6.0, 19.5), (9.0, 18.0), (12.0, 15.0))]))
+
+
+def scrambled(man, seed):
+    """`man` as manifold3d's threads may gather it on another run: the same vertices and
+    triangles, the triangles in another order, each starting at another corner (winding kept),
+    the face ids numbered otherwise. The constructor sorts the triangles again (by position, as
+    manifold3d does), so what survives is what the threads changed in the field: the corners and
+    the order among triangles at the same place, and the ids."""
+    import numpy as np
+    from manifold3d import Manifold, Mesh64
+    m = man.to_mesh64()
+    rng = np.random.default_rng(seed)
+    tri = np.asarray(m.tri_verts, dtype=np.int64)
+    tri = np.take_along_axis(tri, (rng.integers(0, 3, len(tri))[:, None] + np.arange(3)) % 3, axis=1)
+    perm = rng.permutation(len(tri))
+    ids = np.asarray(m.face_id)
+    labels = np.unique(ids)
+    relabel = dict(zip(labels.tolist(), rng.permutation(labels).tolist()))
+    ids = np.array([relabel[i] for i in ids[perm].tolist()], dtype=np.uint64)
+    return Manifold(Mesh64(vert_properties=np.array(m.vert_properties, dtype=np.float64),
+                           tri_verts=np.array(tri[perm], dtype=np.uint64), face_id=ids,
+                           run_index=np.array(m.run_index, dtype=np.uint64),
+                           run_original_id=np.array(m.run_original_id, dtype=np.uint32), tolerance=man.get_tolerance()))
+
+
+def mesh_key(man):
+    """Everything of a manifold's mesh that reaches an STL: vertices, triangles (order and
+    starting corner), face ids."""
+    import numpy as np
+    m = man.to_mesh64()
+    return tuple(hashlib.sha256(np.ascontiguousarray(a).tobytes()).hexdigest()
+                 for a in (m.vert_properties, m.tri_verts, m.face_id))
+
+
+@unittest.skipUnless(find_spec("manifold3d") is not None, "manifold3d not installed")
+class SteadyHulls(unittest.TestCase):
+    """0.10: manifold3d gathers a hull of more than 10 000 half-edges on several threads, and
+    the same hull came out with its triangles in another order, starting at other corners, with
+    other face ids, on each run (a remote holder's top round rebuilt to other STL bytes every
+    time: the quads from_mesh merged back started elsewhere, so Blender split them along the
+    other diagonal). Threads make it only now and then, so the tests make the other orders
+    themselves (`scrambled`)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.bb = load()
+
+    def test_a_large_hull_comes_out_in_one_order_however_it_was_gathered(self):
+        from manifold3d import Manifold
+        bb = self.bb
+        for hull in (Manifold.hull_points(barrel_points()), Manifold.hull_points(sphere_points(1800))):
+            self.assertGreater(3 * hull.num_tri(), bb.HULL_THREADED)
+            self.check_steady(hull)
+
+    def check_steady(self, hull):
+        import numpy as np
+        bb = self.bb
+        raw = [hull] + [scrambled(hull, k) for k in (1, 2, 3)]
+        self.assertEqual(len({mesh_key(m) for m in raw}), 4, "the orders came out alike: the case does not reproduce")
+        steady = [bb._steady_hull(m) for m in raw]
+        self.assertEqual(len({mesh_key(m) for m in steady}), 1)
+        a, b = raw[0].to_mesh64(), steady[0].to_mesh64()
+        self.assertTrue(np.array_equal(np.asarray(a.vert_properties), np.asarray(b.vert_properties)))
+        corners = lambda m: sorted(tuple(t[t.index(min(t)):] + t[:t.index(min(t))]) for t in np.asarray(m.tri_verts).tolist())
+        self.assertEqual(corners(a), corners(b))                    # the same triangles, each winding kept
+        self.assertTrue(all(t[0] == min(t) for t in np.asarray(b.tri_verts).tolist()))
+        self.assertAlmostEqual(steady[0].volume(), raw[0].volume(), places=6)
+        self.assertEqual(mesh_key(bb._steady_hull(steady[0])), mesh_key(steady[0]))      # once is enough
+
+    def test_both_runners_steady_a_hull_alike(self):
+        """build.py keeps its own copy for the Python engine (each runner is self-contained):
+        the same hull comes out the same from both."""
+        import build
+        from manifold3d import Manifold
+        self.assertEqual(build.HULL_THREADED, self.bb.HULL_THREADED)
+        self.assertEqual(build._HULLS, self.bb._HULLS)
+        hull = scrambled(Manifold.hull_points(barrel_points()), 4)
+        self.assertEqual(mesh_key(build._steady_hull(hull)), mesh_key(self.bb._steady_hull(hull)))
+
+    def test_a_small_hull_is_left_as_it_is(self):
+        """A hull under the threshold is gathered on one thread, the same every run: it keeps its
+        own order, so a part built from it keeps the bytes it had."""
+        from manifold3d import Manifold
+        small = Manifold.hull_points(sphere_points(400))
+        self.assertLessEqual(3 * small.num_tri(), self.bb.HULL_THREADED)
+        self.assertIs(self.bb._steady_hull(small), small)
+        other = Manifold.cube([1, 2, 3]) + Manifold.cube([1, 2, 3]).translate([5, 0, 0])
+        self.assertIs(self.bb._steady_hull(other), other)
+
+    def test_hulls_are_steady_while_build_runs_and_put_back_after(self):
+        from manifold3d import Manifold
+        bb = self.bb
+        before = {name: Manifold.__dict__[name] for name in ("hull", "batch_hull", "hull_points")}
+        pts, small = sphere_points(1800), sphere_points(400)
+        small_key = mesh_key(Manifold.hull_points(small))
+        with bb._steady_hulls():
+            keys = {mesh_key(Manifold.hull_points(pts)) for _ in range(6)}     # on threads: the same each time
+            keys.add(mesh_key(Manifold.batch_hull([scrambled(Manifold.hull_points(pts), 5)])))
+            keys.add(mesh_key(scrambled(Manifold.hull_points(pts), 6).hull()))
+            self.assertEqual(mesh_key(Manifold.hull_points(small)), small_key)
+        self.assertEqual(len(keys), 1)
+        self.assertEqual({name: Manifold.__dict__[name] for name in before}, before)
+
+
 # --------------------------------------------------------------------------- #
 # With Blender
 # --------------------------------------------------------------------------- #
@@ -669,6 +788,50 @@ emit(old={{k: v[0] for k, v in a.items()}}, new={{k: v[0] for k, v in b.items()}
         self.assertEqual(sorted(rep["new"]), ["body", "hex", "plate", "prism"])
         self.assertEqual(rep["new"], rep["old"])
         self.assertEqual(rep["re"], {"body": False, "hex": False, "plate": False, "prism": False})
+
+    @unittest.skipUnless(find_spec("manifold3d") is not None, "manifold3d not installed")
+    def test_rebuild_with_a_large_hull_writes_the_same_triangles(self):
+        """Field test 0.9.1: a holder whose body is a manifold3d hull of 3490 triangles rebuilt to
+        other STL bytes every time (the same triangle count, 166 triangles split along the other
+        diagonal of their quad). manifold3d gathered the hull on threads, in another order each
+        run. Here a hull_points that hands the barrel's hull back in another order stands in for
+        the threads: built with from_manifold as 0.9.1 did, two orders give two STLs; through
+        main, which keeps large hulls in one order while build() runs, they give one."""
+        import inspect
+        rep = run_in_blender(inspect.getsource(barrel_points) + inspect.getsource(scrambled) + f"""
+import hashlib
+from manifold3d import Manifold
+real = Manifold.__dict__["hull_points"]
+gathered = {{"order": 0}}
+Manifold.hull_points = staticmethod(lambda pts: scrambled(real(pts), gathered["order"]))
+threads = Manifold.__dict__["hull_points"]
+def build(p):
+    body = bb.from_manifold(Manifold.hull_points(barrel_points()), "barrel")
+    bb.part(body, "barrel")
+    return {{"barrel": body}}
+stls = {{}}
+for order in (1, 2):
+    gathered["order"] = order
+    out = os.path.join({self.tmp!r}, f"main{{order}}")
+    info = bb.main(build, {{}}, argv=["blender", "--", "--out", out, "--no-blend"])
+    stls[f"main{{order}}"] = info[0]["stl"]
+    bb.new_scene_mm()                                   # as 0.9.1 built it: no steady hulls
+    build({{}})
+    stls[f"old{{order}}"] = bb.export_parts(os.path.join({self.tmp!r}, f"old{{order}}"))[0]["stl"]
+emit(stls=stls, restored=Manifold.__dict__["hull_points"] is threads)
+""")
+        def triangles(path):                       # build.py's canonical order: the records sorted
+            with open(path, "rb") as f:
+                data = f.read()
+            return len(data), hashlib.sha256(b"".join(sorted(data[i:i + 50] for i in range(84, len(data), 50)))).hexdigest()
+        t = {k: triangles(v) for k, v in rep["stls"].items()}
+        self.assertTrue(rep["restored"])
+        self.assertEqual(t["old1"][0], t["old2"][0])
+        self.assertNotEqual(t["old1"], t["old2"], "two orders gave one STL without the fix: the case does not reproduce")
+        self.assertEqual(t["main1"], t["main2"])
+        f = check(rep["stls"]["main1"])
+        self.assertEqual({k: f["checks"][k]["state"] for k in ("M1", "M2", "M3", "M4")},
+                         {k: "PASS" for k in ("M1", "M2", "M3", "M4")}, f["metrics"])
 
     def test_export_keeps_vertices_one_grid_cell_apart(self):
         """Field test 0.9.0: two vertices that snap one WELD cell apart are two vertices to

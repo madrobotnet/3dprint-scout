@@ -103,6 +103,7 @@ import sys
 import sysconfig
 import tempfile
 import time
+import contextlib
 from contextlib import redirect_stdout
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -790,6 +791,78 @@ def build_python(source, params, parts, out_dir, timeout):
             {"manifold3d": rep["version"], "warnings": rep.get("warnings", []), "parameters": rep.get("parameters")})
 
 
+HULL_THREADED = 10_000       # half-edges: manifold3d's kSeqThreshold, above which its hull is gathered on threads
+_HULLS = (("hull", False), ("batch_hull", True), ("hull_points", True))     # (name, static)
+
+
+def _steady_hull(man):
+    """`man`, a manifold3d convex hull, with its triangles in one order (the same as
+    blender_builder.py's _steady_hull: each runner is self-contained). manifold3d gathers a
+    hull's triangles on several threads once it has more than HULL_THREADED half-edges (3333
+    triangles): the same hull then comes out with its triangles in another order, each starting
+    at another corner (so another first vertex and normal in its STL record), and with other face
+    ids on every run, and the STL had other bytes. Such a hull is rebuilt from its own mesh: the
+    same vertices, each triangle starting at its smallest vertex index, the triangles sorted,
+    the face ids numbered in that order. A smaller hull, gathered on one thread, comes back
+    untouched, and so does a hull this cannot rebuild (an older manifold3d)."""
+    try:
+        import numpy as np
+        import manifold3d as m3d
+        n = man.num_tri()
+        if 3 * n <= HULL_THREADED or man.status() != m3d.Error.NoError:
+            return man
+        mesh = man.to_mesh64()                            # double precision: the same vertices
+        if len(mesh.run_index) > 2 or len(mesh.merge_from_vert):
+            return man                                    # not a hull's single run
+        tri = np.asarray(mesh.tri_verts, dtype=np.int64)
+        start = tri.argmin(axis=1)
+        tri = np.take_along_axis(tri, (start[:, None] + np.arange(3)) % 3, axis=1)   # winding kept
+        order = np.lexsort((tri[:, 2], tri[:, 1], tri[:, 0]))
+        extra = {}
+        ids = np.asarray(mesh.face_id)
+        if len(ids) == n:
+            _, first, inverse = np.unique(ids[order], return_index=True, return_inverse=True)
+            extra["face_id"] = np.array(first[inverse], dtype=np.uint64)
+        out = m3d.Manifold(m3d.Mesh64(vert_properties=np.array(mesh.vert_properties, dtype=np.float64),
+                                      tri_verts=np.array(tri[order], dtype=np.uint64),
+                                      run_index=np.array(mesh.run_index, dtype=np.uint64),
+                                      run_original_id=np.array(mesh.run_original_id, dtype=np.uint32),
+                                      tolerance=man.get_tolerance(), **extra))
+        if out.status() != m3d.Error.NoError or out.is_empty():
+            return man
+    except (AttributeError, TypeError, ValueError):
+        return man
+    return out
+
+
+@contextlib.contextmanager
+def _steady_hulls():
+    """While the generator's build() runs (_pyrun), manifold3d's hulls (Manifold.hull,
+    batch_hull, hull_points) come out through _steady_hull, wherever the generator or parts.py
+    calls them; the originals are put back afterwards."""
+    try:
+        import manifold3d as m3d
+        cls = m3d.Manifold
+    except Exception:
+        yield
+        return
+    saved = {name: cls.__dict__[name] for name, _ in _HULLS if name in cls.__dict__}
+    for name, static in _HULLS:
+        if name not in saved:
+            continue
+        orig = getattr(cls, name)
+
+        def steady(*args, _orig=orig, **kwargs):
+            return _steady_hull(_orig(*args, **kwargs))
+        steady.__name__, steady.__doc__ = name, getattr(orig, "__doc__", None)
+        setattr(cls, name, staticmethod(steady) if static else steady)
+    try:
+        yield
+    finally:
+        for name, f in saved.items():
+            setattr(cls, name, f)
+
+
 def _pyrun(source, params_file, out_dir, parts_csv):
     """Runs in a child process: import the generator, call build(params), export STLs."""
     import manifold3d as m3d
@@ -818,7 +891,8 @@ def _pyrun(source, params_file, out_dir, parts_csv):
             param_notes.append(f"the generator's DEFAULTS is a {type(defaults).__name__}, not a dict: the build JSON "
                                "records only the params.json values (parameters.scope overrides)")
         t0 = time.time()
-        built = mod.build(params)
+        with _steady_hulls():                            # manifold3d's large hulls in one triangle order
+            built = mod.build(params)
     notes = param_notes + list(dict.fromkeys(str(w.message) for w in caught if issubclass(w.category, UserWarning)))
     wanted = [p for p in parts_csv.split(",") if p]
     if isinstance(built, m3d.Manifold):
