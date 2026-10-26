@@ -64,6 +64,34 @@ true for a snap opened often: a params.json boolean such as `"snap_repeated": tr
 force and the insertion and release forces; a straight arm can also go through `strength.py
 beam` with that force as its load and SF 3, both parameters.
 
+Three more cases are in `strength_cases.py`, with the same inputs, linking and report (a file of
+its own because strength.py is a source every build that imports parts.py hashes: a change there
+would make those builds stale):
+
+- A tube under a band (worm-gear) hose clamp, such as a hose spigot: `strength_cases.py tube`
+  with `--d` (the outside Ø under the band), `--t` (the wall), `--band-w` and `--tension` (N). It
+  checks the hoop compression T / (w t) and reports the shrink under the band and the tension the
+  tube carries at the SF (`tension_at_sf_N`). There is no default tension: clamp makers give a
+  torque, not a tension, so use a measured value or the maker's figure, record it in
+  `_assumptions`, and say at delivery to tighten the clamp no more than the hose needs. A tube
+  standing on the bed is `orientation` xy. Ring buckling is reported, not checked (a band cannot
+  buckle the tube it wraps; it crushes it).
+- A root, post or block loaded across the layers, such as a snap's root block or a peg standing
+  on the bed pushed sideways: `strength_cases.py post` with `--b` and `--h` (`h` along the force)
+  or `--d` for a round post, `--length` (the height of the force above the root) and `--load`.
+  The default `orientation` z is this case: bending and shear at the root use the Z strengths. A
+  straight pull along the post is `strength.py link --orientation z`.
+- A snap arm that tapers, or whose undercut grows when tolerances stack: `strength_cases.py snap`
+  with strength.py snap's inputs plus `--taper` (the thickness at the hook over the root's) or
+  `--h-tip` (mm), and `--gap-worst` (mm, the undercut the stack can add). The worst case is
+  checked too and decides the gate. A uniform arm at its nominal undercut stays `strength.py snap`.
+
+```bash
+python3 "$SKILL_DIR/scripts/strength_cases.py" tube --from-build out/build.json --part adapter \
+  --param d=spigot_d --param t=spigot_wall --param band_w=clamp_band_w \
+  --param tension=clamp_tension --param orientation=spigot_orient > out/strength_spigot.json
+```
+
 ## Coupons and the lid hinge
 
 A `lid` hinge must reach SF ≥ 2: at WARN grow the pin or the knuckle Ø or add knuckles (odd), and
