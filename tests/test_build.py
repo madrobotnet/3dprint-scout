@@ -292,6 +292,20 @@ class PythonEngine(Base):
         self.assertNotIn("parameters", out["engine_info"])
         self.assertEqual(out["parts"][0]["validate"]["files"][0]["checks"]["D1"]["state"], "PASS")
 
+    def test_proxy_only_keys_are_no_typos(self):
+        """Keys only a proxy reads (_proxy_only) are not reported as unknown to DEFAULTS; a real typo
+        still is, and so is a listed key params.json does not have."""
+        src = self.write("gen.py", PYGEN_DEFAULTS)
+        prm = self.params({"_parts": {"body": {}, "peg": {}}, "_proxy_only": ["conn_half_h", "conn_front", "ghost"],
+                           "conn_half_h": 4.0, "conn_front": 1.5, "walll": 3.0})
+        code, out = run("run", src, "--params", prm, "--out", self.out, "--no-wall-check", "--no-3mf")
+        self.assertEqual(code, 0, out.get("errors"))
+        self.assertEqual([w for w in out["warnings"] if "typo" in w],
+                         ["params.json key 'walll' is not in the generator's DEFAULTS (a typo?)",
+                          "params.json \"_proxy_only\" names 'ghost', which is not a parameter in params.json (a typo, "
+                          "or a key since removed): nothing uses it"])
+        self.assertEqual(out["parameters"]["values"]["conn_half_h"], 4.0)          # still recorded as built with
+
     def test_parameters_without_defaults_are_the_overrides(self):
         src = self.write("gen.py", PYGEN)
         prm = self.params({"_parts": {"body": {}, "peg": {}}, "w": 40, "d": 30, "h": 20, "wall": 2, "extra": "x"})
@@ -349,6 +363,38 @@ class ParametersRecord(unittest.TestCase):
         self.assertEqual(rec["values"], {"x": "nan", "y": "-inf"})
         self.assertEqual(len(warns), 2)
 
+    def test_proxy_only_keys(self):
+        """_proxy_only lists keys only a proxy reads: no typo warning for them, and a listed key
+        params.json does not have is reported (it exempts nothing)."""
+        params = {"_proxy_only": ["conn_half_h", "conn_out", "ghost", "conn_out"], "conn_half_h": 4.0, "conn_out": 2.0,
+                  "wall": 2.0, "_parts": {"adapter": {}}}
+        keys, warns = build.proxy_only_keys(params)
+        self.assertEqual(keys, {"conn_half_h", "conn_out"})
+        self.assertEqual(warns, ["params.json \"_proxy_only\" names 'ghost', which is not a parameter in params.json "
+                                 "(a typo, or a key since removed): nothing uses it"])
+        self.assertEqual(build.proxy_only_keys({"w": 1}), (set(), []))
+        for bad in ("conn_out", ["_parts"], [1], [""], {"conn_out": 1}):
+            keys, warns = build.proxy_only_keys({"_proxy_only": bad, "conn_out": 1})
+            self.assertEqual(keys, set())
+            self.assertIn("must be a list of parameter names", warns[0])
+        rec, warns = build.parameters_record(params, {"wall": 1.0}, kind="PARAMETERS")
+        self.assertEqual(len(warns), 2)                                       # the record itself is unchanged
+        kept = build.drop_proxy_only(warns + ["font switched", build.unknown_key_warning("walll", "DEFAULTS")],
+                                     {"conn_half_h", "conn_out"})
+        self.assertEqual(kept, ["font switched", "params.json key 'walll' is not in the generator's DEFAULTS (a typo?)"])
+        self.assertEqual(build.drop_proxy_only([build.unknown_key_warning("conn_out", "DEFAULTS")], {"conn_out"}), [])
+
+    def test_weight_of_a_volume(self):
+        self.assertEqual(build.solid_weight(55000.0, "pla_basic"),
+                         {"volume_cm3": 55.0, "solid_g": 68.2, "solid_density_g_cm3": 1.24})
+        self.assertEqual(build.solid_weight(1000.0, "PETG_HF")["solid_g"], 1.3)
+        self.assertEqual(build.solid_weight(12345.6, None), {"volume_cm3": 12.35})        # no material: no mass
+        self.assertEqual(build.solid_weight(1000.0, "pa_cf"), {"volume_cm3": 1.0})        # a family not in the table
+        for bad in (0, -5.0, None, float("nan"), True, "10"):
+            self.assertEqual(build.solid_weight(bad, "pla_basic"), {})
+        self.assertEqual({k: build.material_density(k) for k in ("pla_pure", "abs", "asa", "tpu_95a", "", 3)},
+                         {"pla_pure": 1.24, "abs": 1.04, "asa": 1.07, "tpu_95a": 1.21, "": None, 3: None})
+
     def test_json_value(self):
         warns = []
         self.assertEqual(build.json_value({"a": (1, 2.5, True, None, "s"), "b": {"c": [0.1]}}, "p", warns),
@@ -388,6 +434,32 @@ class Record(Base):
         self.assertEqual(code, 0, out.get("errors"))
         self.assertEqual((out["parameters"], out["parts"][0]["material"], out["params"]),
                          ({"scope": "overrides", "values": {}}, None, None))
+
+    def test_parts_and_objects_carry_volume_and_solid_weight(self):
+        """volume_cm3 on every part, solid_g (100 % infill) with a known material, and the sums on
+        each object; solid_g of an object only when every part has one."""
+        base = os.path.join(self.d, "base.stl"); write_stl(base, box(40, 50, 25))          # 50 cm3
+        cap = os.path.join(self.d, "cap.stl"); write_stl(cap, box(10, 10, 10, 0, 0, 25))     # 1 cm3, on the base
+        tag = os.path.join(self.d, "tag.stl"); write_stl(tag, box(10, 10, 2, 60, 0, 0))      # 0.2 cm3, alone
+        src = self.write("gen_fusion.py", "def run(context=None):\n    pass\n")
+        prm = self.params({"_material": "pla_basic", "_parts": {"base": {}, "cap": {"object": "base", "material": "petg_basic"},
+                                                                "tag": {"material": "pa_cf"}}})
+        code, out = run("record", base, cap, tag, "--source", src, "--params", prm, "--out", self.out, "--no-wall-check",
+                        "--no-3mf")
+        self.assertEqual(code, 0, out.get("errors"))
+        parts = {p["name"]: p for p in out["parts"]}
+        self.assertEqual({n: (p.get("volume_cm3"), p.get("solid_g"), p.get("solid_density_g_cm3")) for n, p in parts.items()},
+                         {"base": (50.0, 62.0, 1.24), "cap": (1.0, 1.3, 1.27), "tag": (0.2, None, None)})
+        objects = {o["name"]: o for o in out["objects"]}
+        self.assertEqual((objects["base"]["volume_cm3"], objects["base"]["solid_g"]), (51.0, 63.3))
+        self.assertEqual(objects["tag"]["volume_cm3"], 0.2)
+        self.assertNotIn("solid_g", objects["tag"])                              # pa_cf: no density known
+        # A listed proxy-only key params.json does not have is a warning in record too.
+        prm = self.params({"_proxy_only": ["plug_w"], "w": 1.0})
+        code, out = run("record", tag, "--source", src, "--params", prm, "--out", self.out, "--no-wall-check", "--no-3mf")
+        self.assertTrue(any("\"_proxy_only\" names 'plug_w'" in w for w in out["warnings"]), out["warnings"])
+        self.assertNotIn("solid_g", out["parts"][0])                             # no material at all: volume only
+        self.assertEqual(out["parts"][0]["volume_cm3"], 0.2)
 
     def test_record_external_build(self):
         stl = os.path.join(self.d, "fusion_part.stl")
@@ -853,6 +925,86 @@ class BlenderDetect(Base):
         self.assertTrue(any("timed out" in n for n in status["notes"]))
 
 
+class BpyInstallHint(Base):
+    """detect's `suggest`: the pip command for bpy when no Blender can run, never run by detect."""
+
+    def detect(self, facts, bpy=None, binary=None, *argv):
+        failed = {"error": f"import bpy exited with status 1 in {sys.executable}", "python": sys.executable}
+        def no_install(cmd, *a, **k):                                         # detect never installs
+            raise AssertionError(f"detect ran {cmd}")
+        with mock.patch.object(build, "find_blender", return_value=binary and binary["path"]), \
+                mock.patch.object(build, "blender_info", return_value=binary), \
+                mock.patch.object(build, "blender_manifold3d", return_value=True), \
+                mock.patch.object(build, "bpy_info", return_value=bpy or failed), \
+                mock.patch.object(build, "python_facts", return_value=facts) as probe, \
+                mock.patch.object(build, "find_openscad", return_value=None), \
+                mock.patch.object(build.subprocess, "run", side_effect=no_install):
+            code, out = run("detect", *argv)
+        self.assertEqual(code, 0, out["errors"])
+        return out, probe
+
+    def test_no_blender_gives_the_pip_command_for_the_interpreter_detect_checked(self):
+        facts = {"version": [3, 13, 1], "venv": False, "marker": True, "pip": True}
+        out, probe = self.detect(facts)
+        self.assertNotIn("blender", out["available"])
+        [hint] = out["suggest"]
+        probe.assert_called_once_with(sys.executable)
+        self.assertEqual((hint["for"], hint["python"], hint["python_version"], hint["externally_managed"]),
+                         ("blender", sys.executable, "3.13.1", True))
+        want = [sys.executable, "-m", "pip", "install", "bpy>=4.5", "--break-system-packages"]
+        self.assertEqual(hint["command"], build._command_line(want))
+        if os.name != "nt":
+            self.assertTrue(hint["command"].endswith(" -m pip install 'bpy>=4.5' --break-system-packages"), hint["command"])
+        for words in ("disposable sandbox", "ask first", "Nothing was installed by detect", "bpy 5.1 and newer",
+                      "externally managed (PEP 668)"):
+            self.assertIn(words, hint["note"])
+        self.assertTrue(any("suggest[]" in n for n in out["notes"]), out["notes"])
+
+    def test_the_command_follows_the_interpreter(self):
+        venv = {"version": [3, 11, 9], "venv": True, "marker": True, "pip": True}     # a venv ignores the marker
+        hint = self.detect(venv)[0]["suggest"][0]
+        self.assertNotIn("--break-system-packages", hint["command"])
+        self.assertFalse(hint["externally_managed"])
+        self.assertIn("bpy 4.5 to 5.0 for Python 3.11", hint["note"])
+        plain = {"version": [3, 12, 3], "venv": False, "marker": False, "pip": False}    # no wheel, no pip: said
+        hint = self.detect(plain)[0]["suggest"][0]
+        self.assertNotIn("--break-system-packages", hint["command"])
+        self.assertIn("No bpy 4.5+ wheel exists for Python 3.12", hint["note"])
+        self.assertIn("3.11 (bpy 4.5 to 5.0) or 3.13 (bpy 5.1 and newer)", hint["note"])
+        self.assertIn("no pip module", hint["note"])
+        hint = self.detect(None)[0]["suggest"][0]                                # could not run it
+        self.assertIsNone(hint["python_version"])
+        self.assertIn("Could not run", hint["note"])
+        self.assertTrue(hint["command"].startswith(build._command_line([sys.executable])))
+        # --blender-python: that interpreter is the one named.
+        failed = {"error": "import bpy exited with status 1 in /opt/py/bin/python3", "python": "/opt/py/bin/python3"}
+        out, probe = self.detect(venv, failed, None, "--blender-python", "/opt/py/bin/python3")
+        probe.assert_called_once_with("/opt/py/bin/python3")
+        self.assertTrue(out["suggest"][0]["command"].startswith("/opt/py/bin/python3 -m pip install"))
+
+    def test_nothing_to_suggest_when_blender_can_run_or_a_binary_is_there(self):
+        facts = {"version": [3, 13, 1], "venv": False, "marker": False, "pip": True}
+        good = {"version": "5.2.2", "version_tuple": (5, 2, 2), "python": sys.executable}
+        out, probe = self.detect(facts, good)
+        self.assertEqual(out["suggest"], [])
+        probe.assert_not_called()
+        old = {"version": "4.4.0", "version_tuple": (4, 4, 0), "python": sys.executable}     # too old: the pin upgrades it
+        self.assertEqual(len(self.detect(facts, old)[0]["suggest"]), 1)
+        binary = {"path": "/x/blender", "version": "4.2.0"}                        # an old Blender: upgrade it, not bpy
+        out, probe = self.detect(facts, None, binary)
+        self.assertEqual(out["suggest"], [])
+
+    def test_python_facts_of_this_and_another_interpreter(self):
+        here = build.python_facts(sys.executable)
+        self.assertEqual(here["version"], list(sys.version_info[:3]))
+        self.assertEqual(set(here), {"version", "venv", "marker", "pip"})
+        self.assertIsNone(build.python_facts(os.path.join(self.d, "no-such-python")))
+        if os.name != "nt":
+            link = os.path.join(self.d, "python-link")
+            os.symlink(sys.executable, link)                                       # another path: a subprocess
+            self.assertEqual(build.python_facts(link)["version"], list(sys.version_info[:3]))
+
+
 class BlenderEngine(Base):
     """build.py's side of the Blender engine, with a stand-in binary (no Blender needed)."""
 
@@ -952,6 +1104,22 @@ class BlenderEngine(Base):
                 self.assertNotIn("parameters", out["engine_info"])
                 self.assertNotIn("warnings", out["engine_info"])
                 self.assertEqual({p["name"]: p["material"] for p in out["parts"]}, {"body": "petg_hf", "peg": "pla_basic"})
+
+    @unittest.skipUnless(os.name != "nt", "uses a shell wrapper as a fake blender")
+    def test_proxy_only_keys_leave_the_parameters_warnings(self):
+        """bb.main warns about every params.json key PARAMETERS lacks (it never sees _proxy_only):
+        build.py drops the lines of the keys _proxy_only lists, and keeps the rest."""
+        exe = self.fake(FAKE_BLENDER)
+        src = self.write("gen_blender.py", BLENDER_GEN)
+        prm = self.params({"_proxy_only": ["conn_out"], "w": 25.0, "conn_out": 3.0, "x": 1})
+        typos = [build.unknown_key_warning(k, "PARAMETERS") for k in ("conn_out", "x")]
+        merged = {"scope": "merged", "values": {"w": 25.0, "d": 20.0, "h": 8.0, "fillet": 1.5, "conn_out": 3.0, "x": 1}}
+        extra = {"parameters": merged, "parameter_warnings": typos, "warnings": typos}
+        with mock.patch.dict(os.environ, {"BLENDER": exe, "FAKE_BLENDER_REPORT": json.dumps(extra)}):
+            code, out = run("run", src, "--params", prm, "--out", self.out, "--no-wall-check", "--no-3mf")
+        self.assertEqual(code, 0, out.get("errors"))
+        self.assertEqual([w for w in out["warnings"] if "typo" in w], [typos[1]])
+        self.assertEqual(out["parameters"], merged)
 
     @unittest.skipUnless(os.name != "nt", "uses a shell wrapper as a fake blender")
     def test_timeout_and_failure_are_reported(self):

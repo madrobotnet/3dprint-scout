@@ -25,6 +25,8 @@ Schema (params.json, metadata keys never reach the engine):
 Checks (IDs continue the SKILL.md table):
   per object (only when it has several parts): D2, P1, P2 on the union of its parts, so
     a fused part that floats or overhangs on its own is judged as part of the whole;
+  a fused part that does not reach the object's lowest point takes the object's P1 (its own P1
+    is N/A, "judged on object", defer_p1; build.py and finalize.py apply it);
   per part: A1 (fused: shares faces with another fused part, no overlap, and when the part
     is several bodies (letters) every body does; hard; N/A when its only partners are free
     parts) and A2 (free: FAIL on contact or overlap, WARN below the
@@ -398,6 +400,32 @@ def check_object(obj: dict, stls: dict, specs: dict, bed=None, bed_source=None, 
     return out
 
 
+def defer_p1(checks: dict, metrics: dict, role, obj: dict) -> bool:
+    """A fused part whose lowest point is above its object's (it sits on another part, not on
+    the bed) takes the object's P1: its own P1 measures the flat area at its own lowest face,
+    which is no bed, and would WARN as noise. `checks` and `metrics` are the part's validate.py
+    ones (changed in place), `obj` the build's objects[] entry (name, checks.P1, metrics.bbox_min_mm,
+    present only for an object with several parts). The part's P1 becomes N/A, "judged on object
+    '<name>'", with the object's P1 state and the part's own numbers in its value; the object's
+    P1 on the union of the parts is the verdict, and N/A is never PASS (G3). A free part, a part
+    alone in its object, a fused part that reaches the bed, and an entry without these numbers
+    (a build JSON from before 0.9.1) keep their own P1. Returns whether it deferred."""
+    own = (checks or {}).get("P1")
+    whole = ((obj or {}).get("checks") or {}).get("P1")
+    lo = ((obj or {}).get("metrics") or {}).get("bbox_min_mm")
+    plo = (metrics or {}).get("bbox_min_mm")
+    if role != "fused" or not own or not whole or not lo or not plo or own.get("state") == "N/A":
+        return False
+    if plo[2] <= lo[2] + validate.BED_EPS:
+        return False
+    value = {"object": obj.get("name"), "object_P1": whole.get("state"), "lowest_z_mm": plo[2],
+             "object_lowest_z_mm": lo[2], "bed_contact_mm2": (own.get("value") or {}).get("bed_contact_mm2")}
+    checks["P1"] = validate.chk("N/A", "soft", value,
+                                f"judged on object '{obj.get('name')}' (its P1: {whole.get('state')}): this fused part "
+                                f"sits {plo[2] - lo[2]:.2f} mm above the object's lowest point, not on the bed")
+    return True
+
+
 def object_gate(report: dict) -> str:
     """PASS / FAIL / INCOMPLETE over the object's hard checks and its parts' A1 / A2."""
     hard = [ck for ck in report["checks"].values() if ck["kind"] == "hard"]
@@ -410,4 +438,4 @@ def object_gate(report: dict) -> str:
 
 
 __all__ = ["ROLES", "DEFAULT_FREE_CLEARANCE", "AssemblyError", "group_parts", "part_role", "part_clearance",
-           "check_object", "object_gate"]
+           "check_object", "defer_p1", "object_gate"]
