@@ -87,7 +87,7 @@ list and `_assumptions` included. In this order:
 
    | State | Say |
    |---|---|
-   | `verified` | It holds, and what showed it ("checked against a plug of the size you measured", "your test print fit the cable"). When an evidence's `covers` is narrower than the promise's `conditions` (the fit checks the plug at rest; plugging it in at an angle is not simulated), say what was not covered. |
+   | `verified` | It holds, and what showed it ("checked against a plug of the size you measured", "your test print fit the cable"). When an evidence's `covers` is narrower than the promise's `conditions` (the fit checks the plug at rest; plugging it in at an angle is not simulated), say what was not covered. A print in another filament or a section says what it showed ("your PLA test piece fit; the PETG part's strength comes from the calculation"), with any close-fit warning finalize adds. |
    | `accepted` | It holds apart from the warning the user accepted, named, with their reply. Not "verified". |
    | `assumed` | It holds only if a size nobody measured is right: name it with its value ("the plug head was taken as 13 × 8 mm, not measured") and what would settle it (a caliper reading, a test print). For a filament the print file does not name: which filament to choose. Never "verified". |
    | `excluded` | Not checked: the user chose to take it as it is, with their reason in their own words. |

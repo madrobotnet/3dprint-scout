@@ -1,4 +1,5 @@
 """Tests for scripts/build.py and scripts/threemf.py."""
+import hashlib
 import io
 import json
 import os
@@ -1273,6 +1274,48 @@ difference() {
 }
 """
 
+# The hull of five rings of 340 points (a barrel 40 mm across): 3396 triangles, over the 10 000
+# half-edges above which manifold3d gathers a hull on threads. _threads stands in for them.
+HULL_GEN = '''
+import numpy as np
+from manifold3d import Manifold, Mesh64
+
+DEFAULTS = {"order": 1, "raw": False}
+_real = Manifold.hull_points
+_order = [1]
+
+
+def _threads(pts):
+    """The hull as threads may gather it: the same triangles in another order, each starting
+    at another corner (winding kept), other face ids."""
+    man = _real(pts)
+    m = man.to_mesh64()
+    rng = np.random.default_rng(_order[0])
+    tri = np.asarray(m.tri_verts, dtype=np.int64)
+    tri = np.take_along_axis(tri, (rng.integers(0, 3, len(tri))[:, None] + np.arange(3)) % 3, axis=1)
+    perm = rng.permutation(len(tri))
+    ids = np.asarray(m.face_id)
+    labels = np.unique(ids)
+    relabel = dict(zip(labels.tolist(), rng.permutation(labels).tolist()))
+    return Manifold(Mesh64(vert_properties=np.array(m.vert_properties, dtype=np.float64),
+                           tri_verts=np.array(tri[perm], dtype=np.uint64),
+                           face_id=np.array([relabel[i] for i in ids[perm].tolist()], dtype=np.uint64),
+                           run_index=np.array(m.run_index, dtype=np.uint64),
+                           run_original_id=np.array(m.run_original_id, dtype=np.uint32), tolerance=man.get_tolerance()))
+
+
+Manifold.hull_points = staticmethod(_threads)
+
+
+def build(params):
+    p = {**DEFAULTS, **params}
+    _order[0] = int(p["order"])
+    a = 2 * np.pi * np.arange(340) / 340
+    pts = np.ascontiguousarray(np.vstack([np.stack([r * np.cos(a), r * np.sin(a), np.full(340, z)], 1)
+                                          for z, r in ((0.0, 15.0), (3.0, 18.0), (6.0, 19.5), (9.0, 18.0), (12.0, 15.0))]))
+    return {"barrel": _threads(pts) if p["raw"] else Manifold.hull_points(pts)}
+'''
+
 
 def stl_bytes(tris, header=b"canonical test", attrs=None):
     """A binary STL of `tris` in this order, each with its normal and its attribute from `attrs`
@@ -1462,6 +1505,29 @@ class RebuildSameBytes(Base):
         builds = self.same(outs)
         self.assertEqual(builds[0], builds[1])
         self.assertEqual(sorted(records(builds[0]["body"])), records(builds[0]["body"]))
+
+    @unittest.skipUnless(HAS_M3D, "manifold3d not installed")
+    def test_a_python_build_with_a_large_hull_writes_the_same_bytes(self):
+        """0.10: manifold3d gathers a hull of more than 3333 triangles on threads, in another
+        order on each run, so the STL's records started at other corners (another first vertex,
+        another float normal) and a rebuild had other bytes now and then. The generator's stand-in
+        for the threads hands the hull back in the order `order` picks: returned as it comes
+        (`raw`), two orders give two STLs; through Manifold.hull_points while build() runs they
+        give one."""
+        src = self.write("barrel.py", HULL_GEN)
+        outs = {}
+        for raw in (True, False):
+            for order in (1, 2):
+                prm = self.params({"_parts": {"barrel": {}}, "order": order, "raw": raw})
+                code, out = run("run", src, "--params", prm, "--out", os.path.join(self.d, f"o{raw}{order}"),
+                                "--no-wall-check", "--no-3mf")
+                self.assertEqual(code, 0, out.get("errors"))
+                outs[raw, order] = out
+        b = {k: (len(v["barrel"]), hashlib.sha256(v["barrel"]).hexdigest())
+             for k, v in zip(outs, self.same(list(outs.values())))}
+        self.assertNotEqual(b[True, 1], b[True, 2], "two orders gave one STL without the fix: the case does not reproduce")
+        self.assertEqual(b[False, 1], b[False, 2])
+        self.assertEqual(b[False, 1][0], b[True, 1][0])
 
     @unittest.skipUnless(HAS_BPY and HAS_M3D, "bpy module or manifold3d not installed")
     def test_blender_builds_the_same_bytes(self):

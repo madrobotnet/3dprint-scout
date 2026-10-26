@@ -1,5 +1,64 @@
 # Changelog
 
+## 0.10.0 — 2026-10-26
+
+The evidence model, from the X2D exhaust adapter field test: the user printed a piece cut from
+the part, in PLA, for a PETG part, and it fit; 0.9.x could not count it. A test print can now
+stand for the promises it really showed, and a use that carries a force needs a strength check.
+
+- **A section of the part as a test print**: a printed part in `_verify.test_prints` may carry
+  `section: {box, stl}`, the piece being the part cut by that box (built from a second params
+  file). finalize checks the piece's sha256, cuts the current part with the box itself and
+  compares (symmetric difference at most max(0.1 mm³, 1e-6 × the piece's volume)). It counts
+  for a promise only when every joint and measurement of that promise checks the part inside the
+  box: the part outside the box stays 1 mm plus the fit's play from the mating part (through the
+  whole sweep of a moving joint), or 1 mm from a sliced plane; an `info` measurement never
+  counts. A rebuild that changed nothing inside the box keeps the section valid. New module
+  `scripts/finalize_section.py`; the bundle carries the piece's STL.
+- **Another filament** (PLA for a PETG part): a print counts for geometric promises (fits,
+  gaps, passages, motions by hand), with `"scope": "geometry"` on its evidence, never for a use
+  that carries a load or names a strength check. A confirmed fit with under 0.2 mm of play gets
+  a warning line: another material shrinks and squishes differently.
+- **`load` on a use**: a use that holds a weight, is clamped, pulled or levered is `"load":
+  true` and stays not verified until a strength report naming its member is among its evidence
+  ("it carries a load and no strength check names it"). The look's load paths (0.9.1) say which.
+- **`strength_cases.py`**, new, in the strength report format with `--from-build`:
+  - `tube`: a tube under a band or hose clamp, hoop compression σ = T/(w t) against the
+    material, with the radial shrink, the tension the tube carries at the safety factor and the
+    free-ring buckling pressure reported (not gated: a band in full contact crushes, it does not
+    buckle the tube). The band tension is a required input; no published value was found.
+  - `post`: a post or block loaded across the layers, root bending and shear, round or square,
+    Z strength by default.
+  - `snap --taper` / `--h-tip` and `--gap-worst`: a tapered arm (the taper factor reproduces
+    Bayer's half-taper design type) and the undercut when tolerances stack, at nominal and worst.
+  - `strength.py` is unchanged, byte for byte: it is a hashed source of every build that imports
+    `parts.py`, so changing it would make those builds stale; a test now pins it.
+- **Rebuilds write the same bytes, also with a large convex hull**: manifold3d gathers a hull of
+  more than about 3333 triangles on several threads, so its triangles came out in another order
+  on each run and every rebuild wrote another STL (found in the 0.9.1 comparison). Such hulls are
+  now put in one order, while `build()` runs, for the Blender and the Python engine; smaller
+  hulls are untouched.
+- **Guidance**: Phase 2 (`load`), Phase 3 (a use resting on a load path is a `load` use; the
+  test piece may be a section or another filament, said as fit-only), Phase 4 ("Test prints as
+  evidence": how to make and record a section piece and read finalize), Phases 5 and 6,
+  SKILL.md.
+- **Upgrading**: projects, reports and commands from 0.9.1 work unchanged; a print in another
+  material now verifies a geometric promise it used to leave unconfirmed. A Blender project reads
+  its build as stale once (the helper module changed): build again. Its STLs come out the same,
+  except where a convex hull has more than about 3333 triangles: that part gets new bytes once
+  (they were random before) and its evidence must be made again. A Python project stays fresh;
+  a rebuild of a part with such a hull also writes new bytes once.
+- **Conversation scenario** (`docs/scenarios/results-v0.10.0.md`): no scenario records a test
+  print, so the evidence changes are covered by unit tests and an end-to-end check; bambu-template,
+  which reaches the look's new lines and the `load` flag, was run with Claude and matches in two
+  stops.
+- **Golden comparison with v0.9.1**: of 185 build and finalize outputs, 3 differ, only in the
+  bytes of 3MF files that differ on every build anyway; no verdict changed.
+- **Tests**: 534, passing on Python 3.13 + bpy 5.2.2 here and on 3.13, 3.11 and 3.9 in CI.
+- **Correction**: `results-v0.9.1.md` said the 0.9.1 runs' STLs were unchanged by the final
+  export; four of their six part STLs rebuild to other bytes (they were built with a pre-release
+  export). The page now says so.
+
 ## 0.9.1 — 2026-10-26
 
 From the first real-print field test of 0.9.0: an exhaust adapter for a Bambu Lab X2D, designed

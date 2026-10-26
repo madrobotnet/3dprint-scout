@@ -10,7 +10,10 @@ its checklist marked, is in `runs/claude-0.9.1/<id>.md`; a row only summarises i
 
 All three ran at cec0f3d (the 0.9.1 guidance and kit), in one pass. The Blender export changed
 after the runs (6fd950f: Blender's own triangulation kept unless it leaves a bad triangle); that
-changes no message and, for these parts, no STL byte (below).
+changes no message. Correction (0.10.0): it does change STL bytes for these runs' parts. They
+were built at cec0f3d, whose export re-triangulated every face, and four of their six part STLs
+rebuild to other bytes with the released 0.9.1. An earlier version of this page said no byte
+changed; that was not checked for these runs. Their transcripts and grading stand.
 
 The harness was the one 0.9.0 used, with one line added to each brief: the agent knows nothing
 about the user beyond their messages and the project folder. In 0.9.0 two run agents had taken

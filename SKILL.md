@@ -59,6 +59,8 @@ Rules that hold in every phase, whatever file is open:
 - **Never model support structures into a part**: an overhang gets the slicer's supports or a redesign.
 - **A fit test or a mechanism-first print that was offered and skipped** goes into
   `_assumptions` ("not confirmed by a test print"); never say a test confirmed something it did not.
+- **A print in another filament, or a section of the part, shows the fit only**: it counts for
+  geometric promises, never for a use that carries a load (`load`), which needs a strength check.
 - **A weight or a print time is said from a number, never guessed**: the build report's solid
   mass (an upper bound: walls and infill weigh less) or the slicer's estimate, named as which.
 - **Only `finalize.py` says a promise is verified.** Your look at an image never verifies one, nor
@@ -141,7 +143,8 @@ what cannot wait for it.
 - Material and preset in params.json (`_material`, `_parts.<name>.material`, `_print.preset`);
   purpose decorative, general or load-bearing, default general.
 - The use list, made with the user in plain words: what they will do with the part, under which
-  conditions, what counts as success; each a `use` promise (`conditions`, `success`).
+  conditions, what counts as success; each a `use` promise (`conditions`, `success`). A use done
+  by hand gets `by_hand`, one that carries a force `load` (verified only with a strength check).
 - Dimensions, each with its source (R2): the object's, caliper > official spec > two secondary
   sources that agree; sources that disagree are settled as the phase file says (a model the user
   already uses and that fits first). This printer's: the calibration log (`calibration.py lookup
@@ -191,7 +194,7 @@ Goal: every hole, fit, snap and mechanism checked with numbers before anything i
 - Every joint from both sides with `fit.py` (F3); a moving part gets a sweep through its travel;
   with no closed mesh of the mating part, a proxy from its `dims` (`references/measure.md`).
 - Every pin, knuckle, lever and latch bar against its duty's P7 floors, plus `strength.py
-  --from-build` with a cited load. FAIL → redesign; WARN, or no proven reference → **print the
+  --from-build` (or `strength_cases.py`) with a cited load. FAIL → redesign; WARN, or no proven reference → **print the
   mechanism first** (`build.py run --only ...`); a lid hinge always, a wall-built one as a coupon.
 - **Fit test first** when the mating shape is not known exactly: `fit_test.py` pieces in three
   clearance steps, offered in the look; the user cannot test now → the middle step, recorded in
@@ -300,6 +303,7 @@ Scripts, run as `python3 "$SKILL_DIR/scripts/<name>.py"` (each has `--help`; the
 | `fit.py` | F3 between two placed STLs; `--sweep-*`; `--check REPORT` |
 | `fit_test.py` | Fit-test pieces in three clearance steps |
 | `strength.py` | Hand calculations (pin, beam, link, wall, `hinge`, `snap`); `--from-build` |
+| `strength_cases.py` | More hand calculations in the same report format: `tube` (a tube under a band or hose clamp), `post` (a post or block loaded across the layers), `snap --taper` / `--gap-worst`; `--from-build` |
 | `measure.py` | Numbers from a supplied STL / 3MF or the built part; `--expect` keeps one as evidence |
 | `calibration.py` | The user's print results: `add`, `show`, `lookup` |
 | `finalize.py` | The verification report: use tier, geometry, shape, `open`; `--deliver`, `--bundle` |

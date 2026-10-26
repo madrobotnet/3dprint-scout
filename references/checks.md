@@ -15,14 +15,14 @@ tier is not declared. An empty list says there is nothing of that kind. Declare 
 you save it and name it in the `evidence` of the promise it checks.
 
 Every path is relative to the project folder, the folder the build runs in. Run `fit.py`,
-`measure.py`, `strength.py`, `preview.py` and `render.py` from there with relative paths: they
+`measure.py`, `strength.py`, `strength_cases.py`, `preview.py` and `render.py` from there with relative paths: they
 record the paths they are given, and an absolute one, even inside the project folder, makes
 `--bundle` refuse the report (and is a declaration error in a test print's `photos`). Keep the
 reports, the user's files (`ref/`) and photos (`photos/`) inside the project folder.
 
 | Key | Each entry |
 |---|---|
-| `promises` | `id`, `kind` (`use`, `feature` or `look`), `text`; `conditions` and `success` for a `use`, `success` for a `feature`; `evidence`, a list of `{"<kind>": "<name>", "covers": "<what it covers, one line>"}` with the kind `joint`, `strength`, `measurement`, `seen` or `test_print`; `assumes`, the dims ids it rests on that no evidence names; `"by_hand": true` on a `use` that is a motion done by hand (below); optional `note` |
+| `promises` | `id`, `kind` (`use`, `feature` or `look`), `text`; `conditions` and `success` for a `use`, `success` for a `feature`; `evidence`, a list of `{"<kind>": "<name>", "covers": "<what it covers, one line>"}` with the kind `joint`, `strength`, `measurement`, `seen` or `test_print`; `assumes`, the dims ids it rests on that no evidence names; `"by_hand": true` on a `use` that is a motion done by hand (below); `"load": true` on a `use` that carries a force (below); optional `note` |
 | `dims` | `id`, `what`, `unit`, `params` (the params.json keys with the values params.json has), `source`: `assumed`, `caliper` (with `"by": "user"`), `spec` (with `url`, and `where`: the place of each parameter's number in it) or `user-file` (with `from`: each parameter's measurement of the user's file, and `tol`; optional `own`: `true` when the file is the user's own work, which `--bundle` then carries, else it names the file with its sha256 for the user to obtain; `url` and `licence`: where a file from someone else came from and its licence); optional `tol` and `note` (where an assumed number came from) |
 | `joints` | `name`, `report` (a saved `fit.py` report); `"sweep": true` for a moving part, whose report must then hold F3_sweep; a proxy joint adds `"proxy": true`, its `dims` and `proxy_build` (`references/measure.md`) |
 | `strength` | `name`, `report` (a saved `strength.py --from-build` report); optional `dims` |
@@ -48,6 +48,11 @@ user's report, never from your expectation:
   delivered `verification.json` lists them (`parts[].sha256`). Copy it when the files are
   handed over, never later from the files as they are then. The material is the filament it
   was printed in.
+- A piece of a part, the part cut by a box (a section piece, below): its part's entry adds
+  `"section": {"box": [[x0, y0, z0], [x1, y1, z1]], "stl": "<the piece's STL>"}`, and its
+  sha256 is the piece's as printed (from the build JSON of the build that made the piece).
+  `box` is in mm in the coordinates of the part's STL, the box the generator cut with; `stl` is
+  the piece's STL, relative to the project folder (`--bundle` carries it).
 - `printer` (the printers.json key), `"orientation": "as built"` (as modelled: the 3MF only turns
   a part about Z), `"by": "user"`, `status`: `passed`, `failed`, `skipped`, `offered` or
   `pending`.
@@ -62,6 +67,47 @@ An entry without `promises` (a coupon the user skipped, `fit_test.py` pieces: `{
 fit test", "status": "passed", "note": "step 2 fits"}`) is no evidence and stays in the print
 tier.
 
+**A section piece.** A print of the part cut by a box, made by the part's own generator with the
+cut added (a second params file), so that the piece keeps the part's coordinates. finalize reads
+the piece's STL (its sha256 must be the one recorded), cuts the part as it is now by the box
+(manifold3d) and compares the two: they are the same when the volume of their symmetric
+difference is at most 0.1 mm³ or a millionth of the piece's volume, whichever is larger (float
+rounding leaves about 1e-4 mm³; a box 0.01 mm off differs by several mm³). The comparison is
+with the part as it is now, so a section stays valid while the part inside the box is
+unchanged, even after the part is built again into other bytes or changed outside the box; a
+piece that differs makes the print stale, as a print of an earlier part is, and one that cannot
+be compared (its STL gone or not the one printed, no manifold3d) verifies nothing. The section
+then stands for a promise only where the promise's own evidence checks the cut part inside the
+box:
+
+- every joint of the promise that fitted the part: the part outside the box keeps at least 1 mm,
+  plus the fit's largest play, from the mating part as the fit report placed them, and through
+  the whole sweep of a moving joint;
+- every measurement of the promise that read the part: the part outside the box keeps 1 mm from
+  the plane it sliced or the rays it cast (a `measure.py info` reads the whole part: never inside);
+- a promise that names no joint or measurement of the cut part is not raised by the section.
+
+Otherwise the promise's reasons say which joint or measurement checks the part outside the box,
+and how close. A section never stands for a promise that carries a force (below).
+
+**Another material, a section, and the strength.** A print in another material than the part's,
+or a section, shows the geometry: fits, clearances, a thing passing through, a motion by hand. It
+stands for a geometric promise: its material line is dropped, its evidence item reads `"scope":
+"geometry"`, and the promise's reasons say what it showed (`test print 'lid fit' shows the fit,
+not the strength: lid printed in pla_basic, the part is petg_hf`). It never stands for a promise
+that carries a force, a `use` with `"load": true` or with `strength` evidence: a print in another
+material keeps its line (`lid was printed in pla_basic, the part is petg_hf`), and a section does
+not stand for it at all. When a print in another material confirms a joint whose fit report has
+less than 0.2 mm of play (its F3 `min_play_mm`), finalize names it, in the promise's reasons and
+in `open`: another material shrinks and squishes differently. The printer, the preset and `"as
+built"` are needed as for any print; a material changed since the build, or another filament in
+the delivered print file, keeps its line.
+
+**A use that carries a load.** `"load": true` marks a `use` that carries a force: it holds a
+weight, is clamped, pulled or levered. Only a strength check shows that, so without a `strength`
+item among its evidence it is not verified: "it carries a load and no strength check names it".
+A print in the part's own material counts for it as before.
+
 ## The promise states
 
 `use` is judged apart from `geometry`, from `_verify.promises` and `_verify.dims`. Each promise
@@ -69,10 +115,10 @@ gets one state:
 
 | State | When |
 |---|---|
-| `error` | Declared wrongly: no id or the same id twice, an unknown field or kind, no `text`, a `use` without `conditions` and `success` or a `feature` without `success`, a `by_hand` that is not `true` or `false` or is on a `feature` or `look`, an evidence item that names nothing declared of its kind (a joint, member, measurement, seen image or test print), names a part's own check (`box M1`) or a kind the promise does not take, a seen image or test print that does not list the promise in its `promises` or is declared wrongly itself, or a dims entry that is missing or declared wrongly (`own` that is not `true` or `false`, `own` or `licence` on an entry that is not `user-file`, a `caliper` value without `"by": "user"`, a `spec` without its `url` or without `where` (the place in the spec of each parameter's number), a `user-file` value without `from` for each parameter or without `tol`, or naming a measurement that is not declared, values that differ from params.json) |
+| `error` | Declared wrongly: no id or the same id twice, an unknown field or kind, no `text`, a `use` without `conditions` and `success` or a `feature` without `success`, a `by_hand` or `load` that is not `true` or `false` or is on a `feature` or `look`, an evidence item that names nothing declared of its kind (a joint, member, measurement, seen image or test print), names a part's own check (`box M1`) or a kind the promise does not take, a seen image or test print that does not list the promise in its `promises` or is declared wrongly itself (a test print's `section` too: its `box` not two corners low to high, its `stl` missing or outside the project folder), or a dims entry that is missing or declared wrongly (`own` that is not `true` or `false`, `own` or `licence` on an entry that is not `user-file`, a `caliper` value without `"by": "user"`, a `spec` without its `url` or without `where` (the place in the spec of each parameter's number), a `user-file` value without `from` for each parameter or without `tol`, or naming a measurement that is not declared, values that differ from params.json) |
 | `failed` | Fresh evidence it names failed (a joint, member or measurement FAIL, a seen image judged failed, a failed test print), even if the user took the promise; a FAIL of stale evidence only leaves it not verified |
 | `excluded` | The user took it without verifying it (`{"promise": id, "reason": …, "by": "user"}` in `_verify.accepted`, whose reason is their reply to a question that named it); its other reasons stay listed |
-| `not verified` | No evidence yet, a missing or stale report, a measurement of a file that is not a part of this build, a dims entry not backed by its measurements, a fit report without F3 (or without F3_sweep for a joint marked `"sweep": true`), a joint that fitted a part whose own checks FAIL, a proxy whose params file changed since it was built or that was built from other values than its dims declare, a check that is neither PASS nor an accepted WARN, a member with an input typed in (any report not made with `strength.py --from-build`) or whose `--from-build` report is stale or of a part whose own checks FAIL, a seen image drawn again since it was judged, without its sidecar, or judged only by the agent, a test print that did not pass, or is not of these parts in their materials on the build's printer, as built, under the delivered preset, by the user (below), or material-dependent evidence (a `--from-build` member, a test print) of a part whose material changed since the build or that the delivered Bambu project prints in another filament |
+| `not verified` | No evidence yet, a missing or stale report, a measurement of a file that is not a part of this build, a dims entry not backed by its measurements, a fit report without F3 (or without F3_sweep for a joint marked `"sweep": true`), a joint that fitted a part whose own checks FAIL, a proxy whose params file changed since it was built or that was built from other values than its dims declare, a check that is neither PASS nor an accepted WARN, a member with an input typed in (any report not made with `strength.py --from-build`) or whose `--from-build` report is stale or of a part whose own checks FAIL, a seen image drawn again since it was judged, without its sidecar, or judged only by the agent, a test print that did not pass, or is not of these parts (a section: not the part as it is now cut by its box, not compared, or not holding what the promise's joints and measurements check), in their materials (another material, or a section, counts for a geometric promise only, never for one that carries a force), on the build's printer, as built, under the delivered preset, by the user (below), a `load` use that no strength check names, or material-dependent evidence (a `--from-build` member, a test print) of a part whose material changed since the build or that the delivered Bambu project prints in another filament |
 | `assumed` | Everything passed, but it rests on a dims entry with `source: "assumed"`, or on a proxy joint that names no dims or no `proxy_build` (the saved JSON of the `build.py run --proxy` that generated the proxy from its own params file; a proxy taken in with `build.py record` is not tied), or a proxy built from numbers its dims do not declare, or not given numbers they do; or, with `--deliver`, material-dependent evidence of a part whose filament in the print file cannot be read (a filament name finalize does not know, and no preset it inherits from of a known material whose type the slot's `filament_type` matches; or no Bambu project: another slicer), or a test print when no preset is recorded (`_print.preset`) or the delivered Bambu project names none |
 | `accepted` | Everything passed with a WARN the user accepted in reply to a question that named it |
 | `verified` | None of the above |

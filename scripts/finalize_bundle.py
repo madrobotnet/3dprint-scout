@@ -75,7 +75,8 @@ def bundle_contents(verify, build, deliver=None, joints=None):
     file the user declared their own, a recorded proxy's STL with its build manifest; never a
     part); a proxy's generator and params file (a `build.py run --proxy` proxy tied to them,
     joints[i].proxy_build "tied" in the report, is built again; a recorded one is carried with
-    its build JSON); each seen image and its sidecar; the test print photos; and with --deliver
+    its build JSON); each seen image and its sidecar; the test print photos and the STL of each
+    section piece a test print printed (finalize compares it with the part); and with --deliver
     every delivered STL and 3MF with the manifest finalize compares it with. Returns (files:
     {place: (path, what)}, missing: {place: what}, proxies: {build JSON place: {joint, out: the
     folder it is built into, writes: the places it writes, command: the `build.py run --proxy`
@@ -298,6 +299,10 @@ def _carry_reports(c, verify):
     for t in verify.get("test_prints") or []:
         for p in t["photos"] if isinstance(t.get("photos"), list) else []:
             c.carry(p, f"photo of test print '{t.get('name')}'")
+        for n, v in t["parts"].items() if isinstance(t.get("parts"), dict) else ():
+            sec = v.get("section") if isinstance(v, dict) else None
+            if isinstance(sec, dict) and isinstance(sec.get("stl"), str):     # the piece finalize compares with the part
+                c.hashed(sec["stl"], f"section piece of {n} printed in test print '{t.get('name')}'")
 
 
 def _carry_delivery(c, deliver, build, deliver_from=None):
@@ -619,7 +624,7 @@ def _check_rewrites(c, build, inputs, missing, proxies):
                if not src.lower().endswith(NOT_TEXT) and holds_machine_path(src)]
     if leaking:
         raise FinalizeError(f"{', '.join(leaking)} holds a path of this machine: write it again with paths relative "
-                            "to the project folder (fit.py, measure.py, strength.py --from-build, preview.py and "
+                            "to the project folder (fit.py, measure.py, strength.py or strength_cases.py --from-build, preview.py and "
                             "render.py record the paths they are given) before bundling")
 
 

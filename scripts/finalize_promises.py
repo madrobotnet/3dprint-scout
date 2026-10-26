@@ -3,9 +3,14 @@ from __future__ import annotations
 
 import json
 
-from finalize_common import (ALLOWED, EVIDENCE, KINDS, NEEDS, PROMISE_KEYS, STATES, flatten, same_value,
-    text_field, valid_check_entry)
+from finalize_common import (ALLOWED, EVIDENCE, KINDS, NEEDS, PROMISE_KEYS, STATES, FinalizeError, finite, flatten,
+    load_json, same_value, text_field, valid_check_entry)
 from finalize_evidence import (check_dims)
+from finalize_section import Regions
+
+LOAD = "it carries a load and no strength check names it"
+
+CLOSE_PLAY_MM = 0.2          # a fit closer than this, confirmed by a print in another material, is named
 
 
 def evidence_index(verify, key, entries):
@@ -17,11 +22,14 @@ def evidence_index(verify, key, entries):
     return index
 
 
-def judged_evidence(k, name, raw, entry, pid, gate):
+def judged_evidence(k, name, raw, entry, pid, gate, promise=None):
     """A seen image or a test print as one promise's evidence: what it adds to the promise's
-    errors, failures, not-verified and assumed reasons, and its result for the report."""
+    errors, failures, not-verified and assumed reasons, and its result for the report. For a test
+    print, `promise` ({force, related, regions}, from _judge_promise) says whether the promise is
+    geometric and what its joints and measurements check: a print in another material than the
+    part's, or of a section, stands for a geometric promise only (judged_print)."""
     what = f"seen '{name}'" if k == "seen" else f"test print '{name}'"
-    out = {"errs": [], "failed": [], "notver": [], "assumed": [], "result": None}
+    out = {"errs": [], "failed": [], "notver": [], "assumed": [], "result": None, "info": [], "warn": []}
     if k == "test_print" and entry is None:
         out["errs"].append(f"{what} lists no promises: a test print used as evidence names the promises it checked, its "
                            "parts (sha256 and material each), printer, orientation and by")
@@ -47,13 +55,94 @@ def judged_evidence(k, name, raw, entry, pid, gate):
                 out["notver"].append(f"{what} shows {', '.join(bad)}, whose own checks FAIL")
         return out
     out["result"] = entry.get("status") if state == "fresh" else state
-    out["notver"] += [f"{what}: {r}" for r in entry.get("notver") or []]
-    out["assumed"] += [f"{what}: {r}" for r in entry.get("assumed") or []]
+    judged_print(what, entry, promise or {}, out)
     if state == "fresh" and entry.get("status") == "failed":
         out["failed"].append(f"{what} failed")
     elif entry.get("status") != "passed" and state == "fresh":
         out["notver"].append(f"{what}: {entry.get('status')}")
+    if out.get("scope") == "geometry" and entry.get("status") == "passed" and state == "fresh" and not (
+            out["notver"] or out["assumed"]):
+        out["info"].append(_print_covers(what, entry))
+        out["warn"] += _close_fits(what, entry, promise or {})
     return out
+
+
+def judged_print(what, entry, promise, out):
+    """A test print's own reasons as evidence of one promise. A part printed in another material
+    than its own, or a section of a part, shows the geometry, not the strength: for a promise that
+    carries a force (`force`: a `load` use, or one with strength evidence) a section does not
+    stand and a print in another material keeps its line; for a geometric one the material line
+    is dropped (the print's `scope` is "geometry"), and a section stands only when every joint
+    and measurement of the promise that checks the cut part checks it inside the box (`scope`
+    "none", with the reason, otherwise)."""
+    force, sections = bool(promise.get("force")), entry.get("sections")
+    other = entry.get("other_material") or []
+    drop = set() if force else {o["line"] for o in other}
+    out["notver"] += [f"{what}: {r}" for r in entry.get("notver") or [] if r not in drop]
+    out["assumed"] += [f"{what}: {r}" for r in entry.get("assumed") or []]
+    if sections is None:
+        if other and not force:
+            out["scope"] = "geometry"
+        return
+    cut = ", ".join(sorted(n for n, v in (entry["_raw"].get("parts") or {}).items() if "section" in v))
+    if force:
+        out["scope"] = "none"
+        out["notver"].append(f"{what} is a section of {cut}: a section shows the fit, not the strength this promise "
+                             "needs (it carries a load or names a strength check)")
+        return
+    out["scope"] = "geometry"
+    if entry.get("state") != "fresh":
+        out["scope"] = "none"                          # the piece is not the part cut by its box now: its line says so
+        return
+    problems = []
+    for part, sec in sorted(sections.items()):
+        box = (tuple(sec["box"][0]), tuple(sec["box"][1]))
+        items = [r for r in promise.get("related") or [] if part in (r[3].get("measured") or [])]
+        for kind, name, raw, item in items:
+            why = promise["regions"].problem(kind, name, raw, item, part, box)
+            if why:
+                problems.append(f"{what} is a section of {part}: {why}")
+    if not any(part in (r[3].get("measured") or []) for r in promise.get("related") or [] for part in sections):
+        problems.append(f"{what} is a section of {cut}, and no joint or measurement of this promise checks "
+                        f"{'it' if len(sections) == 1 else 'them'}: nothing shows that what it checks is inside the "
+                        "section box")
+    if problems:
+        out["scope"] = "none"
+        out["notver"] += problems
+
+
+def _print_covers(what, entry):
+    """What a print that stands for the geometry only shows, in one line."""
+    other = {o["part"]: o for o in entry.get("other_material") or []}
+    shown = []
+    for n in sorted(set(other) | set(entry.get("sections") or {})):
+        o = other.get(n)
+        made = f" printed in {o['printed']}, the part is {o['material']}" if o else ""
+        shown.append(f"a section of {n}{made}" if n in (entry.get("sections") or {}) else f"{n}{made}")
+    return f"{what} shows the fit, not the strength: {'; '.join(shown)}"
+
+
+def _close_fits(what, entry, promise):
+    """A fit with less than CLOSE_PLAY_MM of play (its F3's min_play_mm) that a print in another
+    material confirmed: one line each, since another material shrinks and squishes differently."""
+    lines = []
+    for o in entry.get("other_material") or []:
+        for kind, name, raw, item in promise.get("related") or []:
+            if kind != "joint" or o["part"] not in (item.get("measured") or []):
+                continue
+            try:
+                rep = load_json(raw.get("report"), "fit report")
+            except FinalizeError:
+                continue
+            checks = rep.get("checks") if isinstance(rep, dict) else None
+            f3 = checks.get("F3") if isinstance(checks, dict) else None
+            value = f3.get("value") if isinstance(f3, dict) else None
+            play = value.get("min_play_mm") if isinstance(value, dict) else None
+            if finite(play) and play < CLOSE_PLAY_MM - 1e-9:
+                lines.append(f"joint '{name}' has {play:.3f} mm of play, under {CLOSE_PLAY_MM} mm, and {what} printed "
+                             f"{o['part']} in {o['printed']}, not {o['material']}: another material shrinks and "
+                             f"squishes differently, so a fit this close may not come out the same in {o['material']}")
+    return lines
 
 
 def promise_state(errs, failed, notver, excluded, assumed, accepted):
@@ -99,7 +188,8 @@ def check_promises(verify, params, joints, strength, parts, measurements=(), see
         out["open"].append("the promise list (_verify.promises) is empty: an empty list verifies nothing; list what "
                            "the user was promised")
     ctx = {"gate": {p.get("name"): p.get("gate") for p in parts}, "dims": dims, "material": material_evidence,
-           "index": _evidence_tables(verify, joints, strength, measurements, seen, prints or {})}
+           "index": _evidence_tables(verify, joints, strength, measurements, seen, prints or {}),
+           "regions": Regions(parts)}
     for i, pr in enumerate(promises or []):
         _judge_promise(i, pr, ids, excluded, ctx, out)
     for d in dims.values():
@@ -170,7 +260,8 @@ def _judge_promise(i, pr, ids, excluded, ctx, out):
     pid, kind = pr.get("id"), pr.get("kind")
     ok_id = isinstance(pid, str) and bool(pid.strip())
     label = f"promise '{pid}'" if ok_id else f"promise {i + 1}"
-    v = {"errs": [], "failed": [], "notver": [], "assumed": [], "acc": [], "ev": [], "rests": []}
+    v = {"errs": [], "failed": [], "notver": [], "assumed": [], "acc": [], "info": [], "warn": [], "ev": [],
+         "rests": []}
     _promise_declaration(pr, pid, kind, ok_id, ids, v)
     evidence = pr.get("evidence")
     if evidence is None or evidence == []:
@@ -178,30 +269,54 @@ def _judge_promise(i, pr, ids, excluded, ctx, out):
     elif not isinstance(evidence, list):
         v["errs"].append("evidence must be a list")
         evidence = []
+    items = [it for it in evidence or [] if isinstance(it, dict)]
+    # A use that carries a force (a `load` use, or one a strength check is evidence of) is proven
+    # only by what shows the strength: a print in another material, or a section, shows the fit.
+    strong = any("strength" in it for it in items)
+    ctx["promise"] = {"force": kind == "use" and (pr.get("load") is True or strong),
+                      "related": _related(items, ctx), "regions": ctx["regions"]}
     for item in evidence or []:
         _judge_item(item, pid, kind, ctx, v)
+    if kind == "use" and pr.get("load") is True and not strong:
+        v["notver"].append(LOAD)
     rests_on = _rests_on(v, ctx["dims"])
     state = promise_state(v["errs"], v["failed"], v["notver"], ok_id and pid in excluded, v["assumed"], v["acc"])
-    reasons = v["errs"] + v["failed"] + v["notver"] + v["assumed"] + v["acc"]
+    reasons = v["errs"] + v["failed"] + v["notver"] + v["assumed"] + v["acc"] + v["info"] + v["warn"]
     if state == "excluded":
         reasons.insert(0, f"taken by the user without verifying it: {excluded[pid]}")
     # A motion done by hand (pushing a phone in, a peg in and out): the fit numbers say nothing of
     # how it moves, or whether the printed hole comes out at its size. Its state stays what its
     # evidence gives; without a passed test print among that evidence, finalize says so itself.
+    # A section that does not stand for the promise (scope "none") confirms no motion.
     by_hand = kind == "use" and pr.get("by_hand") is True and not any(
-        "test_print" in ev and ev.get("result") == "passed" for ev in v["ev"])
+        "test_print" in ev and ev.get("result") == "passed" and ev.get("scope") != "none" for ev in v["ev"])
     if by_hand:
         reasons.append(BY_HAND)
     entry = {"id": pid, "kind": kind, "text": pr.get("text")}
-    entry.update({f: pr[f] for f in ("conditions", "success", "by_hand") if f in pr})
+    entry.update({f: pr[f] for f in ("conditions", "success", "by_hand", "load") if f in pr})
     entry.update(state=state, reasons=reasons, evidence=v["ev"], rests_on=rests_on)
     out["promises"].append(entry)
     counts = out["counts"].setdefault(kind if kind in KINDS else "?", {})
     counts[state] = counts.get(state, 0) + 1
     if state != "verified":
         out["open"].append(f"{label} ({kind}) {state}: {'; '.join(reasons)}")
-    elif by_hand:                                  # a verified promise has no line of its own
-        out["open"].append(f"{label} ({kind}): {BY_HAND}")
+    else:                                          # a verified promise has no line of its own
+        out["open"] += [f"{label} ({kind}): {w}" for w in v["warn"]]
+        if by_hand:
+            out["open"].append(f"{label} ({kind}): {BY_HAND}")
+
+
+def _related(items, ctx):
+    """The joints and measurements a promise names, as (kind, name, declaration, checked entry):
+    where a section of a part is checked against its box. Wrong items are the main loop's to name."""
+    out = []
+    for it in items:
+        named = [k for k in it if k != "covers"]
+        if len(named) == 1 and named[0] in ("joint", "measurement") and isinstance(it[named[0]], str):
+            matches = ctx["index"][named[0]].get(it[named[0]], [])
+            if len(matches) == 1:
+                out.append((named[0], it[named[0]]) + matches[0])
+    return out
 
 
 def _promise_declaration(pr, pid, kind, ok_id, ids, v):
@@ -228,6 +343,11 @@ def _promise_declaration(pr, pid, kind, ok_id, ids, v):
             errs.append("by_hand must be true or false")
         elif kind in KINDS and kind != "use":
             errs.append(f"by_hand is for a use promise (a motion done by hand), not a {kind}")
+    if "load" in pr:
+        if not isinstance(pr["load"], bool):
+            errs.append("load must be true or false")
+        elif kind in KINDS and kind != "use":
+            errs.append(f"load is for a use promise (a use that carries a force), not a {kind}")
     assumes = pr.get("assumes", [])
     if not (isinstance(assumes, list) and all(isinstance(x, str) for x in assumes)):
         errs.append("assumes must be a list of _verify.dims ids")
@@ -281,13 +401,15 @@ def _judge_item(item, pid, kind, ctx, v):
         return
     k, name, raw, entry = found
     if k in ("seen", "test_print"):
-        judged = judged_evidence(k, name, raw, entry, pid, ctx["gate"])
-        for key in ("errs", "failed", "notver", "assumed"):
+        judged = judged_evidence(k, name, raw, entry, pid, ctx["gate"], ctx.get("promise"))
+        for key in ("errs", "failed", "notver", "assumed", "info", "warn"):
             v[key] += judged[key]
         if not judged["errs"]:
             ev = {k: name, "result": judged["result"]}
             if "covers" in item:
                 ev["covers"] = item["covers"]
+            if "scope" in judged:
+                ev["scope"] = judged["scope"]
             v["ev"].append(ev)
         return
     res = entry.get("result")

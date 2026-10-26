@@ -113,6 +113,13 @@ since a fit report alone does not show it: say so when you write it, so the user
 will decide it. Until the user's print is recorded (`references/checks.md`, "Test prints"),
 finalize gives the state its fits give and adds a line to the promise and to `open`: the motion
 by hand is not confirmed by a print. An evidence item may name only a print already recorded.
+
+A use that carries a force (it holds a weight, is clamped, pulled, levered or hung from) gets
+`"load": true`, and a `strength` report naming the member that carries it among its evidence
+(Phase 3, "Load paths, before the look"; `strength.py`). Without one, finalize keeps it not
+verified ("it carries a load and no strength check names it"), whatever its fits show. A print
+in the part's own filament still counts for it; one in another filament does not (Phase 4,
+"Test prints as evidence").
 A promise that rests on a size no evidence will name lists that dims id in `assumes` (below).
 
 Unattended runs write the use list from the request alone and say in `_assumptions` that the

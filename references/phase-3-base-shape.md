@@ -126,7 +126,8 @@ not after the user asks whether it is strong enough: a reply that changes a wall
 stale. One line each: where, what loads it, how it was checked and the margin. Common ones: a
 tube under a band or worm-gear clamp (crushing), a root, post or block loaded across the layers
 (the weakest direction), a snap or tongue, a hinge, a screw boss, anything the part hangs from
-or is pulled by. Check each with `strength.py` when it has the case (`references/phase-4-mechanisms.md`)
+or is pulled by. Check each with `strength.py` or `strength_cases.py` when one has the case (`tube` for
+a clamped tube, `post` for a root or post across the layers, `snap --taper`; `references/phase-4-mechanisms.md`)
 or by a hand calculation whose formula, numbers and source go into `_assumptions`; a margin
 under the duty's floor is fixed before the look. A part that carries nothing but its own weight
 has an empty list: say so in one line.
@@ -140,13 +141,16 @@ Then **stop for the user's look**, in every attended run, one message in this or
    the user gave or confirmed it, with its old and new value and why.
 4. The checks in one line when they passed ("size, bed, mesh and supports all passed"); a
    problem gets its own line. Then the load paths, one line each (where, what loads it, the
-   margin), or "it carries no load".
+   margin), or "it carries no load". A use that rests on one of them is a `load` use, with that
+   member's strength report among its evidence (Phase 2).
 5. When one is due, the test print offer, as the Phase 4 question (`references/phase-4-features-joints.md`,
    "What counts as agreement"): a use done by hand (`by_hand`), a fit whose mating shape is not
    known exactly ("Fit test first"), a mechanism to print first. Name the promise, what goes
    unconfirmed without the print and what that can cost, and the choices: the test piece first,
-   or the part now with that unconfirmed (a prototype). A size the user could still measure is
-   asked here the same way.
+   or the part now with that unconfirmed (a prototype). The test piece may be a section of a big
+   part, or printed in another filament: say that it proves the fit, not the strength
+   (`references/phase-4-features-joints.md`, "Test prints as evidence"). A size the user could
+   still measure is asked here the same way.
 6. One question in bold, last: "Does it look right, and shall I go on?" with the offer's choice
    when there is one.
 7. A "details" line and the full parameter table under it.

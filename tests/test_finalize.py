@@ -1375,10 +1375,12 @@ class FinalizePromises(Workspace):
         self.assertEqual(self.promise(out, "seat")["evidence"], [{"test_print": "lid fit", "result": "passed"}])
         for change, extra, state, reason in (
                 ({}, {"_print": {}}, "assumed", "the delivered preset is not recorded (_print.preset)"),
-                ({"parts": {"lid": {"sha256": lid, "material": "pla_matte"}}}, {}, "not verified",
-                 "lid was printed in pla_matte, the part is pla_basic"),
+                # 0.10.0: another material shows the fit of a geometric promise, and says so
+                ({"parts": {"lid": {"sha256": lid, "material": "pla_matte"}}}, {}, "verified",
+                 "test print 'lid fit' shows the fit, not the strength: lid printed in pla_matte, the part is pla_basic"),
                 ({}, {"_parts": {"box": {"expect": [40, 30, 20]}, "lid": {"expect": [40, 30, 3], "material": "petg_hf"}}},
-                 "not verified", "lid was printed in pla_basic, the part is petg_hf"),
+                 "verified", "test print 'lid fit' shows the fit, not the strength: lid printed in pla_basic, the part "
+                             "is petg_hf"),
                 ({}, {"_material": None}, "not verified", "no material is declared for lid"),
                 ({"printer": "p1s"}, {}, "not verified", "printed on p1s, the build is for x2d"),
                 ({"orientation": "on its side"}, {}, "not verified", "printed on its side, not as built"),
@@ -1913,6 +1915,319 @@ class FinalizePromises(Workspace):
         out = self.run_linked(v, deliver="deliver", _print={"preset": self.STANDARD})
         self.assertFalse(any("names no process preset" in o for o in out["open"]), out["open"])
         self.assertNotIn("preset", [d for d in out["delivered"] if d["kind"] == "3mf"][0])
+
+
+class SectionPrints(Workspace):
+    """0.10.0: a test print of the part cut by a box (a section piece) stands for a geometric
+    promise once finalize finds the piece is the part as it is now cut by that box, and the place
+    the promise's joints and measurements check lies inside the box; a print in another material,
+    or a section, shows the fit and never the strength; a use that carries a load needs a strength
+    check. The lid here is a 6 mm peg standing on the box's corner."""
+
+    verify, run_use, linked_verify = FinalizePromises.verify, FinalizePromises.run_use, FinalizePromises.linked_verify
+    promise = staticmethod(FinalizePromises.promise)
+    stamp, run_linked, RIBBON = FinalizePromises.stamp, FinalizePromises.run_linked, FinalizePromises.RIBBON
+    PLUG, BY_HAND = FinalizePromises.PLUG, FinalizePromises.BY_HAND
+    SEAT = dict(FinalizePromises.SEAT, by_hand=True, evidence=[{"joint": "lid on box"}, {"test_print": "box piece"}])
+    PARTS = {"box": {"expect": [40, 30, 20]}, "lid": {"expect": [6, 6, 6]}}
+    CUT = [[-1, -1, 10], [12, 12, 21]]                  # the box's corner under the peg, from 10 mm up
+    JOINTS = [{"name": "lid on box", "report": "out/fit_seat.json"}]
+    COVERS = "test print 'box piece' shows the fit, not the strength: a section of box printed in pla_basic, the part is petg_hf"
+
+    def setUp(self):
+        super().setUp()
+        write_stl("out/lid.stl", box(6, 6, 6))
+        os.makedirs("out/piece")
+        write_stl("out/piece/box.stl", box(12, 12, 10, 0, 0, 10))     # the box cut by CUT
+        fit_report("out/fit_seat.json", "out/box.stl", "out/lid.stl")
+
+    def fit(self, *extra):
+        """The peg placed on the box's corner by fit.py (x and y 2..8, z 20..26), as the joint's report."""
+        import fit
+        code, rep = run(fit, "out/box.stl", "out/lid.stl", "--b-translate", "2,2,20", *extra)
+        self.assertEqual((code, rep["gate"]), (0, "PASS"), rep)
+        with open("out/fit_seat.json", "w") as f:
+            json.dump(rep, f)
+        return rep
+
+    def printed(self, cut=None, stl="out/piece/box.stl", material="pla_basic", **change):
+        import validate
+        sha = validate.file_sha256(stl) if os.path.isfile(stl) else "0" * 64
+        entry = {"name": "box piece", "status": "passed", "promises": ["seat"], "printer": "x2d",
+                 "orientation": "as built", "by": "user", "preset": "0.20mm Standard",
+                 "parts": {"box": {"sha256": sha, "material": material, "section": {"box": cut or self.CUT, "stl": stl}}}}
+        entry.update(change)
+        return entry
+
+    def judge(self, promises=None, prints=None, joints=None, material="petg_hf", **more):
+        out = self.run_use(self.verify([self.SEAT] if promises is None else promises, dims=[],
+                                       joints=self.JOINTS if joints is None else joints,
+                                       test_prints=[self.printed()] if prints is None else prints, **more),
+                           proxy=False, _parts=self.PARTS, _material=material, _print={"preset": "0.20mm Standard"})
+        return out
+
+    @unittest.skipUnless(HAS_M3D, "manifold3d not installed")
+    def test_a_section_piece_shows_the_fit_inside_its_box(self):
+        self.fit()
+        out = self.judge()
+        seat = self.promise(out, "seat")
+        self.assertEqual((out["use"], seat["state"]), ("verified", "verified"), seat["reasons"])
+        self.assertEqual(seat["reasons"], [self.COVERS])                       # and the motion by hand is confirmed
+        self.assertIn({"test_print": "box piece", "result": "passed", "scope": "geometry"}, seat["evidence"])
+        section = out["test_prints"][0]["sections"]["box"]
+        self.assertEqual((section["state"], section["piece"], section["box"], section["difference_mm3"]),
+                         ("same", "out/piece/box.stl", self.CUT, 0.0))
+        self.assertEqual(section["tolerance_mm3"], finalize.DIFF_FLOOR_MM3)
+        self.assertFalse(any("box piece" in o for o in out["open"]), out["open"])
+        same = self.judge(material="pla_basic")                                # in the part's own material
+        self.assertEqual(self.promise(same, "seat")["reasons"],
+                         ["test print 'box piece' shows the fit, not the strength: a section of box"])
+        whole = self.judge(promises=[dict(self.SEAT, evidence=[{"joint": "lid on box"}])], prints=[])
+        self.assertEqual(self.promise(whole, "seat")["reasons"], [self.BY_HAND])   # without the print
+
+    @unittest.skipUnless(HAS_M3D, "manifold3d not installed")
+    def test_a_piece_that_is_not_the_part_cut_by_its_box_is_stale(self):
+        self.fit()
+        for name, tris, cut in (("extra material", box(12, 12, 10.5, 0, 0, 9.5), None),
+                                ("missing material", box(12, 11, 10, 0, 0, 10), None),
+                                ("another box", box(12, 12, 10, 0, 0, 10), [[-1, -1, 9], [12, 12, 21]])):
+            with self.subTest(name):
+                write_stl("out/piece/box.stl", tris)
+                out = self.judge(prints=[self.printed(cut)])
+                seat = self.promise(out, "seat")
+                self.assertEqual(seat["state"], "not verified")
+                self.assertTrue(seat["reasons"][0].startswith(
+                    "test print 'box piece': the section piece out/piece/box.stl is not box cut by its box as box is now ("),
+                    seat["reasons"])
+                self.assertIn("mm3 differ, more than 0.1): it printed box as it was then, or another box",
+                              seat["reasons"][0])
+                self.assertEqual(seat["reasons"][-1], self.BY_HAND)
+                self.assertIn({"test_print": "box piece", "result": "stale", "scope": "none"}, seat["evidence"])
+                self.assertEqual(out["test_prints"][0]["sections"]["box"]["state"], "differs")
+        write_stl("out/piece/box.stl", box(12, 12, 10, 0, 0, 10))
+        printed = self.printed()
+        write_stl("out/piece/box.stl", box(12, 12, 10, 0, 0, 10.0001))         # not the bytes that were printed
+        out = self.judge(prints=[printed])
+        self.assertIn("test print 'box piece': the section piece of box is not compared with box: out/piece/box.stl is "
+                      "not the piece that was printed (its sha256 is not the one recorded)",
+                      self.promise(out, "seat")["reasons"])
+        os.remove("out/piece/box.stl")
+        out = self.judge(prints=[printed])
+        self.assertIn("test print 'box piece': the section piece of box is not compared with box: out/piece/box.stl not "
+                      "found", self.promise(out, "seat")["reasons"])
+        self.assertEqual(self.promise(out, "seat")["evidence"][-1], {"test_print": "box piece", "result": "missing",
+                                                                      "scope": "none"})
+
+    @unittest.skipUnless(HAS_M3D, "manifold3d not installed")
+    def test_the_part_rebuilt_to_other_bytes_keeps_its_section(self):
+        """The piece is compared with the part as it is now: rebuilt to other bytes with the same
+        geometry inside the box, the section still stands (a whole print of it would be stale)."""
+        self.fit()
+        printed = self.printed()
+        write_stl("out/box.stl", list(reversed(box(40, 30, 20))))             # the same box, other bytes
+        out = self.judge(prints=[printed])                                     # recorded again by run_use
+        self.assertIn("joint 'lid on box': its fit report is not of the current parts",
+                      self.promise(out, "seat")["reasons"])
+        self.fit()                                                             # fitted again, as after any rebuild
+        out = self.judge(prints=[printed])
+        self.assertEqual(self.promise(out, "seat")["state"], "verified", self.promise(out, "seat")["reasons"])
+        write_stl("out/box.stl", box(40, 30, 19.5))                            # changed inside the box
+        self.fit("--b-translate", "2,2,19.5")
+        out = self.judge(prints=[printed])
+        self.assertTrue(any("is not box cut by its box as box is now" in r for r in self.promise(out, "seat")["reasons"]),
+                        self.promise(out, "seat")["reasons"])
+
+    @unittest.skipUnless(HAS_M3D, "manifold3d not installed")
+    def test_a_promise_checked_outside_the_box_is_not_raised(self):
+        self.fit()
+        write_stl("out/piece/box.stl", box(8.5, 12, 10, 0, 0, 10))
+        out = self.judge(prints=[self.printed([[-1, -1, 10], [8.5, 12, 21]])])
+        seat = self.promise(out, "seat")
+        self.assertEqual(seat["state"], "not verified")
+        self.assertEqual(seat["reasons"], [
+            "test print 'box piece' is a section of box: joint 'lid on box' checks box outside the section box: box "
+            "comes within 0.50 mm of out/lid.stl outside it, and the section box must hold all of box within 1 mm of it",
+            self.BY_HAND])
+        self.assertEqual(out["test_prints"][0]["sections"]["box"]["state"], "same")   # the piece itself is right
+        self.assertIn({"test_print": "box piece", "result": "passed", "scope": "none"}, seat["evidence"])
+        write_stl("out/piece/box.stl", box(12, 12, 10, 0, 0, 10))
+        alone = dict(self.SEAT, evidence=[{"test_print": "box piece"}])        # no joint says where it is checked
+        out = self.judge(promises=[alone])
+        self.assertEqual(self.promise(out, "seat")["reasons"], [
+            "test print 'box piece' is a section of box, and no joint or measurement of this promise checks it: nothing "
+            "shows that what it checks is inside the section box", self.BY_HAND])
+
+    @unittest.skipUnless(HAS_M3D, "manifold3d not installed")
+    def test_a_moving_joint_is_checked_through_its_sweep(self):
+        """The peg turns on the box about its own centre: its corners reach x = 9.24. A box to 9.5
+        holds it at rest (1.5 mm) but not as it turns."""
+        self.fit("--sweep-axis", "z", "--sweep-pivot", "5,5,20", "--sweep-angles", "0:90:15", "--sweep-travel", "90")
+        moving = [dict(self.JOINTS[0], sweep=True)]
+        write_stl("out/piece/box.stl", box(9.5, 12, 10, 0, 0, 10))
+        out = self.judge(prints=[self.printed([[-1, -1, 10], [9.5, 12, 21]])], joints=moving)
+        reasons = self.promise(out, "seat")["reasons"]
+        self.assertTrue(reasons[0].startswith("test print 'box piece' is a section of box: joint 'lid on box' checks box "
+                                              "outside the section box: box comes within 0."), reasons)
+        write_stl("out/piece/box.stl", box(12, 12, 10, 0, 0, 10))
+        out = self.judge(joints=moving)
+        self.assertEqual(self.promise(out, "seat")["state"], "verified", self.promise(out, "seat")["reasons"])
+
+    @unittest.skipUnless(HAS_M3D, "manifold3d not installed")
+    def test_a_measurement_reads_the_part_inside_the_box_or_not(self):
+        self.fit()
+        top = [[-1, -1, 15], [41, 31, 21]]                                   # the box's top 5 mm, all of it
+        write_stl("out/piece/box.stl", box(40, 30, 5, 0, 0, 15))
+        depth = {"id": "seat", "kind": "feature", "text": "the box is 30 mm deep", "success": "30 mm within 0.05",
+                 "evidence": [{"measurement": "box depth"}, {"test_print": "box piece"}]}
+        members = {"measurements": [{"name": "box depth", "report": "out/m_depth.json"}]}
+        for z, ok in (("18", True), ("15.5", False), ("12", False)):
+            with self.subTest(z=z):
+                measure_report("out/m_depth.json", "slice", "out/box.stl", "--z", z, "--expect",
+                               "levels[0].loops[0].size[1]=30", "--tol", "0.05")
+                out = self.judge(promises=[depth], prints=[self.printed(top)], **members)
+                seat = self.promise(out, "seat")
+                if ok:
+                    self.assertEqual(seat["state"], "verified", seat["reasons"])
+                else:
+                    self.assertEqual(seat["state"], "not verified")
+                    self.assertTrue(seat["reasons"][0].startswith(
+                        f"test print 'box piece' is a section of box: measurement 'box depth' reads box at z = {z}, "
+                        "where box goes on outside the section box (within "), seat["reasons"])
+        measure_report("out/m_depth.json", "info", "out/box.stl", "--expect", "objects[0].size_mm[1]=30", "--tol", "0.05")
+        out = self.judge(promises=[depth], prints=[self.printed(top)], **members)
+        self.assertIn("test print 'box piece' is a section of box: measurement 'box depth' reads all of box, and the "
+                      "section box leaves some of box out", self.promise(out, "seat")["reasons"])
+
+    @unittest.skipUnless(HAS_M3D, "manifold3d not installed")
+    def test_a_section_or_another_material_never_shows_the_strength(self):
+        self.fit()
+        load = dict(self.SEAT, load=True)
+        section = ("test print 'box piece' is a section of box: a section shows the fit, not the strength this promise "
+                   "needs (it carries a load or names a strength check)")
+        out = self.judge(promises=[load], material="pla_basic")
+        seat = self.promise(out, "seat")
+        self.assertEqual((seat["state"], seat["load"]), ("not verified", True))
+        self.assertEqual(seat["reasons"], [section, finalize.LOAD, self.BY_HAND])
+        self.assertIn({"test_print": "box piece", "result": "passed", "scope": "none"}, seat["evidence"])
+        out = self.judge(promises=[load])                                     # and in another material, as before
+        self.assertEqual(self.promise(out, "seat")["reasons"], [
+            "test print 'box piece': box was printed in pla_basic, the part is petg_hf", section, finalize.LOAD,
+            self.BY_HAND])
+
+    def test_without_manifold3d_a_section_is_not_compared(self):
+        with mock.patch("finalize_section.m3d_or_none", return_value=None):
+            out = self.judge()
+        seat = self.promise(out, "seat")
+        self.assertEqual(seat["state"], "not verified")
+        self.assertEqual(seat["reasons"], ["test print 'box piece': the section piece of box is not compared with box: "
+                                           "no manifold3d to compare the piece (pip install manifold3d)", self.BY_HAND])
+        self.assertEqual(out["test_prints"][0]["sections"]["box"]["state"], "unchecked")
+
+    def test_a_section_declared_wrongly_is_an_error(self):
+        cases = (("not an object", {"section": "the corner"}, "the section of box must be {\"box\""),
+                 ("a box of two numbers", {"section": {"box": [[0, 0], [1, 1]], "stl": "out/piece/box.stl"}},
+                  "the section box of box must be [[x0, y0, z0], [x1, y1, z1]]"),
+                 ("a box inside out", {"section": {"box": [[0, 0, 10], [12, 12, 5]], "stl": "out/piece/box.stl"}},
+                  "each low corner below its high one"),
+                 ("no stl", {"section": {"box": self.CUT}}, "the section of box needs stl"),
+                 ("an stl outside the project", {"section": {"box": self.CUT, "stl": "../piece.stl"}},
+                  "the section of box: stl must be a path in the project folder, relative to it (not ../piece.stl)"),
+                 ("an unknown field", {"section": {"box": self.CUT, "stl": "out/piece/box.stl", "of": "box"}},
+                  "the section of box has an unknown field of (fields: box, stl)"))
+        for name, change, message in cases:
+            with self.subTest(name):
+                printed = self.printed()
+                printed["parts"]["box"] = dict(printed["parts"]["box"], **change)
+                out = self.judge(prints=[printed])
+                self.assertEqual(out["use"], "error")
+                self.assertTrue(any(e.startswith("test print 'box piece': ") and message in e
+                                    for e in out["promise_errors"]), out["promise_errors"])
+                self.assertEqual(self.promise(out, "seat")["state"], "error")
+
+    def test_load_is_declared_on_a_use_as_true_or_false(self):
+        feature = {"id": "notch", "kind": "feature", "text": "a notch", "success": "6 mm wide",
+                   "evidence": [{"joint": "lid on box"}]}
+        for promise, message in ((dict(FinalizePromises.SEAT, load="yes"), "load must be true or false"),
+                                 (dict(feature, load=True), "load is for a use promise (a use that carries a force), "
+                                                            "not a feature"),
+                                 ({"id": "label", "kind": "look", "text": "a label", "load": False},
+                                  "load is for a use promise (a use that carries a force), not a look")):
+            with self.subTest(promise=promise):
+                out = self.judge(promises=[promise], prints=[])
+                p = out["promises"][0]
+                self.assertEqual((out["use"], p["state"]), ("error", "error"))
+                self.assertIn(message, p["reasons"])
+
+    def test_a_load_needs_a_strength_check(self):
+        """A use that carries a force is not verified on fits and prints: a strength check of the
+        member must name it. With one, a print in the part's own material verifies it as before;
+        in another material it shows the fit only and keeps its line."""
+        import validate
+        holds = dict(FinalizePromises.SEAT, id="holds", load=True)
+        out = self.judge(promises=[holds], prints=[])
+        p = self.promise(out, "holds")
+        self.assertEqual((p["state"], p["reasons"], p["load"]), ("not verified", [finalize.LOAD], True))
+        self.assertIn(f"promise 'holds' (use) not verified: {finalize.LOAD}", out["open"])
+        plain = self.judge(promises=[dict(holds, load=False)], prints=[])
+        self.assertEqual((self.promise(plain, "holds")["state"], self.promise(plain, "holds")["load"]), ("verified", False))
+        linked_report("out/strength_ribbon.json")
+        lid = validate.file_sha256("out/lid.stl")
+        printed = {"name": "lid fit", "status": "passed", "promises": ["holds"], "printer": "x2d",
+                   "orientation": "as built", "by": "user", "preset": FinalizePromises.STANDARD,
+                   "parts": {"lid": {"sha256": lid, "material": "pla_basic"}}}
+        held = dict(holds, evidence=[{"strength": "ribbon"}, {"test_print": "lid fit"}])
+        v = self.linked_verify([held], test_prints=[printed])
+        out = self.run_linked(v, _print={"preset": FinalizePromises.STANDARD}, _parts=self.PARTS)
+        self.assertEqual(self.promise(out, "holds")["state"], "verified", self.promise(out, "holds")["reasons"])
+        self.assertNotIn("scope", json.dumps(self.promise(out, "holds")["evidence"]))
+        v["test_prints"][0]["parts"]["lid"]["material"] = "petg_hf"           # printed in another material
+        out = self.run_linked(v, _print={"preset": FinalizePromises.STANDARD}, _parts=self.PARTS)
+        self.assertEqual(self.promise(out, "holds")["reasons"],
+                         ["test print 'lid fit': lid was printed in petg_hf, the part is pla_basic"])
+
+    def test_a_close_fit_shown_in_another_material_is_named(self):
+        """A fit with under 0.2 mm of play that a print in another material confirmed: PLA and PETG
+        shrink and squish differently."""
+        import validate
+        with open("out/fit_seat.json") as f:
+            rep = json.load(f)
+        rep["checks"]["F3"]["value"] = {"interference_mm3": 0.0, "min_gap_mm": 0.0, "min_play_mm": 0.15}
+        with open("out/fit_seat.json", "w") as f:
+            json.dump(rep, f)
+        lid = validate.file_sha256("out/lid.stl")
+        printed = {"name": "lid fit", "status": "passed", "promises": ["seat"], "printer": "x2d",
+                   "orientation": "as built", "by": "user", "preset": "0.20mm Standard",
+                   "parts": {"lid": {"sha256": lid, "material": "pla_basic"}}}
+        seat = dict(self.SEAT, evidence=[{"joint": "lid on box"}, {"test_print": "lid fit"}])
+        close = ("joint 'lid on box' has 0.150 mm of play, under 0.2 mm, and test print 'lid fit' printed lid in "
+                 "pla_basic, not petg_hf: another material shrinks and squishes differently, so a fit this close may "
+                 "not come out the same in petg_hf")
+        out = self.judge(promises=[seat], prints=[printed])
+        p = self.promise(out, "seat")
+        self.assertEqual(p["state"], "verified", p["reasons"])
+        self.assertEqual(p["reasons"], ["test print 'lid fit' shows the fit, not the strength: lid printed in pla_basic, "
+                                        "the part is petg_hf", close])
+        self.assertIn({"test_print": "lid fit", "result": "passed", "scope": "geometry"}, p["evidence"])
+        self.assertIn(f"promise 'seat' (use): {close}", out["open"])
+        same = self.judge(promises=[seat], prints=[printed], material="pla_basic")
+        self.assertEqual(self.promise(same, "seat")["reasons"], [])            # the part's own material: as before
+        self.assertNotIn("scope", json.dumps(self.promise(same, "seat")["evidence"]))
+        rep["checks"]["F3"]["value"]["min_play_mm"] = 0.25
+        with open("out/fit_seat.json", "w") as f:
+            json.dump(rep, f)
+        out = self.judge(promises=[seat], prints=[printed])
+        self.assertEqual(len(self.promise(out, "seat")["reasons"]), 1)
+        self.assertFalse(any("shrinks" in o for o in out["open"]), out["open"])
+
+    def test_the_bundle_carries_the_section_piece(self):
+        import finalize_bundle
+        files, missing, _proxies, outside = finalize_bundle.bundle_contents(
+            {"test_prints": [self.printed()]}, {"parts": []})
+        self.assertEqual(files["out/piece/box.stl"][1], "section piece of box printed in test print 'box piece'")
+        os.remove("out/piece/box.stl")
+        files, missing, _proxies, outside = finalize_bundle.bundle_contents(
+            {"test_prints": [self.printed(stl="out/piece/box.stl")]}, {"parts": []})
+        self.assertEqual(missing, {"out/piece/box.stl": "section piece of box printed in test print 'box piece'"})
 
 
 SKILL = os.path.normpath(os.path.join(HERE, ".."))
