@@ -591,8 +591,8 @@ emit(info=info)
         """Field test 0.9.0: from_mesh merges a subdivided flat face back into one n-gon (here a
         ring's top, refined, which becomes one C-shaped face of 500 points, many in line), and
         Blender's own split of that n-gon, which the STL exporter used, gave duplicate and
-        zero-area triangles (M4, M3). The export triangulates the copy itself (BEAUTY); the
-        STL is clean. merge_flat=False keeps the faces as given."""
+        zero-area triangles (M4, M3). The export then triangulates the copy itself (BEAUTY) and
+        says so; the STL is clean. merge_flat=False keeps the faces as given."""
         rep = run_in_blender(f"""
 from manifold3d import Manifold
 ring = (Manifold.cylinder(3, 20, 20, 64) - Manifold.cylinder(8, 12, 12, 64).translate([0, 0, -1])).refine(4)
@@ -609,11 +609,66 @@ emit(raw=raw, kept=[len(kept.data.polygons), len(faces)], info=info)
         self.assertGreater(rep["raw"][0], 400)                                  # one large flat n-gon
         self.assertGreater(rep["raw"][1], 0, "Blender's own n-gon split no longer fails here: the case does not reproduce")
         self.assertEqual(rep["kept"][0], rep["kept"][1])                        # merge_flat=False: one face per triangle
+        self.assertEqual({p["name"]: p.get("retriangulated", False) for p in rep["info"]}, {"ring": True, "kept": False})
         for name in ("ring", "kept"):
             f = check(os.path.join(self.tmp, name + ".stl"))
             self.assertEqual({k: f["checks"][k]["state"] for k in ("M1", "M2", "M3", "M4")},
                              {k: "PASS" for k in ("M1", "M2", "M3", "M4")}, (name, f["metrics"]))
             self.assertAlmostEqual(f["metrics"]["volume_mm3"], 2408.87, delta=0.05)
+
+    @unittest.skipUnless(shutil.which("git") and os.path.exists(os.path.join(ROOT, ".git")),
+                         "not a git checkout: the 0.9.0 builder is not at hand")
+    def test_export_writes_the_same_bytes_as_090(self):
+        """0.9.1 must not change the STL of a part that exported cleanly before: fit reports,
+        measurements and the user's looks are tied to its sha256. A box with a hole and a bed
+        chamfer, a filleted plate, a rounded prism and a from_mesh part (flat facets merged into
+        n-gons) are built and exported by the 0.9.0 builder and by this one in the same Blender:
+        the bytes are equal, and only a part whose own triangles would fail is re-triangulated."""
+        r = subprocess.run(["git", "-C", ROOT, "show", "ac755df:references/engines/blender_builder.py"],
+                           capture_output=True)
+        if r.returncode != 0:
+            self.skipTest("the 0.9.0 commit is not in this checkout")
+        old = os.path.join(self.tmp, "bb090.py")
+        with open(old, "wb") as f:
+            f.write(r.stdout)
+        rep = run_in_blender(f"""
+import importlib.util, hashlib, math
+spec = importlib.util.spec_from_file_location("bb090", {old!r})
+bb090 = importlib.util.module_from_spec(spec); spec.loader.exec_module(bb090)
+def model(m):
+    m.new_scene_mm()
+    body = m.box([30, 20, 10], "body")
+    hole = m.cylinder(3.0, 12.0, name="hole"); hole.location = (10, 10, -1)
+    m.boolean(body, hole, "difference")
+    m.bed_chamfer(body, 0.4)
+    m.part(body, "body")
+    plate = m.box([40, 30, 5], "plate"); plate.location = (50, 0, 0)
+    m.fillet(plate, 2.0, m.edges(plate, axis="z"))
+    m.part(plate, "plate")
+    prof = m.round_profile(m.outline([(0, 0), (30, 0), (30, 12), (0, 12)]), 3.0)
+    pr = m.prism(prof, 4, "prism"); pr.location = (0, 40, 0)
+    m.part(pr, "prism")
+    n = 7
+    ring = [(10 * math.cos(2 * math.pi * i / n), 10 * math.sin(2 * math.pi * i / n)) for i in range(n)]
+    verts = [(x, y, 0.0) for x, y in ring] + [(x, y, 6.0) for x, y in ring] + [(0, 0, 0.0), (0, 0, 6.0)]
+    faces = []
+    for i in range(n):
+        j = (i + 1) % n
+        faces += [(2 * n, j, i), (2 * n + 1, n + i, n + j), (i, j, n + j), (i, n + j, n + i)]
+    hx = m.from_mesh(verts, faces, "hex"); hx.location = (60, 50, 0)
+    m.part(hx, "hex")
+def shas(m, out):
+    info = m.export_parts(out)
+    return {{p["name"]: [hashlib.sha256(open(p["stl"], "rb").read()).hexdigest(), p.get("retriangulated", False)]
+            for p in info}}
+model(bb090); a = shas(bb090, os.path.join({self.tmp!r}, "a"))
+model(bb); b = shas(bb, os.path.join({self.tmp!r}, "b"))
+emit(old={{k: v[0] for k, v in a.items()}}, new={{k: v[0] for k, v in b.items()}},
+     re={{k: v[1] for k, v in b.items()}})
+""")
+        self.assertEqual(sorted(rep["new"]), ["body", "hex", "plate", "prism"])
+        self.assertEqual(rep["new"], rep["old"])
+        self.assertEqual(rep["re"], {"body": False, "hex": False, "plate": False, "prism": False})
 
     def test_export_keeps_vertices_one_grid_cell_apart(self):
         """Field test 0.9.0: two vertices that snap one WELD cell apart are two vertices to

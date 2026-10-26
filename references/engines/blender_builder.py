@@ -2475,11 +2475,13 @@ def _export_copy(obj, name):
     validate.py welds (each coordinate rounded to a multiple of WELD), so the vertices it will
     treat as one are one here too, and the seam a boolean leaves where a tool conforms to a
     face does not become a zero-area triangle in the STL. The shift is at most WELD / 2 per axis.
-    Every face is then triangulated here (BEAUTY), not by the STL exporter: a large flat n-gon
-    (split facets merged back by `from_mesh`, a ring face, a bed chamfer's inset) with points
-    nearly in line can come out of Blender's own n-gon split as zero-area or duplicate
-    triangles (M3, M4). Returns (temporary object, vertices welded, non-manifold edges);
-    raises when zero-area or duplicate triangles remain (the STL would fail M3 or M4)."""
+    The STL exporter triangulates the faces as Blender does (the mesh's loop triangles), so a
+    part that exported cleanly before writes the same bytes. Only when those triangles would
+    fail M3 or M4 (a large flat n-gon, such as split facets merged back by `from_mesh`, a ring
+    face or a bed chamfer's inset, with points nearly in line: Blender's own n-gon split can
+    leave zero-area or duplicate triangles) is the copy triangulated here with BEAUTY, and
+    checked again. Returns (temporary object, vertices welded, non-manifold edges,
+    re-triangulated); raises when zero-area or duplicate triangles remain (M3 or M4)."""
     me = evaluated_mesh(obj)
     me[TAG] = True
     bm = bmesh.new()
@@ -2493,13 +2495,19 @@ def _export_copy(obj, name):
         v.co = [round(c / WELD) * WELD for c in v.co]
     bmesh.ops.remove_doubles(bm, verts=bm.verts, dist=WELD * 1e-3)
     welded = before - len(bm.verts)
-    bmesh.ops.triangulate(bm, faces=bm.faces[:], quad_method="BEAUTY", ngon_method="BEAUTY")
     nm = sum(1 for e in bm.edges if not e.is_manifold)
     bm.to_mesh(me)
-    bm.free()
     me.update()
     bad = degenerate_triangles(me, weld=WELD / 2)          # distinct vertices are a cell apart now
     dup = duplicate_triangles(me)
+    retriangulated = bool(bad or dup)
+    if retriangulated:                      # Blender's own split fails here: triangulate the copy ourselves
+        bmesh.ops.triangulate(bm, faces=bm.faces[:], quad_method="BEAUTY", ngon_method="BEAUTY")
+        bm.to_mesh(me)
+        me.update()
+        bad = degenerate_triangles(me, weld=WELD / 2)
+        dup = duplicate_triangles(me)
+    bm.free()
     if dup and not bad:
         bpy.data.meshes.remove(me)
         raise ValueError(f"part '{name}': {dup} duplicate triangles after welding on the {WELD} mm grid (the STL would "
@@ -2515,14 +2523,15 @@ def _export_copy(obj, name):
     tmp = bpy.data.objects.new(f"_export_{name}", me)   # identity transform: the mesh is in world mm already
     tmp[TAG] = True
     scene().collection.objects.link(tmp)
-    return tmp, welded, nm
+    return tmp, welded, nm, retriangulated
 
 
 def export_parts(out, names=None):
     """One binary STL per registered part into `out` (modifiers applied, vertices snapped to the
     WELD grid and merged as validate.py merges them, 1 unit = 1 mm, scene unit off, axes unchanged).
-    Returns the part list with boxes in mm, triangles and bytes; refuses a part whose welded
-    mesh still holds zero-area triangles."""
+    Returns the part list with boxes in mm, triangles and bytes (`retriangulated` on a part
+    whose faces were split with BEAUTY instead of Blender's own split, see _export_copy);
+    refuses a part whose welded mesh still holds zero-area or duplicate triangles."""
     require_blender()
     if not _PARTS:
         raise ValueError("no parts registered: call part(obj, name) for every body to export")
@@ -2536,7 +2545,7 @@ def export_parts(out, names=None):
         obj = _PARTS[n]["object"]
         path = os.path.join(out, n + ".stl")
         t0 = time.time()
-        tmp, welded, nm = _export_copy(obj, n)
+        tmp, welded, nm, retriangulated = _export_copy(obj, n)
         try:
             _deselect_all()
             tmp.select_set(True, view_layer=_view_layer())
@@ -2555,6 +2564,10 @@ def export_parts(out, names=None):
         if welded:
             entry["welded_vertices"] = welded
             LOG.append(f"export '{n}': {welded} vertices welded on the {WELD} mm grid (as validate.py welds them)")
+        if retriangulated:
+            entry["retriangulated"] = True
+            LOG.append(f"export '{n}': faces triangulated with BEAUTY (Blender's own split left zero-area or "
+                       "duplicate triangles)")
         if nm:
             entry["warning"] = f"{nm} non-manifold edges (validate.py will fail M1)"
         info.append(entry)
