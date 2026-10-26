@@ -26,7 +26,8 @@ all times; `references/checks.md` has the `_verify` declarations).
    `strength.py --from-build` command of it (the same `--param` links) and each `measure.py
    --expect` on it; draw each preview that showed it again and ask the user to look again (a new
    `seen` entry with the new `image_sha256`; the old look is never copied onto it, nor recorded
-   as `excluded` or `accepted`); a test print of it stands only after a new print.
+   as `excluded` or `accepted`); a test print of it stands only after a new print, except a section
+   piece, which still counts while the part inside its box is unchanged (finalize compares it).
    A changed `dims` value also changes the proxy built from it: build the proxy again, then its
    fit. A changed `_material` leaves the STLs fresh but the build's record old: build again,
    then run strength.py again. `finalize.py` names every stale item; run it (Phase 4) until none

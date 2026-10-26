@@ -141,13 +141,16 @@ Then **stop for the user's look**, in every attended run, one message in this or
    the user gave or confirmed it, with its old and new value and why.
 4. The checks in one line when they passed ("size, bed, mesh and supports all passed"); a
    problem gets its own line. Then the load paths, one line each (where, what loads it, the
-   margin), or "it carries no load".
+   margin), or "it carries no load". A use that rests on one of them is a `load` use, with that
+   member's strength report among its evidence (Phase 2).
 5. When one is due, the test print offer, as the Phase 4 question (`references/phase-4-features-joints.md`,
    "What counts as agreement"): a use done by hand (`by_hand`), a fit whose mating shape is not
    known exactly ("Fit test first"), a mechanism to print first. Name the promise, what goes
    unconfirmed without the print and what that can cost, and the choices: the test piece first,
-   or the part now with that unconfirmed (a prototype). A size the user could still measure is
-   asked here the same way.
+   or the part now with that unconfirmed (a prototype). The test piece may be a section of a big
+   part, or printed in another filament: say that it proves the fit, not the strength
+   (`references/phase-4-features-joints.md`, "Test prints as evidence"). A size the user could
+   still measure is asked here the same way.
 6. One question in bold, last: "Does it look right, and shall I go on?" with the offer's choice
    when there is one.
 7. A "details" line and the full parameter table under it.

@@ -59,6 +59,8 @@ Rules that hold in every phase, whatever file is open:
 - **Never model support structures into a part**: an overhang gets the slicer's supports or a redesign.
 - **A fit test or a mechanism-first print that was offered and skipped** goes into
   `_assumptions` ("not confirmed by a test print"); never say a test confirmed something it did not.
+- **A print in another filament, or a section of the part, shows the fit only**: it counts for
+  geometric promises, never for a use that carries a load (`load`), which needs a strength check.
 - **A weight or a print time is said from a number, never guessed**: the build report's solid
   mass (an upper bound: walls and infill weigh less) or the slicer's estimate, named as which.
 - **Only `finalize.py` says a promise is verified.** Your look at an image never verifies one, nor

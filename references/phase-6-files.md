@@ -44,7 +44,7 @@ path in the project folder (`lib/helper.py` stays `lib/helper.py`):
   params file (a proxy taken in with `record` also with its build JSON, STLs and manifests); a
   `user-file` dims entry's measurement reports, and its file when the entry declares it the
   user's own (`"own": true`); the seen images with their sidecars; the photos of a test print
-  (its `photos`);
+  (its `photos`) and the STL of a section piece it printed;
 - with `--deliver`, the delivered files (every STL and 3MF), each 3MF with its manifest; a
   bundle made inside the delivery folder (`deliver/2026-10-21/source`) copies none of them and
   names each with its sha256 (`bundle_delivered`): its re-check reads them there (`--deliver ..`).

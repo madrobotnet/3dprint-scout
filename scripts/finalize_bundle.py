@@ -624,7 +624,7 @@ def _check_rewrites(c, build, inputs, missing, proxies):
                if not src.lower().endswith(NOT_TEXT) and holds_machine_path(src)]
     if leaking:
         raise FinalizeError(f"{', '.join(leaking)} holds a path of this machine: write it again with paths relative "
-                            "to the project folder (fit.py, measure.py, strength.py --from-build, preview.py and "
+                            "to the project folder (fit.py, measure.py, strength.py or strength_cases.py --from-build, preview.py and "
                             "render.py record the paths they are given) before bundling")
 
 

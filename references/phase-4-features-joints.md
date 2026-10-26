@@ -150,13 +150,35 @@ of the build they printed (`out/build.json`, or `out/mech/build.json`) and the o
 filament and process preset: when the preset is known, `_print.preset` holds it before the first
 test print (`references/phase-2-printer-dimensions.md`, "Material and process preset"; unknown,
 the key stays out and the print stays `assumed` on the preset unless a delivered Bambu project
-names one). A print in another material, on another printer, in another orientation or with
-another preset does not verify; a rebuilt part makes it stale, and only a new print renews it.
-Say so when you offer the print, before the user picks a filament ("can I print the test in
-PLA?" comes often): a test in another filament, or a piece cut out of the part, shows the user
-the fit, and that is worth a lot, but the report keeps those promises unconfirmed until the part
-itself is printed in its own filament. Record such a print anyway (it is the user's result) and
-say in its `note` what it showed.
+names one). A print on another printer, in another orientation or with another preset does
+not verify; a rebuilt part makes it stale, and only a new print renews it.
+
+**Another filament, or a piece of the part** (since 0.10.0). A test in another filament (PLA for
+a PETG part: the question comes often) counts for the geometric promises only, the fits, gaps,
+passages and motions by hand, never for a use that carries a load (`load`, or `strength`
+evidence). Say so when you offer it, before the user picks a filament: it shows the fit, not the
+strength, and a fit with under 0.2 mm of play may come out differently in the final filament
+(finalize warns). A **section piece**, the part cut by a box, saves time and filament on a big
+part:
+
+- Give the generator an optional cut, a `section_box` parameter (default `None` in `DEFAULTS` /
+  `PARAMETERS`), applied last as the body intersected with the box.
+- Build it from a second params file, `.3dprint/piece.json` (params.json plus the box, the
+  part's `expect` set to the piece's size), into its own folder: `build.py run model.py --params
+  .3dprint/piece.json --out out/piece > out/piece/build.json`. Never move the piece; the slicer
+  puts it on the bed.
+- Choose the box so it holds all of the part within 1 mm plus the fit's play of each mating
+  part (through the whole turn of a moving joint) and the whole cross-section of each sliced
+  measurement; keep a flexing member (a snap arm) whole inside it.
+- Record the print with `parts.<name>`: the sha256 from `out/piece/build.json`, the material it
+  was printed in, and `section` with the same box and the piece's STL path (`references/checks.md`,
+  "Test prints").
+
+finalize cuts the current part with the box itself and compares it with the piece, so a section
+stays valid after a rebuild that changed nothing inside the box. Reading it: `"scope":
+"geometry"` on the evidence means it counted; "checks X outside the section box" means a bigger
+box; "is not X cut by its box as X is now" means the part changed inside the box: print again.
+Record every print anyway (it is the user's result) and say in its `note` what it showed.
 `fit_test.py` pieces are not parts of the build: record them without `promises` and build the
 part with the step that fits.
 
