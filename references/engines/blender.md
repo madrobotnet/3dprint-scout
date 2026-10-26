@@ -229,6 +229,14 @@ views only, without the caption and the grid lines (`fg_views` per view in the J
 `preview.py` stays the fallback and the G4 check; the numbers from `validate.py` stay the
 evidence.
 
+`--size` takes `WxH` or one number, the width (`700` is 700 × 525). For the delivery image or a
+picture to share, `--views hero` (alone) renders one tight perspective view with lights,
+Cycles by default (about a minute on a small sandbox). `--proxy housing.stl` (repeatable) draws
+a stand-in of what the part fits on, grey and see-through, for context: it is never framed,
+measured or coloured, and the sidecar lists it apart from the parts. When colours were passed,
+the JSON and the sidecar say `"colors": "approximate"`: say so with the image ("colours are
+approximate").
+
 ## Pitfalls
 
 | Symptom | Cause | Fix |
@@ -242,6 +250,9 @@ evidence.
 | `the Python that runs Blender has no manifold3d` in `detect` | A Blender binary's own Python | Build the parts.py features from `cylinder` / `cone`, or that part with the Python engine; installing manifold3d into Blender's Python is the user's call (ask) |
 | An XZ or YZ prism, a part brought in, or a mirrored part turns inside out (negative volume, D3) | Normals left from before the vertices moved | The helpers refresh and fix them (`mesh_object`, `apply_transform`, the export); a hand-made bmesh goes through `bb.mesh_object` |
 | M1 FAIL after a boolean (non-manifold edges) | The tool ends exactly on a face | Overshoot by 0.01–0.1 mm; check `bb.nonmanifold_edges` on the inputs |
+| `export ... N duplicate triangles`, or M4 FAIL on an STL exported by hand | A large flat n-gon (facets merged back by `from_mesh`, a ring's top face, a bed chamfer's inset) split by Blender's own n-gon triangulation | Export through `bb.export_parts`, which triangulates with BEAUTY first (since 0.9.1); a hand-made mesh with `bmesh.ops.triangulate(..., quad_method="BEAUTY", ngon_method="BEAUTY")`; `from_mesh(..., merge_flat=False)` for a subdivided strip that must stay subdivided |
+| `boolean union ... zero-area triangles` where a fin or vane meets a lofted wall | The tool's faces lie on the target's faces | Let the tool run into the wall (0.1 mm up to half a wall), or intersect it with a copy of the duct offset inward by half a wall; never end a tool exactly on a face |
+| Duplicate faces after two cutters that share a plane, then `bed_chamfer` (seen in a 2026-10-26 field test, not reproduced since) | Coplanar cut walls that a later step splits again | Union the cutters that share a face into one tool, or let one end 0.05 mm past the other |
 | `boolean ... left N zero-area triangles` (M3, and M1 once they are dropped) | The cut crosses a fan of thin triangles: a hole through the pole of a revolved floor or a cap | Build a round hole on the axis into the profile (revolve it with the hole), give the face ring topology where it is cut, or move the cut off the pole; overshooting does not help |
 | M5 FAIL on a text part | One body per glyph piece | Union the text onto the face or a plaque, or set `shells` in `_parts` to the body count in `LOG` |
 | `text ...: letters touch only along an edge` | Two glyphs kiss and even 5 % tighter spacing does not make them overlap | Put the text on a plate (union with it), or another font / spacing |

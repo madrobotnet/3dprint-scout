@@ -32,7 +32,9 @@ python3 "$SKILL_DIR/scripts/measure.py" raymap ref_mesh/obj_15_housing.stl --axi
   crossing surfaces); it gets bounds only and a warning, never a made-up area. Slice a range (`--z 0:70:2`) to find where a profile changes
   (a lip, a step, the start of a chamfer), then single levels for the numbers. `--center`
   puts the XY centre of the box at the origin, which is how mating parts are dimensioned.
-  `--axis x` or `y` slices across.
+  `--axis x` or `y` slices across. `--points` adds each loop's corners in order (`vertices`,
+  straight runs and gentle arcs simplified away, at most `--max-points`, default 24): where a
+  notch or a step in an outline is, read from the corners rather than a `raymap`.
 - `raymap` shoots a grid of rays at a wall and prints the depth of the first surface
   behind the outer face: a window is `.` (nothing within `--max-depth`), a recess is its
   depth, a rib stands at 0. Read the `text` rows (v from high to low) to size windows and
