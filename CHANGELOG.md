@@ -65,6 +65,15 @@ unchanged in this release.
   reads its build as stale once (the helper module changed): build again; the STLs come out
   byte-identical, so fits, measurements and looks stay verified.
 - **Scenario kit**: the three design scenarios grade a new should item, the look's load paths.
+- **Conversation scenarios** (`docs/scenarios/results-v0.9.1.md`): given-answers, holes-unknown
+  and bambu-template were run with Claude. All three match in two stops, and each look gave its
+  load paths. The other six do not reach the changed guidance.
+- **Golden comparison with v0.9.0**: with 0.9.0's Blender builder put back, 45 of 189 outputs
+  differ, all from the new fields, the bundle changes and the manifest fix; no verdict changed.
+  Of the 22 Blender projects from earlier scenario runs, 21 rebuild with 0.9.1 to byte-identical
+  STLs and the same finalize result.
+- **Found, not changed**: one earlier generator (`from_manifold`, a boolean, `bed_chamfer`)
+  writes different STL bytes on every rebuild, under 0.9.0 too.
 - **Tests**: 497, passing on Python 3.13 + bpy 5.2.2, 3.11 + bpy 4.5.14 and 3.9.
 
 ## 0.9.0 — 2026-10-25
