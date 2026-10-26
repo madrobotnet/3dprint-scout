@@ -58,6 +58,82 @@ class CommandLine(Base):
         self.assertEqual(cmd[-2:], ["--lang", "ko"])
         self.assertTrue(os.path.isfile(render.BUILDER))
 
+    def test_size_hero_and_proxies_on_the_command_line(self):
+        """0.9.1: --size takes one number (the width, 4:3); --views hero is alone and renders with
+        Cycles unless --engine says otherwise; a proxy goes to Blender as --proxy, is checked like
+        a part, and is never also a part."""
+        housing = os.path.join(self.d, "housing.stl")
+        write_stl(housing, box(60, 50, 4, -10, -10, -4))
+        cmd = render.render_command([self.stl], self.png, ["hero"], (700, 525), "cycles", [], python="/x/python",
+                                    proxies=[housing])
+        self.assertEqual(cmd[cmd.index("--proxy") + 1], housing)
+        self.assertEqual(cmd[cmd.index("--size") + 1], "700x525")
+        calls = []
+
+        def fake(cmd, **kw):
+            calls.append(cmd)
+            return build.subprocess.CompletedProcess([], 1, "", "boom")
+        with mock.patch.object(render, "choose_blender", return_value=(None, "/x/python", "4.5.0")), \
+                mock.patch.object(build.subprocess, "run", side_effect=fake):
+            run(self.stl, "-o", self.png, "--size", "700")
+            run(self.stl, "-o", self.png, "--views", "hero", "--proxy", housing)
+            run(self.stl, "-o", self.png, "--views", "hero", "--engine", "workbench")
+        self.assertEqual(calls[0][calls[0].index("--size") + 1], "700x525")
+        self.assertEqual(calls[0][calls[0].index("--engine") + 1], "workbench")
+        self.assertEqual(calls[1][calls[1].index("--engine") + 1], "cycles")
+        self.assertEqual(calls[1][calls[1].index("--proxy") + 1], housing)
+        self.assertEqual(calls[2][calls[2].index("--engine") + 1], "workbench")
+        with mock.patch.object(build.subprocess, "run") as sub:
+            code, out = run(self.stl, "-o", self.png, "--views", "hero,iso")
+            self.assertIn("one image on its own", out["errors"][0])
+            code, out = run(self.stl, "-o", self.png, "--size", "big")
+            self.assertIn("one number", out["errors"][0])
+            code, out = run(self.stl, "-o", self.png, "--size", "150")
+            self.assertIn("between 200x200", out["errors"][0])               # 150 x 113
+            code, out = run(self.stl, "-o", self.png, "--proxy", self.stl)
+            self.assertIn("as a part and as a proxy", out["errors"][0])
+            empty = os.path.join(self.d, "empty.stl")
+            open(empty, "wb").close()
+            code, out = run(self.stl, "-o", self.png, "--proxy", empty)
+            self.assertIn("0 bytes", out["errors"][0])
+        self.assertFalse(sub.called)
+
+    def test_sidecar_lists_proxies_apart_and_says_colours_are_approximate(self):
+        housing = os.path.join(self.d, "housing.stl")
+        write_stl(housing, box(60, 50, 4, -10, -10, -4))
+        os.makedirs(os.path.dirname(self.png))
+
+        def fake(cmd, **kw):
+            with open(self.png, "wb") as f:
+                f.write(b"\x89PNG\r\n\x1a\n" + b"\x00\x00\x00\rIHDR" + b"\x00\x00\x01\x90\x00\x00\x01\x2c"
+                        + b"\x08\x02\x00\x00\x00" + b"\0" * 32)
+            rep = {"path": self.png, "fg": 0.3, "fg_views": {"hero": 0.3}, "size_mm": [40, 30, 6], "views": ["hero"],
+                   "renderer": "Blender x cycles (perspective hero)", "warnings": [],
+                   "parts": [{"name": "body", "colour": "#9d432c", "drawn": "#9d432c"}],
+                   "proxies": [{"name": "proxy housing", "drawn": "#b2b8c2", "alpha": 0.35}]}
+            return build.subprocess.CompletedProcess([], 0, "@@3DPS " + json.dumps(rep) + "\n", "")
+        with mock.patch.object(render, "choose_blender", return_value=("/x/blender", None, "4.5.0")), \
+                mock.patch.object(build.subprocess, "run", side_effect=fake):
+            code, out = run(self.stl, "-o", self.png, "--views", "hero", "--proxy", housing, "--color", "body=Brown")
+        self.assertEqual(code, 0, out["errors"])
+        self.assertEqual(out["colors"], "approximate")
+        self.assertEqual(out["proxies"][0]["path"], housing)
+        with open(out["files"][0]["sidecar"], encoding="utf-8") as fh:
+            side = json.load(fh)
+        import validate
+        self.assertEqual(side["stls"], [{"path": self.stl, "sha256": validate.file_sha256(self.stl)}])   # the part only
+        self.assertEqual([(p["path"], p["sha256"]) for p in side["proxies"]], [(housing, validate.file_sha256(housing))])
+        self.assertIn("not a part", side["proxies"][0]["role"])
+        self.assertEqual(side["colors"], "approximate")
+        with mock.patch.object(render, "choose_blender", return_value=("/x/blender", None, "4.5.0")), \
+                mock.patch.object(build.subprocess, "run", side_effect=fake):
+            code, out = run(self.stl, "-o", self.png, "--overwrite")
+        with open(out["files"][0]["sidecar"], encoding="utf-8") as fh:
+            side = json.load(fh)
+        self.assertNotIn("colors", side)                                      # the palette: no filament colours
+        self.assertNotIn("proxies", side)
+        self.assertNotIn("colors", out)
+
     def test_no_blender_is_a_clear_error(self):
         with mock.patch.object(build, "find_blender", return_value=None), mock.patch.object(build, "bpy_info", return_value=None):
             code, out = run(self.stl, "-o", self.png)
@@ -176,6 +252,30 @@ class WithBlender(Base):
         self.assertEqual((side["lang"], side["views"]), ("ko", ["iso", "top"]))
         self.assertEqual(side["image_sha256"], validate.file_sha256(ko))
         self.assertEqual(side["stls"], [{"path": self.stl, "sha256": validate.file_sha256(self.stl)}])
+
+    def test_hero_and_a_proxy_that_fills_the_frame(self):
+        """0.9.1: a proxy as large as the frame (a housing, a plate) would make every pixel differ
+        from the background; the blank check is taken on a pass without it, so the grid stays
+        sane. The hero (Cycles, small) is framed tight."""
+        plate = os.path.join(self.d, "plate.stl")
+        write_stl(plate, box(400, 400, 2, -180, -185, -2))
+        with mock.patch.object(build, "find_blender", return_value=None):
+            code, out = run(self.stl, "-o", self.png, "--size", "400", "--proxy", plate, "--color", "body=Brown",
+                            "--blender-python", sys.executable)
+        self.assertEqual((code, out["sane"]), (0, True), out.get("errors") or out["files"][0]["note"])
+        self.assertTrue(all(0.0005 < f < 0.6 for f in out["files"][0]["fg_views"].values()), out["files"][0])
+        self.assertEqual(out["size_mm"], [40.0, 30.0, 6.0])                     # the part's size, not the plate's
+        self.assertEqual(out["proxies"][0]["name"], "proxy plate")
+        hero = os.path.join(self.d, "out", "hero.png")
+        with mock.patch.object(build, "find_blender", return_value=None):
+            code, out = run(self.stl, "-o", hero, "--views", "hero", "--size", "300", "--proxy", plate,
+                            "--blender-python", sys.executable)
+        self.assertEqual((code, out["sane"]), (0, True), out.get("errors"))
+        self.assertIn("cycles (perspective hero", out["renderer"])
+        self.assertGreater(out["files"][0]["fg_views"]["hero"], 0.25)           # a flat 40 x 30 x 6 part, framed tight
+        with open(hero, "rb") as f:
+            head = f.read(24)
+        self.assertEqual(struct.unpack(">II", head[16:24]), (300, 225))
 
 
 if __name__ == "__main__":

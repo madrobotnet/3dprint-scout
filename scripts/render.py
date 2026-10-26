@@ -7,6 +7,7 @@ needed; EEVEE or Cycles on request) with part colours from filament names.
   python3 render.py out/body.stl -o out/render.png
   python3 render.py out/box.stl out/lid.stl -o out/render.png --color "lid=Jade White" --color box=#1a1a1a
   python3 render.py out/body.stl -o out/render.png --engine cycles --views iso --size 1200x900
+  python3 render.py out/body.stl -o out/hero.png --views hero --proxy ref/housing.stl --size 1200
 
 Needs Blender 4.5 LTS or newer: the `blender` binary (PATH, BLENDER=/path, or the usual
 install folders) or the `bpy` module in some Python (--blender-python, BLENDER_PYTHON, or
@@ -23,6 +24,17 @@ the colour drawn: very light and very dark filaments are moved a little off the 
 and off black), the size in mm and the renderer. Exit 0 = rendered and sane, 2 = image not
 usable (blank, or no background), 1 = usage, file or Blender error. Refuses to overwrite
 unless --overwrite is given.
+
+`--size` takes WIDTHxHEIGHT or one number, the width: the height then follows the default 4:3
+(`--size 700` is 700x525). `--views hero` makes one perspective image instead of the grid:
+framed tight on the parts from the front right and a little above, a key, rim and fill light,
+the Standard view transform (AgX washes colours out) and smooth shading by angle; it renders
+with Cycles unless --engine says otherwise, and has no caption unless --label gives one.
+`--proxy housing.stl` (repeatable) draws a stand-in of the mating part, in the same coordinates,
+light grey and see-through for context: never framed, coloured or counted as the part (`fg` is
+measured without it) and listed as `proxies` in the sidecar, apart from `stls`. Filament colours
+are approximate screen colours: with --color the output and the sidecar say `"colors":
+"approximate"`, so say so when you show the image.
 
 `--lang ko` draws the view names in Korean (등각, 앞, 오른쪽, 위, ...), for a user who reads
 Korean; the caption takes any text Blender's fonts can draw. Next to the image it writes the
@@ -49,6 +61,7 @@ SCHEMA = "3dprint-scout.render/1"
 BUILDER = os.path.join(build.ENGINES_DIR, "blender_builder.py")
 ENGINES = ("workbench", "eevee", "cycles")
 LANGS = ("en", "ko")                    # the view names drawn in the image (blender_builder.VIEW_LABELS)
+HERO = "hero"                           # --views hero: one perspective image (blender_builder.HERO)
 
 
 def builder_module():
@@ -69,13 +82,15 @@ class _JsonArgParser(argparse.ArgumentParser):
 
 
 def render_command(stls, out, views, size, engine, colors, label=None, exe=None, python=None, overwrite=False,
-                   lang="en"):
+                   lang="en", proxies=()):
     """The command line: the blender binary running blender_builder.py as a script, or the bpy
     Python running it; the renderer's own arguments follow `--`."""
     args = ["--", "render", *[os.path.abspath(s) for s in stls], "-o", os.path.abspath(out),
             "--views", ",".join(views), "--size", f"{size[0]}x{size[1]}", "--engine", engine]
     for c in colors:
         args += ["--color", c]
+    for p in proxies:
+        args += ["--proxy", os.path.abspath(p)]
     if label is not None:
         args += ["--label", label]
     if lang != "en":
@@ -97,27 +112,33 @@ def choose_blender(blender_python=None):
 
 
 def run(args) -> dict:
+    bb = builder_module()
     views = [v.strip().lower() for v in args.views.split(",") if v.strip()]
-    bad = [v for v in views if v not in preview.VIEWS]
+    bad = [v for v in views if v not in preview.VIEWS and v != HERO]
     if bad or not views:
-        raise RenderError(f"unknown view(s) {bad}; choose from {', '.join(preview.VIEWS)}")
+        raise RenderError(f"unknown view(s) {bad}; choose from {', '.join(list(preview.VIEWS) + [HERO])}")
+    if HERO in views and len(views) > 1:
+        raise RenderError("--views hero is one image on its own; render the grid views in another call")
     try:
-        width, height = (int(x) for x in args.size.lower().split("x"))
+        width, height = bb.parse_size(args.size)
     except ValueError:
-        raise RenderError("--size WIDTHxHEIGHT, e.g. 1600x1200")
+        raise RenderError("--size WIDTHxHEIGHT or one number (the width, 4:3), e.g. 1600x1200 or 1200")
     if width < 200 or height < 200 or width * height > preview.MAX_PIXELS:
         raise RenderError("--size between 200x200 and 4096x4096")
-    if args.engine not in ENGINES:
+    engine = args.engine or ("cycles" if HERO in views else "workbench")
+    if engine not in ENGINES:
         raise RenderError(f"--engine must be one of {', '.join(ENGINES)}")
-    names = []
-    hashes = preview.stl_hashes(args.stl)              # before Blender reads them: the sidecar names the bytes drawn
-    for path in args.stl:
+    proxies = list(args.proxy or [])
+    same = [p for p in proxies if any(os.path.abspath(p) == os.path.abspath(s) for s in args.stl)]
+    if same:
+        raise RenderError(f"{', '.join(same)} is given as a part and as a proxy; a proxy is not a part")
+    hashes = preview.stl_hashes(args.stl + proxies)    # before Blender reads them: the sidecar names the bytes drawn
+    for path in args.stl + proxies:
         try:
             read_stl(path)                                       # G4 on the input, before Blender starts
         except ArtifactError as exc:
             raise RenderError(f"{path}: {exc}")
-        names.append(os.path.splitext(os.path.basename(path))[0])
-    bb = builder_module()
+    names = [os.path.splitext(os.path.basename(p))[0] for p in args.stl]
     try:
         colours, warnings = bb.parse_colors(args.color, names)   # names checked here, before Blender starts
     except ValueError as exc:
@@ -131,8 +152,8 @@ def run(args) -> dict:
             raise RenderError(f"{t} already exists; pass --overwrite for a working file in out/, or choose a new name")
     exe, python, version = choose_blender(args.blender_python)
     os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)
-    cmd = render_command(args.stl, args.out, views, (width, height), args.engine, args.color, args.label, exe, python,
-                         overwrite=args.overwrite, lang=args.lang)
+    cmd = render_command(args.stl, args.out, views, (width, height), engine, args.color, args.label, exe, python,
+                         overwrite=args.overwrite, lang=args.lang, proxies=proxies)
     env = dict(os.environ, PYTHONIOENCODING="utf-8")
     t0 = time.time()
     try:
@@ -149,16 +170,22 @@ def run(args) -> dict:
     if sane:
         sane, note = bb.fg_sane(rep["fg"], rep.get("fg_views"))  # a background behind it, every view drawn
     renderer = rep["renderer"] + (" (binary)" if exe else " (bpy module)")
+    extra = {"colors": "approximate"} if args.color else {}
     try:
-        sidecar = preview.write_sidecar(args.out, args.stl, views, renderer, args.lang, hashes=hashes)
+        sidecar = preview.write_sidecar(args.out, args.stl, views, renderer, args.lang, hashes=hashes, proxies=proxies,
+                                        extra=extra)
     except ValueError as exc:
         raise RenderError(str(exc))
-    return {"files": [{"path": args.out, "views": views, "sane": sane, "note": note, "fg": rep["fg"],
-                       "fg_views": rep.get("fg_views"), "bytes": os.path.getsize(args.out), "sidecar": sidecar}],
-            "parts": rep["parts"], "size_mm": rep["size_mm"], "colour_note": rep.get("colour_note", bb.COLOUR_TABLE_NOTE),
-            "renderer": renderer,
-            "seconds": round(time.time() - t0, 2), "sane": sane,
-            "warnings": warnings + [w for w in rep.get("warnings", []) if w not in warnings]}
+    result = {"files": [{"path": args.out, "views": views, "sane": sane, "note": note, "fg": rep["fg"],
+                         "fg_views": rep.get("fg_views"), "bytes": os.path.getsize(args.out), "sidecar": sidecar}],
+              "parts": rep["parts"], "size_mm": rep["size_mm"],
+              "colour_note": rep.get("colour_note", bb.COLOUR_TABLE_NOTE), "renderer": renderer,
+              "seconds": round(time.time() - t0, 2), "sane": sane,
+              "warnings": warnings + [w for w in rep.get("warnings", []) if w not in warnings]}
+    if proxies:
+        result["proxies"] = [dict(p, path=path) for p, path in zip(rep.get("proxies") or [{} for _ in proxies], proxies)]
+    result.update(extra)
+    return result
 
 
 def main(argv=None):
@@ -167,9 +194,15 @@ def main(argv=None):
         ap = _JsonArgParser(description="Blender renders of STL parts (Workbench by default)")
         ap.add_argument("stl", nargs="+")
         ap.add_argument("-o", "--out", required=True, help="PNG path")
-        ap.add_argument("--views", default=",".join(preview.DEFAULT_VIEWS), help="comma list of " + ", ".join(preview.VIEWS))
-        ap.add_argument("--size", default="1600x1200")
-        ap.add_argument("--engine", default="workbench", help="workbench (default, headless) | eevee | cycles")
+        ap.add_argument("--views", default=",".join(preview.DEFAULT_VIEWS),
+                        help="comma list of " + ", ".join(preview.VIEWS) + "; or hero alone: one perspective image, "
+                             "framed tight and lit (Cycles unless --engine)")
+        ap.add_argument("--size", default="1600x1200",
+                        help="WIDTHxHEIGHT, or one number: the width, height at the default 4:3 (700 = 700x525)")
+        ap.add_argument("--engine", help="workbench (default, headless) | eevee | cycles (default for --views hero)")
+        ap.add_argument("--proxy", action="append", default=[],
+                        help="STL of a mating part in the same coordinates, drawn light grey and see-through for "
+                             "context; not a part: not framed, coloured or counted (repeatable)")
         ap.add_argument("--color", action="append", default=[],
                         help="part=filament name or #rrggbb, e.g. lid=\"Jade White\" (repeatable; default palette; "
                              "an unknown name gives neutral grey and a warning)")
