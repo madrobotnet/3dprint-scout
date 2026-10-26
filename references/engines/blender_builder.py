@@ -119,6 +119,15 @@ SHADOW_INTENSITY = 0.25                 # Workbench shadows on 4.x: a 5 mm pocke
 SMOOTH_ANGLE = 30.0                     # degrees: faces meeting flatter than this are shaded smooth in a render
 MARGIN = 0.08
 ENGINE_NAMES = ("workbench", "eevee", "cycles")
+HERO = "hero"                           # one perspective image, framed tight on the parts, lit (render_views)
+HERO_VIEW = ((1.0, -1.4, 0.9), (0.0, 0.0, 1.0))    # from the front right, a little above: a three-quarter view
+HERO_LENS = 50.0                        # mm on a 36 mm sensor: a gentle perspective
+HERO_MARGIN = 0.08                      # of the half frame left free around the parts
+HERO_SAMPLES = 32                       # Cycles samples of a hero image, denoised (16 already looks clean)
+HERO_AMBIENT = 0.35                     # world light on the parts in a hero image (the camera still sees BACKGROUND)
+MASK_SAMPLES = 4                        # Cycles samples of the part-only pass that measures fg when proxies are drawn
+PROXY_RGB = (0.70, 0.72, 0.76)          # sRGB, a cool neutral grey: a proxy (the mating part) is context, not a part
+PROXY_ALPHA = 0.35                      # proxies are drawn see-through so the part behind them shows
 COLOUR_TABLE_NOTE = ("colours are approximate screen values of common Bambu filaments (for previews and the "
                      "colour swatches of a project file; the filament loaded is what prints); "
                      "an unknown name gets neutral grey")
@@ -168,6 +177,8 @@ def cli_args(argv=None):
     r.add_argument("--size", default="1600x1200")
     r.add_argument("--engine", default="workbench", choices=ENGINE_NAMES)
     r.add_argument("--color", action="append", default=[], help="part=filament name or #rrggbb (repeatable)")
+    r.add_argument("--proxy", action="append", default=[],
+                   help="STL of a mating part drawn grey and see-through for context, not a part (repeatable)")
     r.add_argument("--label", help="caption (default: the size in mm)")
     r.add_argument("--lang", default="en", choices=sorted(VIEW_LABELS), help="language of the view names")
     r.add_argument("--overwrite", action="store_true", help="replace an existing PNG (out/ is the working folder)")
@@ -298,6 +309,18 @@ def parse_colors(items, names):
     return out, warnings
 
 
+def parse_size(text, aspect=(4, 3)):
+    """(width, height) from "WIDTHxHEIGHT" or a single number, the width: the height then follows
+    the default 4:3 of 1600x1200 (700 -> 700x525). Raises ValueError."""
+    t = str(text).strip().lower()
+    if "x" in t:
+        w, h = (int(x) for x in t.split("x"))
+    else:
+        w = int(t)
+        h = int(round(w * aspect[1] / aspect[0]))
+    return w, h
+
+
 def fg_sane(fg, views=None):
     """The G4 verdict on a render's foreground fraction, measured on the rendered views without
     the caption or the grid lines: blank (nothing drawn), no background at all (a black or
@@ -344,6 +367,29 @@ def projected_extent(corners, basis):
     xs = [sum(p[i] * r[i] for i in range(3)) for p in corners]
     ys = [sum(p[i] * u[i] for i in range(3)) for p in corners]
     return max(xs) - min(xs), max(ys) - min(ys), (max(xs) + min(xs)) / 2, (max(ys) + min(ys)) / 2
+
+
+def hero_frame(points, direction, up, tan_h, tan_v):
+    """A perspective camera looking along -`direction` (the view basis) that frames `points`
+    tightly: every point within tan_h / tan_v of the axis (the half frame, margin taken off by
+    the caller), the extremes centred on the axis that limits (nearly on the other). Returns
+    (eye, (right, up, forward), distance from the eye to the points' centre plane). Exact, not
+    iterated: for each axis the distance and the sideways shift follow from the extreme rays."""
+    r, u, f = view_basis(direction, up)
+    n = len(points)
+    if not n:
+        raise ValueError("nothing to frame")
+    c = [sum(p[i] for p in points) / n for i in range(3)]
+    dot = lambda p, a: sum((p[i] - c[i]) * a[i] for i in range(3))      # noqa: E731
+    xs = [dot(p, r) for p in points]
+    ys = [dot(p, u) for p in points]
+    zs = [dot(p, f) for p in points]                                        # + is away from the eye
+    hi_x, lo_x = max(x - tan_h * z for x, z in zip(xs, zs)), min(x + tan_h * z for x, z in zip(xs, zs))
+    hi_y, lo_y = max(y - tan_v * z for y, z in zip(ys, zs)), min(y + tan_v * z for y, z in zip(ys, zs))
+    dist = max((hi_x - lo_x) / (2 * tan_h), (hi_y - lo_y) / (2 * tan_v), 1e-3)
+    sx, sy = (hi_x + lo_x) / 2, (hi_y + lo_y) / 2
+    eye = tuple(c[i] + r[i] * sx + u[i] * sy - f[i] * dist for i in range(3))
+    return eye, (r, u, f), dist
 
 
 def box_corners(lo, hi):
@@ -597,9 +643,11 @@ def nonmanifold_edges(obj):
     return n
 
 
-def degenerate_triangles(me, area=1e-9):
+def degenerate_triangles(me, area=1e-9, weld=WELD):
     """Triangles of a mesh (as the STL exporter will cut them) with an area under `area` mm2
-    or two welded vertices: what validate.py's M3 counts."""
+    or two welded vertices (closer than `weld`): what validate.py's M3 counts. On a mesh
+    already snapped to the WELD grid two distinct vertices are one cell apart, which float32
+    can make a hair under WELD: the export passes `weld=WELD / 2` there."""
     import numpy as np                      # bundled with every Blender and the bpy wheel
     me.calc_loop_triangles()
     n = len(me.loop_triangles)
@@ -614,7 +662,20 @@ def degenerate_triangles(me, area=1e-9):
     areas = np.linalg.norm(np.cross(b - a, c - a), axis=1) / 2
     short = np.minimum(np.minimum(np.linalg.norm(a - b, axis=1), np.linalg.norm(b - c, axis=1)),
                        np.linalg.norm(a - c, axis=1))
-    return int(np.count_nonzero((areas < area) | (short < WELD)))
+    return int(np.count_nonzero((areas < area) | (short < weld)))
+
+
+def duplicate_triangles(me):
+    """Triangles of a mesh (as the STL exporter will cut them) on the same three vertices as
+    another one: what validate.py's M4 counts once the vertices are welded."""
+    me.calc_loop_triangles()
+    seen, dup = set(), 0
+    for t in me.loop_triangles:
+        key = tuple(sorted(t.vertices))
+        if key in seen:
+            dup += 1
+        seen.add(key)
+    return dup
 
 
 def weld_degenerate(me):
@@ -1088,7 +1149,7 @@ def _off_plane(plane, pts):
     return max(abs((x - ox) * nx + (y - oy) * ny + (z - oz) * nz) for x, y, z in pts)
 
 
-def from_mesh(verts, faces, name="mesh", collection=None, groups=None):
+def from_mesh(verts, faces, name="mesh", collection=None, groups=None, merge_flat=True):
     """An object from vertices [(x, y, z), ...] in mm and faces [(i, j, k, ...), ...]: the
     bridge for geometry made outside Blender (`from_manifold`, `import_stl`). Vertices closer
     than WELD are merged and the normals made consistent; a mesh that is not closed (open or
@@ -1100,7 +1161,9 @@ def from_mesh(verts, faces, name="mesh", collection=None, groups=None):
     its corners are within 0.001 mm of one plane (a warped face keeps its id but is curved, and
     an id can span several faces). Every other face is grown from a seed only while every
     corner stays within WELD / 2 of the seed's plane, so a gentle curve's facets are never
-    folded into one bent face."""
+    folded into one bent face. `merge_flat=False` keeps the faces as given (welded, normals
+    made consistent): for a mesh whose subdivision is meant to stay, such as a flat strip that
+    a later step bends, or one that is not cut afterwards."""
     require_blender()
     me = bpy.data.meshes.new(name)
     me.from_pydata([tuple(map(float, v[:3])) for v in verts], [], [tuple(int(i) for i in f) for f in faces])
@@ -1123,7 +1186,9 @@ def from_mesh(verts, faces, name="mesh", collection=None, groups=None):
                          "closed mesh (run validate.py on it first)")
     bm.normal_update()
     flat, seen = set(), set()
-    if gl is not None:
+    if not merge_flat:
+        seen.update(bm.faces)
+    if gl is not None and merge_flat:
         by = {}
         for f in bm.faces:
             by.setdefault(f[gl], []).append(f)
@@ -2410,8 +2475,13 @@ def _export_copy(obj, name):
     validate.py welds (each coordinate rounded to a multiple of WELD), so the vertices it will
     treat as one are one here too, and the seam a boolean leaves where a tool conforms to a
     face does not become a zero-area triangle in the STL. The shift is at most WELD / 2 per axis.
-    Returns (temporary object, vertices welded, non-manifold edges); raises when zero-area
-    triangles remain after the weld (the STL would fail M3, then M1)."""
+    The STL exporter triangulates the faces as Blender does (the mesh's loop triangles), so a
+    part that exported cleanly before writes the same bytes. Only when those triangles would
+    fail M3 or M4 (a large flat n-gon, such as split facets merged back by `from_mesh`, a ring
+    face or a bed chamfer's inset, with points nearly in line: Blender's own n-gon split can
+    leave zero-area or duplicate triangles) is the copy triangulated here with BEAUTY, and
+    checked again. Returns (temporary object, vertices welded, non-manifold edges,
+    re-triangulated); raises when zero-area or duplicate triangles remain (M3 or M4)."""
     me = evaluated_mesh(obj)
     me[TAG] = True
     bm = bmesh.new()
@@ -2427,9 +2497,22 @@ def _export_copy(obj, name):
     welded = before - len(bm.verts)
     nm = sum(1 for e in bm.edges if not e.is_manifold)
     bm.to_mesh(me)
-    bm.free()
     me.update()
-    bad = degenerate_triangles(me)
+    bad = degenerate_triangles(me, weld=WELD / 2)          # distinct vertices are a cell apart now
+    dup = duplicate_triangles(me)
+    retriangulated = bool(bad or dup)
+    if retriangulated:                      # Blender's own split fails here: triangulate the copy ourselves
+        bmesh.ops.triangulate(bm, faces=bm.faces[:], quad_method="BEAUTY", ngon_method="BEAUTY")
+        bm.to_mesh(me)
+        me.update()
+        bad = degenerate_triangles(me, weld=WELD / 2)
+        dup = duplicate_triangles(me)
+    bm.free()
+    if dup and not bad:
+        bpy.data.meshes.remove(me)
+        raise ValueError(f"part '{name}': {dup} duplicate triangles after welding on the {WELD} mm grid (the STL would "
+                         "fail M4): two faces lie on the same vertices, usually two surfaces of the part collapsed onto "
+                         "each other (a wall thinner than the grid); thicken or remove it")
     if bad:
         bpy.data.meshes.remove(me)
         raise ValueError(f"part '{name}': {bad} zero-area triangles remain after welding on the {WELD} mm grid "
@@ -2440,14 +2523,15 @@ def _export_copy(obj, name):
     tmp = bpy.data.objects.new(f"_export_{name}", me)   # identity transform: the mesh is in world mm already
     tmp[TAG] = True
     scene().collection.objects.link(tmp)
-    return tmp, welded, nm
+    return tmp, welded, nm, retriangulated
 
 
 def export_parts(out, names=None):
     """One binary STL per registered part into `out` (modifiers applied, vertices snapped to the
     WELD grid and merged as validate.py merges them, 1 unit = 1 mm, scene unit off, axes unchanged).
-    Returns the part list with boxes in mm, triangles and bytes; refuses a part whose welded
-    mesh still holds zero-area triangles."""
+    Returns the part list with boxes in mm, triangles and bytes (`retriangulated` on a part
+    whose faces were split with BEAUTY instead of Blender's own split, see _export_copy);
+    refuses a part whose welded mesh still holds zero-area or duplicate triangles."""
     require_blender()
     if not _PARTS:
         raise ValueError("no parts registered: call part(obj, name) for every body to export")
@@ -2461,7 +2545,7 @@ def export_parts(out, names=None):
         obj = _PARTS[n]["object"]
         path = os.path.join(out, n + ".stl")
         t0 = time.time()
-        tmp, welded, nm = _export_copy(obj, n)
+        tmp, welded, nm, retriangulated = _export_copy(obj, n)
         try:
             _deselect_all()
             tmp.select_set(True, view_layer=_view_layer())
@@ -2480,6 +2564,10 @@ def export_parts(out, names=None):
         if welded:
             entry["welded_vertices"] = welded
             LOG.append(f"export '{n}': {welded} vertices welded on the {WELD} mm grid (as validate.py welds them)")
+        if retriangulated:
+            entry["retriangulated"] = True
+            LOG.append(f"export '{n}': faces triangulated with BEAUTY (Blender's own split left zero-area or "
+                       "duplicate triangles)")
         if nm:
             entry["warning"] = f"{nm} non-manifold edges (validate.py will fail M1)"
         info.append(entry)
@@ -2594,12 +2682,13 @@ def engine_id(engine):
     raise ValueError(f"no EEVEE engine in this Blender (engines: {ids})")
 
 
-def _camera_for(view, lo, hi, scale, aspect):
+def _camera_for(view, lo, hi, scale, aspect, reach=0.0):
     """An orthographic camera for one view: its X, Y, Z axes are the view basis (right, up,
-    towards the eye), so every view matches preview.py's; placed well outside the scene."""
+    towards the eye), so every view matches preview.py's; placed well outside the scene
+    (`reach`: how far proxies stand out from the parts' centre, so the camera is outside them too)."""
     r, u, f = view_basis(*VIEWS[view])
     centre = [(lo[i] + hi[i]) / 2 for i in range(3)]
-    extent = max(hi[i] - lo[i] for i in range(3)) + 1.0
+    extent = max(max(hi[i] - lo[i] for i in range(3)), reach) + 1.0
     cam_data = bpy.data.cameras.new("_render_cam")
     cam_data[TAG] = True
     cam_data.type = "ORTHO"
@@ -2614,6 +2703,38 @@ def _camera_for(view, lo, hi, scale, aspect):
     cam.matrix_world = mathutils.Matrix((
         (r[0], u[0], -f[0], loc[0]), (r[1], u[1], -f[1], loc[1]), (r[2], u[2], -f[2], loc[2]), (0, 0, 0, 1)))
     return cam
+
+
+def _world_points(obj):
+    """The evaluated object's vertices in world mm."""
+    me = evaluated_mesh(obj)
+    mw = _world(obj)
+    pts = [tuple(mw @ v.co) for v in me.vertices]
+    bpy.data.meshes.remove(me)
+    return pts
+
+
+def _hero_camera(points, aspect, reach):
+    """A perspective camera from HERO_VIEW framing `points` tightly (hero_frame). Returns the
+    camera and the width of its frame 1 mm in front of it (the caption's `scale`)."""
+    t = 18.0 / HERO_LENS                                   # tan of the half angle across a 36 mm sensor
+    tan_h, tan_v = (t, t / aspect) if aspect >= 1 else (t * aspect, t)
+    m = 1 - HERO_MARGIN
+    eye, (r, u, f), dist = hero_frame(points, *HERO_VIEW, tan_h * m, tan_v * m)
+    cam_data = bpy.data.cameras.new("_render_cam")
+    cam_data[TAG] = True
+    cam_data.type = "PERSP"
+    cam_data.lens = HERO_LENS
+    cam_data.sensor_width = cam_data.sensor_height = 36.0
+    cam_data.sensor_fit = "HORIZONTAL" if aspect >= 1 else "VERTICAL"
+    cam_data.clip_start = 0.5                              # the caption sits 1 mm in front of the camera
+    cam_data.clip_end = (dist + reach) * 10 + 10
+    cam = bpy.data.objects.new("_render_cam", cam_data)
+    cam[TAG] = True
+    scene().collection.objects.link(cam)
+    cam.matrix_world = mathutils.Matrix((
+        (r[0], u[0], -f[0], eye[0]), (r[1], u[1], -f[1], eye[1]), (r[2], u[2], -f[2], eye[2]), (0, 0, 0, 1)))
+    return cam, 2 * t
 
 
 def _label(cam, text_, scale, aspect, materials):
@@ -2681,6 +2802,52 @@ def _colour_objects(objects, colors, materials):
     return undo
 
 
+def _proxy_look(proxies, materials):
+    """Proxies drawn PROXY_RGB and see-through (object colour for Workbench, a material with
+    alpha for EEVEE / Cycles); returns what to undo, as _colour_objects."""
+    undo = []
+    rgb = linear_rgb(PROXY_RGB)
+    for obj in proxies:
+        obj.color = (*rgb, PROXY_ALPHA)
+        mat = bpy.data.materials.new("_render_proxy_" + obj.name)
+        mat.diffuse_color = (*rgb, PROXY_ALPHA)
+        mat.use_nodes = True
+        bsdf = mat.node_tree.nodes.get("Principled BSDF")
+        if bsdf is not None:
+            bsdf.inputs["Base Color"].default_value = (*rgb, 1.0)
+            bsdf.inputs["Roughness"].default_value = 0.8
+            if "Alpha" in bsdf.inputs:
+                bsdf.inputs["Alpha"].default_value = PROXY_ALPHA
+        for attr, value in (("surface_render_method", "BLENDED"), ("blend_method", "BLEND")):   # EEVEE 4.2+ / older
+            if hasattr(mat, attr):
+                try:
+                    setattr(mat, attr, value)
+                except (TypeError, AttributeError):
+                    pass
+        materials.append(mat)
+        if obj.data.materials:
+            undo.append((obj.data, obj.data.materials[0]))
+            obj.data.materials[0] = mat
+        else:
+            undo.append((obj.data, None))
+            obj.data.materials.append(mat)
+    return undo
+
+
+def _sun(sc, name, towards_light, energy, angle_deg):
+    """A sun lamp shining from `towards_light` (a vector from the scene to the light)."""
+    data = bpy.data.lights.new(name, "SUN")
+    data[TAG] = True
+    data.energy = energy
+    data.angle = math.radians(angle_deg)
+    ob = bpy.data.objects.new(name, data)
+    ob[TAG] = True
+    sc.collection.objects.link(ob)
+    ob.rotation_mode = "QUATERNION"
+    ob.rotation_quaternion = (-mathutils.Vector(towards_light)).to_track_quat("-Z", "Y")
+    return ob
+
+
 def _smooth_by_angle(obj, angle=SMOOTH_ANGLE):
     """Shade the object's mesh smooth across edges whose faces meet flatter than `angle`
     (a cylinder's facets blend, a box's corners stay crisp), for the render only: returns a
@@ -2720,8 +2887,11 @@ def _smooth_by_angle(obj, angle=SMOOTH_ANGLE):
     return restore
 
 
-def _setup_engine(sc, engine):
-    """Render settings on the build scene; returns the extra objects (lights) to remove."""
+def _setup_engine(sc, engine, hero=None):
+    """Render settings on the build scene; returns the extra objects (lights) to remove. With
+    `hero` (the camera's right, up, forward) EEVEE and Cycles get a key, a rim and a fill light
+    placed from the camera and a world that the camera sees as BACKGROUND but that lights the parts
+    only a little (a temporary world: render_views puts the scene's own back)."""
     sc.render.engine = engine_id(engine)
     sc.view_settings.view_transform = "Standard"
     sc.render.film_transparent = False
@@ -2764,11 +2934,35 @@ def _setup_engine(sc, engine):
         sh.background_type = "WORLD"
         return []
     extras = []
+    if hero is not None:
+        world = bpy.data.worlds.new("_render_hero_world")
+        world[TAG] = True
+        world.color = linear_rgb(BACKGROUND)
+        sc.world = world
     world.use_nodes = True
     bg = world.node_tree.nodes.get("Background")
     if bg is not None:
         bg.inputs[0].default_value = (*linear_rgb(BACKGROUND), 1.0)
         bg.inputs[1].default_value = 1.0
+    if hero is not None:
+        _hero_world(world, bg)
+        r, u, f = (mathutils.Vector(v) for v in hero)
+        extras.append(_sun(sc, "_render_key", -f * 1.0 + u * 1.3 - r * 0.9, 3.5, 12))
+        extras.append(_sun(sc, "_render_rim", f * 1.0 + u * 0.8 + r * 0.6, 2.0, 8))
+        extras.append(_sun(sc, "_render_fill", -f * 1.0 + r * 1.2 - u * 0.1, 0.8, 30))
+        if engine == "cycles":
+            sc.cycles.samples = HERO_SAMPLES
+            sc.cycles.device = "CPU"
+            try:
+                sc.cycles.use_denoising = True
+            except (AttributeError, TypeError):
+                pass
+        else:
+            try:
+                sc.eevee.taa_render_samples = HERO_SAMPLES
+            except AttributeError:
+                pass
+        return extras
     sun_data = bpy.data.lights.new("_render_sun", "SUN")
     sun_data[TAG] = True
     sun_data.energy = 3.0
@@ -2788,8 +2982,54 @@ def _setup_engine(sc, engine):
     return extras
 
 
+def _hero_world(world, bg):
+    """The camera sees the background at full strength, everything else is lit by it at
+    HERO_AMBIENT (Light Path: Is Camera Ray), so the background stays BACKGROUND for the blank
+    check while the parts keep their shading."""
+    nodes, links = world.node_tree.nodes, world.node_tree.links
+    out = next((n for n in nodes if n.type == "OUTPUT_WORLD"), None)
+    if bg is None or out is None:
+        return
+    dim = nodes.new("ShaderNodeBackground")
+    dim.inputs[0].default_value = bg.inputs[0].default_value
+    dim.inputs[1].default_value = HERO_AMBIENT
+    path = nodes.new("ShaderNodeLightPath")
+    mix = nodes.new("ShaderNodeMixShader")
+    links.new(path.outputs["Is Camera Ray"], mix.inputs[0])
+    links.new(dim.outputs[0], mix.inputs[1])
+    links.new(bg.outputs[0], mix.inputs[2])
+    links.new(mix.outputs[0], out.inputs["Surface"])
+
+
+def _render_tile(sc, path):
+    """Render the scene's camera to `path` and read it back: an (h, w, 4) float array, bottom-up."""
+    import numpy as np
+    sc.render.filepath = path
+    with _ctx():
+        bpy.ops.render.render(write_still=True)
+    img = bpy.data.images.load(path)
+    w, h = img.size
+    buf = np.empty(w * h * 4, dtype=np.float32)
+    img.pixels.foreach_get(buf)
+    bpy.data.images.remove(img)
+    return buf.reshape(h, w, 4)
+
+
+def _fg_fraction(tile, box=None):
+    """(pixels that differ from the background, pixels counted) in a tile, `box` (x0, y0, x1, y1)
+    left out."""
+    import numpy as np
+    bg = np.asarray(BACKGROUND, dtype=np.float32)
+    drawn = (np.abs(tile[..., :3] - bg) > 0.03).any(axis=2)
+    keep = np.ones(drawn.shape, dtype=bool)
+    if box is not None:
+        x0, y0, x1, y1 = box
+        keep[y0:y1, x0:x1] = False
+    return int((drawn & keep).sum()), int(keep.sum())
+
+
 def render_views(out, views=None, colors=None, engine="workbench", size=(1600, 1200), objects=None, label=None,
-                 overwrite=False, lang="en"):
+                 overwrite=False, lang="en", proxies=None):
     """Render the given objects (default: the registered parts) from `views` into one PNG grid
     at `out` (width, height), Workbench by default (headless, no GPU needed; eevee and cycles
     on request), part colours from `colors` {part: (r, g, b)} or the palette. The per-view
@@ -2797,13 +3037,21 @@ def render_views(out, views=None, colors=None, engine="workbench", size=(1600, 1
     "sane", "note", "size_mm", "renderer", "seconds", "bytes"}; `fg` is the fraction of pixels
     that differ from the background, counted on the rendered views without the caption and the
     grid lines (`fg_views` per view), and `sane` the G4 verdict (`fg_sane`): every view must
-    show the part."""
+    show the part.
+    `views=["hero"]` makes one perspective image instead, framed tight on the objects from the
+    front right and a little above, with a key, rim and fill light on EEVEE and Cycles (Cycles
+    is meant for it), no caption unless `label` is given. `proxies` (objects: the mating part,
+    a housing) are drawn PROXY_RGB and see-through, never framed, coloured or counted as the
+    part: with proxies, `fg` is measured on a second, smaller pass without them."""
     require_blender()
     import numpy as np                      # bundled with every Blender and the bpy wheel
     views = list(views or DEFAULT_VIEWS)
-    bad = [v for v in views if v not in VIEWS]
+    bad = [v for v in views if v not in VIEWS and v != HERO]
     if bad:
-        raise ValueError(f"unknown views {bad}; choose from {list(VIEWS)}")
+        raise ValueError(f"unknown views {bad}; choose from {list(VIEWS) + [HERO]}")
+    hero = HERO in views
+    if hero and len(views) > 1:
+        raise ValueError("the hero view is one image on its own; render the grid views separately")
     if engine not in ENGINE_NAMES:
         raise ValueError(f"engine must be one of {ENGINE_NAMES}")
     if lang not in VIEW_LABELS:
@@ -2812,6 +3060,7 @@ def render_views(out, views=None, colors=None, engine="workbench", size=(1600, 1
     objects = list(objects) if objects is not None else [p["object"] for p in _PARTS.values()]
     if not objects:
         raise ValueError("nothing to render")
+    proxies = [o for o in (proxies or []) if o not in objects]
     out = os.path.abspath(out)
     if os.path.exists(out) and not overwrite:
         raise FileExistsError(f"{out} already exists; pass overwrite for a working file in out/, or choose a new name")
@@ -2826,53 +3075,74 @@ def render_views(out, views=None, colors=None, engine="workbench", size=(1600, 1
     lo = [min(b[0][i] for b in boxes) for i in range(3)]
     hi = [max(b[1][i] for b in boxes) for i in range(3)]
     size_mm = [round(hi[i] - lo[i], 2) for i in range(3)]
+    centre = [(lo[i] + hi[i]) / 2 for i in range(3)]
+    reach = 0.0                             # how far a proxy reaches from the parts' centre
+    for b in (world_bbox(o)[:2] for o in proxies):
+        reach = max([reach] + [2 * abs(b[k][i] - centre[i]) for k in (0, 1) for i in range(3)])
     corners = box_corners(lo, hi)
     scale = 0.0
-    for v in views:
+    for v in ([] if hero else views):
         w, h, _cx, _cy = projected_extent(corners, view_basis(*VIEWS[v]))
         scale = max(scale, w, h * aspect if aspect >= 1 else h, w / aspect if aspect < 1 else w)
     scale = max(scale, 1e-6) * (1 + 2 * MARGIN)
     caption = label if label is not None else "%g x %g x %g mm" % tuple(size_mm)
+    points = [p for o in objects for p in _world_points(o)] if hero else None
     materials = []
     undo = _colour_objects(objects, {k: tuple(v) for k, v in colors.items()}, materials)
-    smooth_undo = [_smooth_by_angle(o) for o in objects]
+    undo += _proxy_look(proxies, materials)
+    smooth_undo = [_smooth_by_angle(o) for o in objects + proxies]
     old_ssao = sc.display.matcap_ssao_distance
     sc.display.matcap_ssao_distance = min(SSAO_MAX, max(SSAO_MIN, SSAO_RATIO * max(size_mm)))   # see _setup_engine
-    extras = _setup_engine(sc, engine)
+    old_world = sc.world
+    old_samples = (sc.cycles.samples if hasattr(sc, "cycles") else None)
+    hero_basis = view_basis(*HERO_VIEW) if hero and engine != "workbench" else None
+    extras = _setup_engine(sc, engine, hero=hero_basis) if hero_basis is not None else _setup_engine(sc, engine)
     old_res = (sc.render.resolution_x, sc.render.resolution_y)
     sc.render.resolution_x, sc.render.resolution_y = tw, th
     old_camera = sc.camera
     os.makedirs(os.path.dirname(out), exist_ok=True)
     tmpdir = tempfile.mkdtemp(prefix=".render-", dir=os.path.dirname(out))
-    tiles, captions, temp_objects = [], [], list(extras)
+    tiles, temp_objects = [], list(extras)
+    fg_views, hits, counted = {}, 0, 0
     try:
         for i, v in enumerate(views):
-            cam = _camera_for(v, lo, hi, scale, aspect)
-            lab = _label(cam, f"{names[v]}   {caption}" if i == 0 else names[v], scale, aspect, materials)
-            temp_objects += [cam, lab]
+            if hero:
+                cam, cscale = _hero_camera(points, aspect, reach)
+                text_ = label
+            else:
+                cam, cscale = _camera_for(v, lo, hi, scale, aspect, reach), scale
+                text_ = f"{names[v]}   {caption}" if i == 0 else names[v]
+            temp_objects.append(cam)
+            lab = None
+            if text_:
+                lab = _label(cam, text_, cscale, aspect, materials)
+                temp_objects.append(lab)
             sc.camera = cam
-            tmp = os.path.join(tmpdir, f"{v}.png")
-            sc.render.filepath = tmp
-            with _ctx():
-                bpy.ops.render.render(write_still=True)
-            img = bpy.data.images.load(tmp)
-            w, h = img.size
-            buf = np.empty(w * h * 4, dtype=np.float32)
-            img.pixels.foreach_get(buf)
-            bpy.data.images.remove(img)
-            tiles.append(buf.reshape(h, w, 4))
-            captions.append(_label_box(lab, scale, aspect, tw, th))
-            lab.hide_render = True                  # or the next view draws it mirrored (TOP in the BOTTOM tile)
-        # The blank check counts the part only: per view, before the grid lines, the caption left out.
-        bg = np.asarray(BACKGROUND, dtype=np.float32)
-        fg_views, hits, counted = {}, 0, 0
-        for v, tile, (x0, y0, x1, y1) in zip(views, tiles, captions):
-            drawn = (np.abs(tile[:th, :tw, :3] - bg) > 0.03).any(axis=2)
-            keep = np.ones(drawn.shape, dtype=bool)
-            keep[y0:y1, x0:x1] = False
-            n, k = int(keep.sum()), int((drawn & keep).sum())
+            tile = _render_tile(sc, os.path.join(tmpdir, f"{v}.png"))
+            tiles.append(tile)
+            # The blank check counts the part only: per view, before the grid lines, the caption
+            # left out; with proxies, on a smaller pass without them (and without the caption).
+            if proxies:
+                if lab is not None:
+                    lab.hide_render = True
+                for o in proxies:
+                    o.hide_render = True
+                pct, sc.render.resolution_percentage = sc.render.resolution_percentage, 50
+                if engine == "cycles":
+                    sc.cycles.samples, full = MASK_SAMPLES, sc.cycles.samples
+                k, n = _fg_fraction(_render_tile(sc, os.path.join(tmpdir, f"{v}_mask.png")))
+                if engine == "cycles":
+                    sc.cycles.samples = full
+                sc.render.resolution_percentage = pct
+                for o in proxies:
+                    o.hide_render = False
+            else:
+                box = _label_box(lab, cscale, aspect, tw, th) if lab is not None else None
+                k, n = _fg_fraction(tile[:th, :tw], box)
             fg_views[v] = round(k / n, 5) if n else 0.0
             hits, counted = hits + k, counted + n
+            if lab is not None:
+                lab.hide_render = True              # or the next view draws it mirrored (TOP in the BOTTOM tile)
         fg = hits / counted if counted else 0.0
         canvas = np.empty((rows * th, cols * tw, 4), dtype=np.float32)
         canvas[..., :3] = BACKGROUND
@@ -2913,14 +3183,30 @@ def render_views(out, views=None, colors=None, engine="workbench", size=(1600, 1
                 bpy.data.materials.remove(mat)
         for restore in reversed(smooth_undo):    # last in, first out: objects that share a mesh unwind in turn
             restore()
+        for o in proxies:                        # a failed part-only pass leaves nothing hidden
+            o.hide_render = False
+        sc.render.resolution_percentage = 100
+        if sc.world is not old_world:            # the hero's temporary world
+            tmp_world = sc.world
+            sc.world = old_world
+            if tmp_world is not None and tmp_world.get(TAG) and tmp_world.users == 0:
+                bpy.data.worlds.remove(tmp_world)
+        if old_samples is not None:
+            sc.cycles.samples = old_samples
         sc.camera = old_camera
         sc.display.matcap_ssao_distance = old_ssao
         sc.render.resolution_x, sc.render.resolution_y = old_res
         sc.render.filepath = "//"
     sane, note = fg_sane(fg, fg_views)
-    renderer = f"Blender {bpy.app.version_string} {engine} (orthographic, {cols}x{rows} grid)"
-    return {"path": out, "views": views, "fg": round(fg, 5), "fg_views": fg_views, "sane": sane, "note": note,
-            "size_mm": size_mm, "renderer": renderer, "seconds": round(time.time() - t0, 2), "bytes": os.path.getsize(out)}
+    if hero:
+        renderer = f"Blender {bpy.app.version_string} {engine} (perspective hero, {HERO_LENS:g} mm lens)"
+    else:
+        renderer = f"Blender {bpy.app.version_string} {engine} (orthographic, {cols}x{rows} grid)"
+    rep = {"path": out, "views": views, "fg": round(fg, 5), "fg_views": fg_views, "sane": sane, "note": note,
+           "size_mm": size_mm, "renderer": renderer, "seconds": round(time.time() - t0, 2), "bytes": os.path.getsize(out)}
+    if proxies:
+        rep["proxies"] = [{"name": o.name, "drawn": rgb_hex(PROXY_RGB), "alpha": PROXY_ALPHA} for o in proxies]
+    return rep
 
 
 # --------------------------------------------------------------------------- #
@@ -3075,7 +3361,8 @@ def render_cli(args):
     sc = new_scene_mm()
     names = []
     objects = []
-    for path in args.stl:
+    proxies = []
+    for path, proxy in [(p, False) for p in args.stl] + [(p, True) for p in getattr(args, "proxy", None) or []]:
         if not os.path.isfile(path):
             raise FileNotFoundError(path)
         before = set(bpy.data.objects)
@@ -3090,18 +3377,24 @@ def render_cli(args):
             o[TAG] = True
             if o.data is not None:
                 o.data[TAG] = True
-            o["part"] = name
-            o.name = name
+            if proxy:
+                o["proxy"] = True
+            else:
+                o["part"] = name
+            o.name = ("proxy " if proxy else "") + name
             for col in list(o.users_collection):       # the importer links into the context scene
                 col.objects.unlink(o)
             sc.collection.objects.link(o)
-        names.append(name)
-        objects += new
+        if proxy:
+            proxies += new
+        else:
+            names.append(name)
+            objects += new
     colors, warnings = parse_colors(args.color, names)
     views = [v.strip().lower() for v in args.views.split(",") if v.strip()]
-    w, h = (int(x) for x in args.size.lower().split("x"))
+    w, h = parse_size(args.size)
     rep = render_views(out, views, colors, args.engine, (w, h), objects, args.label, overwrite=args.overwrite,
-                       lang=getattr(args, "lang", "en"))
+                       lang=getattr(args, "lang", "en"), proxies=proxies)
     rep["parts"] = [{"name": n, "colour": rgb_hex(colors[n]),
                      "drawn": rgb_hex(preview_rgb(colors[n]))} for n in names]
     rep["colour_note"] = COLOUR_TABLE_NOTE

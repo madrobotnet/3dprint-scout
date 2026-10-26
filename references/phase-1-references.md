@@ -17,20 +17,31 @@ for four alternatives or ask them to choose again.
 
    Tier C (no marketplace tool, no web search): give 3–5 search queries and ask the user to
    paste links.
+
+   Then look at how the one or two closest to the job are **built**, not only what their pages
+   say: the photos (an image search, or a browser tool on the page), or the file when the user
+   supplies one (`measure.py info`, `render.py`). Write the structure in a few words: how it
+   attaches or holds ("a sleeve over the whole housing, three catches inside, the connector's
+   place left open"; "three clips on separate pins"). A page's text describes features; how a
+   part mounts is in its pictures, and that is what a concept borrows or avoids.
 3. Unless the user already chose (a new design, a named model to follow, or D), build the
    concepts (below) and stop for **the pick**, one message:
    - When one of the four already does the job, that first, in one line: "Model 2 already does
      this: shall I just point you to it?" (that answer is D).
    - The concepts, each with its image and one line on what differs and what it costs.
-   - The four models under them, one line each: name, site, licence, link, what a concept borrows
-     from it. Offer four more.
+   - The four models under them, one line each: name, site, licence, link, its structure when
+     you looked (step 2), what a concept borrows from it. Offer four more.
+   - When the part fits something the user owns and one of the four fits that same thing, ask in
+     the same message whether they already use one and whether it fit. It is optional (the pick
+     does not wait for it), and the answer is the strongest source for that size (Phase 2,
+     "When sources disagree").
    - The pick, in bold, as the message's last question: which concept (a number), or "like model
      N" (A: that model's parts kept), or "use it as it is" (D). The letters A to D are your words,
      never shown.
    - Just before it, what Phase 2 cannot take a default for, so it costs no stop of its own: an
      unknown printer or slicer (Phase 2, step 1, in its words), a size the part must fit that no
-     source gives (Phase 2, step 3). Nothing else is asked here: the rest has a default the look
-     shows.
+     source gives (Phase 2, step 3). Nothing else is asked here (the question about a model they
+     already use above aside): the rest has a default the look shows.
 
    Every concept borrows from the references when they have something worth borrowing (B) or
    starts from nothing (C); write in `_assumptions` which it was. A user who asked for a new

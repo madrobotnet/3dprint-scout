@@ -24,11 +24,16 @@ Find what works:
   read (`import bpy; bpy.app.version_string`, 4.5 or newer). `detect` cannot see it from a VM
   or a cloud container, so "no Blender" from `detect` plus a working live tool means the live
   path. A timeout or an error: retry once, then treat it as unavailable and say why
-  (`references/engines/blender-live.md`).
+  (`references/engines/blender-live.md`). When the sandbox has Blender too (a `bpy` module),
+  build there with `build.py run`, where the checks see the generator, and use the live one to
+  show the user the result and, if wanted, to cross-check it: compare triangle count and volume,
+  never the STL's sha256 (the exporters write different headers).
 - **None** — in a disposable sandbox (a cloud code-execution container, not the user's own
   machine) `pip install manifold3d numpy rtree matplotlib` is fine: say so in one line and do
-  it; `pip install bpy` too when the shape wants Blender (a few hundred MB; the Python version
-  must match a published wheel). On the user's machine, ask before installing anything. Never
+  it, and install `bpy` first (a few hundred MB; the Python version must match a published
+  wheel; `detect` gives the command in `suggest`): Blender is the first engine for every shape, so a
+  sandbox that lacks it installs it, and builds with another engine only when the install
+  fails, with the reason in `_assumptions`. On the user's machine, ask before installing anything. Never
   try `apt` or `brew` for OpenSCAD in a sandbox (minutes lost, and there is no display). If
   nothing works after that, report what is missing. Reference discovery and choice D still work
   without a modeling engine; stop before modeling if the user chooses A, B or C.

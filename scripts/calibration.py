@@ -4,7 +4,9 @@ calibration.py - the user's own print results, per printer, material and nozzle,
 project at .3dprint/calibration.json (never in the skill): which fit-test ring fit, which
 mechanism member broke or held and under what load, measured clearances. Read in Phase 2;
 a value measured here, under the same conditions, beats the official spec and the starting
-points in design.md.
+points in design.md. A user-level file in the home folder, ~/.3dprint/calibration.json (the
+same schema; THREEDPRINT_USER_CALIBRATION names another path), carries results from one
+project to the next: `lookup` and `show` read it after the project file, `add --user` writes it.
 
   python3 calibration.py add --file .3dprint/calibration.json --printer x2d --material pla_basic --nozzle 0.4 \\
       --layer 0.2 --orientation flat --process "0.20mm Standard @BBL X2D" \\
@@ -14,6 +16,8 @@ points in design.md.
       --layer 0.2 --feature mechanism --kind latch --result failed \\
       --value pin_d_mm=2.6 --value pin_wall_mm=1.3 --value arm_mm=1.2 \\
       --load finger_push --note "print-in-place draw latch: pins, rings and arms broke on first use"
+  python3 calibration.py add --user --printer x2d --material pla_basic --nozzle 0.4 --feature fit --result fits \\
+      --value housing_w_mm=60.5 --note "sleeve slid onto the housing by hand"      # the user-level file
   python3 calibration.py show --file .3dprint/calibration.json
   python3 calibration.py lookup --file .3dprint/calibration.json --printer x2d --material pla_basic --nozzle 0.4 --feature fit
   python3 calibration.py lookup --file .3dprint/calibration.json --printer x2d --material pla_basic --nozzle 0.4 \\
@@ -59,6 +63,18 @@ seen but set no floor for K (a stub pin that broke in a hand-operated latch is n
 a lid hinge's integral pin). Without --kind every matching entry counts, as before, and "kinds"
 says how many entries each kind has among those matching printer, material and feature, under
 any conditions.
+Two files. `lookup` and `show` read the project file (--file) and then the user-level file
+(~/.3dprint/calibration.json, or the path in THREEDPRINT_USER_CALIBRATION; --no-user skips it;
+read once when it is the project file). Every listed entry, value and set says where it came
+from: "from": "project" or "user", and "entry" is its position in that file. Project entries
+take precedence: they come first (newest first), then the user-level ones (newest first), so a
+same-condition project value sets "worked", "worked_set" and "bounds" before a user-level one.
+A user-level file that cannot be read (not JSON, not a calibration file, an entry the checks
+refuse) is left out of `lookup` and `show` with a warning; it is never rewritten. "user_file"
+names it (~ for the home folder), null with --no-user.
+`add` writes the project file (--file); `add --user` writes the user-level file instead
+(making ~/.3dprint/ when needed), only after the user agreed to keep the result for every
+project. Neither overwrites a file that cannot be read: it is refused, as it is.
 Never written without the user's yes (SKILL.md): the agent asks once after a print result, then
 runs `add`. Prints one JSON document; exit 0 on success, 1 on error. Standard library only.
 """
@@ -73,6 +89,9 @@ import re
 import sys
 
 SCHEMA = "3dprint.calibration/1"
+USER_ENV = "THREEDPRINT_USER_CALIBRATION"              # another path for the user-level file (tests, a shared folder)
+USER_DEFAULT = os.path.join("~", ".3dprint", "calibration.json")
+SOURCES = ("project", "user")                          # where an entry came from, in order of precedence
 FEATURES = ("fit", "mechanism", "clearance", "hole", "other")
 RESULTS = ("fits", "tight", "loose", "worked", "failed", "measured")
 GOOD_RESULTS = ("fits", "worked", "measured")          # the only results a value is taken from
@@ -324,6 +343,47 @@ def load_file(path: str) -> dict:
     return data
 
 
+def user_file() -> str:
+    """The user-level file: THREEDPRINT_USER_CALIBRATION when set, else ~/.3dprint/calibration.json."""
+    return os.path.expanduser(os.environ.get(USER_ENV) or USER_DEFAULT)
+
+
+def shown_path(path: str) -> str:
+    """A path as the output names it: the home folder as ~, so no account name leaves the machine."""
+    home = os.path.expanduser("~")
+    full = os.path.abspath(path)
+    if home and len(home) > 1 and (full == home or full.startswith(home.rstrip(os.sep) + os.sep)):
+        return "~" + full[len(home.rstrip(os.sep)):].replace(os.sep, "/")
+    return path
+
+
+def same_path(a: str, b: str) -> bool:
+    try:
+        return os.path.samefile(a, b)
+    except OSError:
+        return os.path.normcase(os.path.abspath(a)) == os.path.normcase(os.path.abspath(b))
+
+
+def read_entries(args) -> tuple:
+    """[(source, index in its file, entry)], project entries first, then the user-level file's
+    (unless --no-user, or it is the project file); the user-level file's name as shown, or None;
+    and warnings. A project file that cannot be read is an error; a user-level one is left out
+    with a warning, never rewritten."""
+    out = [("project", i, e) for i, e in enumerate(load_file(args.file)["entries"])]
+    if getattr(args, "no_user", False):
+        return out, None, []
+    path = user_file()
+    if same_path(path, args.file):
+        return out, shown_path(path), []
+    try:
+        entries = load_file(path)["entries"]
+    except (CalibrationError, OSError) as exc:
+        why = str(exc).replace(path, shown_path(path))
+        return out, shown_path(path), [f"the user-level file {shown_path(path)} was left out: {why}; fix it (it is "
+                                       "never rewritten while it cannot be read) or pass --no-user"]
+    return out + [("user", i, e) for i, e in enumerate(entries)], shown_path(path), []
+
+
 def save_file(path: str, data: dict) -> None:
     os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)
     tmp = path + ".tmp"
@@ -347,7 +407,16 @@ def parse_values(items) -> dict:
 
 
 def cmd_add(args) -> dict:
-    data = load_file(args.file)
+    if args.user and args.file:
+        raise CalibrationError("add writes one file: --file (the project's) or --user (the user-level file), not both")
+    if not args.user and not args.file:
+        raise CalibrationError("add needs --file (the project's .3dprint/calibration.json), or --user for the "
+                               "user-level file the user agreed to keep results in")
+    path = user_file() if args.user else args.file
+    try:
+        data = load_file(path)                          # a file that cannot be read is refused, never overwritten
+    except CalibrationError as exc:
+        raise CalibrationError(str(exc).replace(path, shown_path(path)) if args.user else str(exc))
     if args.printers:
         with open(args.printers, encoding="utf-8") as f:
             known = (json.load(f).get("printers") or {})
@@ -359,13 +428,19 @@ def cmd_add(args) -> dict:
                             "feature": args.feature, "kind": args.kind, "result": args.result,
                             "values": parse_values(args.value), "load": args.load, "note": args.note})
     data["entries"].append(entry)
-    save_file(args.file, data)
-    return {"file": args.file, "added": entry, "entries": len(data["entries"])}
+    save_file(path, data)
+    return {"file": shown_path(path) if args.user else args.file, "from": "user" if args.user else "project",
+            "added": entry, "entries": len(data["entries"])}
 
 
 def cmd_show(args) -> dict:
-    data = load_file(args.file)
-    return {"file": args.file, "entries": data["entries"], "count": len(data["entries"])}
+    rows, user, warnings = read_entries(args)
+    entries = []
+    for src, _i, e in rows:
+        row = dict(e)
+        row["from"] = src
+        entries.append(row)
+    return {"file": args.file, "user_file": user, "entries": entries, "count": len(entries), "warnings": warnings}
 
 
 def selects(entry: dict, args) -> bool:
@@ -414,9 +489,9 @@ def differs(entry: dict, conditions: dict) -> dict:
     return out
 
 
-def listed(i: int, entry: dict, diff: dict = None) -> dict:
-    """An entry as lookup lists it: its position in the file first, then its fields."""
-    out = {"entry": i}
+def listed(i: int, entry: dict, diff: dict = None, src: str = "project") -> dict:
+    """An entry as lookup lists it: its position in its file and the file (from) first, then its fields."""
+    out = {"entry": i, "from": src}
     out.update(entry)
     if diff:
         out["differs"] = diff
@@ -424,16 +499,18 @@ def listed(i: int, entry: dict, diff: dict = None) -> dict:
 
 
 def summarize(hits) -> tuple:
-    """(worked, bounds, worked_set) from (index, entry) pairs sorted newest first. worked and
-    bounds: per value name, the first value seen wins, stamped with its date and entry. worked_set:
-    the newest entry that fit, worked or was measured and has values, all of them together."""
+    """(worked, bounds, worked_set) from (source, index, entry) triples, project entries first,
+    each newest first. worked and bounds: per value name, the first value seen wins, stamped with
+    its date, entry and file. worked_set: the first entry that fit, worked or was measured and has
+    values, all of them together."""
     worked, bounds, worked_set = {}, {}, None
-    for i, e in hits:
+    for src, i, e in hits:
         good = e["result"] in GOOD_RESULTS
         if good and worked_set is None and e["values"]:
-            worked_set = listed(i, e)
+            worked_set = listed(i, e, src=src)
         for k, v in e["values"].items():
-            stamp = {"value": v, "date": e["date"], "entry": i, "result": e["result"], "feature": e["feature"]}
+            stamp = {"value": v, "date": e["date"], "entry": i, "from": src, "result": e["result"],
+                     "feature": e["feature"]}
             if "kind" in e:
                 stamp["kind"] = e["kind"]
             if good:
@@ -452,7 +529,7 @@ def mixed_warnings(selected, same, conditions: dict) -> list:
     --orientation or --process, any of them the same-condition entries record differently."""
     warnings = []
     if "nozzle_mm" not in conditions:
-        nozzles = sorted({e["nozzle_mm"] for _i, e in selected})
+        nozzles = sorted({e["nozzle_mm"] for _s, _i, e in selected})
         found = f" (these entries: {', '.join(shown(n) for n in nozzles)} mm)" if nozzles else ""
         warnings.append(f"no --nozzle: results from every nozzle are mixed{found}; give --nozzle for the nozzle this "
                         "print uses, so entries from another nozzle are only references")
@@ -461,7 +538,7 @@ def mixed_warnings(selected, same, conditions: dict) -> list:
         if field in conditions:
             continue
         seen, unrecorded = {}, False
-        for _i, e in same:
+        for _s, _i, e in same:
             v = e.get(field)
             if v is None:
                 unrecorded = True
@@ -477,32 +554,38 @@ def mixed_warnings(selected, same, conditions: dict) -> list:
     return warnings
 
 
+def entry_label(src: str, i: int) -> str:
+    """How a warning names an entry: its position in the project file, or "user N"."""
+    return str(i) if src == "project" else f"{src} {i}"
+
+
 def cmd_lookup(args) -> dict:
-    data = load_file(args.file)
+    rows, user, read_warnings = read_entries(args)
     kind = normalize_kind(args.kind) if args.kind else None
     conditions = query_conditions(args)
-    selected = [(i, e) for i, e in enumerate(data["entries"]) if selects(e, args)]
-    selected.sort(key=lambda ie: (ie[1]["date"], ie[0]), reverse=True)      # newest date, then latest in the file
+    selected = [(src, i, e) for src, i, e in rows if selects(e, args)]
+    # The project file first, then the user-level file; in each, the newest date, then the latest in the file.
+    selected.sort(key=lambda r: (-SOURCES.index(r[0]), r[2]["date"], r[1]), reverse=True)
     kinds = {}
-    for _i, e in selected:
+    for _s, _i, e in selected:
         kinds[e.get("kind", UNCLASSIFIED)] = kinds.get(e.get("kind", UNCLASSIFIED), 0) + 1
     same, reference, unclassified = [], [], []
-    for i, e in selected:
+    for src, i, e in selected:
         diff = differs(e, conditions)
         if kind and "kind" not in e:
-            unclassified.append(listed(i, e, diff))
+            unclassified.append(listed(i, e, diff, src))
         elif kind and e["kind"] != kind:
             continue                                                         # another kind of member: counted in kinds
         elif diff:
-            reference.append(listed(i, e, diff))
+            reference.append(listed(i, e, diff, src))
         else:
-            same.append((i, e))
+            same.append((src, i, e))
     worked, bounds, worked_set = summarize(same)
-    sources = sorted({s["entry"] for s in worked.values()})
+    sources = sorted({(SOURCES.index(s["from"]), s["entry"]) for s in worked.values()})
     query = {k: getattr(args, k) for k in ("printer", "material", "feature", "kind") if getattr(args, k) is not None}
     query.update({opt: conditions[field] for field, opt in CONDITIONS if field in conditions})
-    out = {"file": args.file, "query": query,
-           "entries": [listed(i, e) for i, e in same], "count": len(same),
+    out = {"file": args.file, "user_file": user, "query": query,
+           "entries": [listed(i, e, src=src) for src, i, e in same], "count": len(same),
            "worked": worked, "worked_set": worked_set, "combined": len(sources) > 1, "bounds": bounds,
            "reference": reference, "kinds": kinds}
     if kind:
@@ -511,12 +594,13 @@ def cmd_lookup(args) -> dict:
                                      "that broke is a floor for the same kind of member under the same kind of load); "
                                      "to classify one, ask the user what it was and `add` it again with --kind "
                                      "(the same values, date and note), the old entry stays as it is"}
-    warnings = mixed_warnings(selected, same, conditions)
+    warnings = read_warnings + mixed_warnings(selected, same, conditions)
     if out["combined"]:
         warnings.append(f"'worked' takes its values from {len(sources)} different test prints (entries "
-                        f"{', '.join(str(s) for s in sources)}): they were never printed together as a set, so the "
-                        f"combination is not verified; for a combination use 'worked_set' (entry {worked_set['entry']}, "
-                        f"{worked_set['date']}), one print's values together")
+                        f"{', '.join(entry_label(SOURCES[s], i) for s, i in sources)}): they were never printed "
+                        "together as a set, so the combination is not verified; for a combination use 'worked_set' "
+                        f"(entry {entry_label(worked_set['from'], worked_set['entry'])}, {worked_set['date']}), one "
+                        "print's values together")
     out["warnings"] = warnings
     out["note"] = ("'entries' match every condition the query gives (nozzle, layer, load, orientation, process): only they "
                    "set 'worked', 'worked_set' and 'bounds'. 'worked' is, per value name, the newest value from a result "
@@ -525,7 +609,9 @@ def cmd_lookup(args) -> dict:
                    "('combined') they were never printed together, so take a combination from 'worked_set'. 'bounds' are "
                    "the newest failed, tight and loose values: stay above a failure, between tight and loose, for the "
                    "same kind of member (--kind). 'reference' entries differ in, or do not record, a condition the query "
-                   "gives ('differs': the entry's value, then the query's): references only, never a setting or a floor")
+                   "gives ('differs': the entry's value, then the query's): references only, never a setting or a floor. "
+                   "'from' says which file an entry came from: 'project' (this project's) or 'user' (the user-level "
+                   "file, results from other projects); project entries come first and take precedence")
     return out
 
 
@@ -545,7 +631,15 @@ def main(argv=None):
         sub = ap.add_subparsers(dest="cmd")
         for name in ("add", "show", "lookup"):
             p = sub.add_parser(name)
-            p.add_argument("--file", required=True, help=".3dprint/calibration.json in the user's project")
+            p.add_argument("--file", required=(name != "add"), help=".3dprint/calibration.json in the user's project")
+            if name == "add":
+                p.add_argument("--user", action="store_true",
+                               help="write the user-level file (~/.3dprint/calibration.json, or the path in "
+                                    f"{USER_ENV}) instead of --file: only when the user agreed to keep it for "
+                                    "every project")
+            else:
+                p.add_argument("--no-user", action="store_true",
+                               help="read the project file only, not the user-level file")
             if name != "show":
                 p.add_argument("--printer", required=(name == "add"), help="printer id as in printers.json, e.g. x2d")
                 p.add_argument("--material", required=(name == "add"), help="e.g. pla_basic (strength.py keys) or a filament name")

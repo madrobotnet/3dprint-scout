@@ -5,7 +5,9 @@ freshness manifest for every STL, write a core 3MF, and validate every part.
 
 Subcommands (all print ONE JSON document to stdout):
 
-  detect                       Phase 0 probe: engines, OpenSCAD backend, Blender, optional libs.
+  detect                       Phase 0 probe: engines, OpenSCAD backend, Blender, optional libs;
+                               "suggest" holds the pip command for bpy when Blender cannot run
+                               (never run by detect: a disposable sandbox only, ask on a user's machine).
   run SOURCE [options]         Build all parts, write manifests + 3MF, validate.
   record STL... --source F...  Write manifests for parts built elsewhere (Fusion, a live
                                Blender), then validate.
@@ -15,6 +17,10 @@ passed to the engine. "_parts" names the parts and what each should look like:
 
   {"_parts": {"body": {"expect": [60, 40, 25]}, "lid": {"expect": [60, 40, 4]}},
    "wall": 2.0, "lid_clearance": 0.2}
+
+"_proxy_only" lists engine keys that only a proxy of the mating part reads (its dims):
+the part's generator need not have them in DEFAULTS / PARAMETERS (no "a typo?" warning),
+and a listed key that params.json does not have is a warning.
 
 "expect" is the size from the dimension table (design intent), never a measured box.
 Parts can be grouped into one object with "object" and "role" ("fused" or "free"),
@@ -64,9 +70,13 @@ full description):
   parts[]         name, stl, material (_parts.<name>.material, else _material, else null),
                   artifact_sane, object, role, rotation_deg, engine_warnings,
                   validate (the validate.py document for that part: files[0].checks,
-                  files[0].metrics), assembly (A1 / A2 for a part in a group)
+                  files[0].metrics), assembly (A1 / A2 for a part in a group),
+                  volume_cm3, and with a known material solid_g (100 % infill: an upper
+                  bound, not the slicer's estimate) and solid_density_g_cm3 (typical)
   objects[]       name, parts, gate, checks (D2, P1, P2 of the whole object when it has
-                  several parts), metrics, rotation_deg
+                  several parts; a fused part above the object's lowest point then has P1
+                  N/A "judged on object"), metrics, rotation_deg, volume_cm3 and solid_g
+                  (sums over its parts)
   sources         files hashed into the manifests; pass the same list to validate.py
   threemf         the core 3MF written in --out
   blend           the .blend a Blender build saved in --out (engine blender only)
@@ -90,6 +100,7 @@ import shutil
 import struct
 import subprocess
 import sys
+import sysconfig
 import tempfile
 import time
 from contextlib import redirect_stdout
@@ -393,10 +404,100 @@ def blender_usable(status: dict) -> bool:
     return bool(p and tuple(p.get("version_tuple", ()))[:2] >= MIN_BLENDER)
 
 
+# Python versions that PyPI has bpy 4.5+ wheels for (checked 2026-10-26 with `pip index versions
+# bpy --python-version X --only-binary=:all:`): each Blender release ships for one Python. 3.11
+# gets bpy 4.2 to 5.0 (4.5 and newer are usable), 3.13 gets 5.1 and newer, 3.12 gets none, and an
+# older Python only versions below the 4.5 floor. The pin in the command makes pip refuse those
+# rather than install an unusable bpy.
+BPY_WHEELS = {(3, 11): "bpy 4.5 to 5.0", (3, 13): "bpy 5.1 and newer"}
+BPY_REQUIREMENT = "bpy>=4.5"
+PY_FACTS = ("import json, os, sys, sysconfig, importlib.util; print('@@PY ' + json.dumps({"
+            "'version': list(sys.version_info[:3]), 'venv': sys.prefix != getattr(sys, 'base_prefix', sys.prefix), "
+            "'marker': os.path.isfile(os.path.join(sysconfig.get_path('stdlib'), 'EXTERNALLY-MANAGED')), "
+            "'pip': importlib.util.find_spec('pip') is not None}))")
+
+
+def python_facts(python: str) -> dict | None:
+    """{"version": [3, 13, 1], "venv", "marker" (PEP 668's EXTERNALLY-MANAGED file in the stdlib
+    folder), "pip"} of an interpreter, or None when it cannot be run. This interpreter is read in
+    place; another one runs PY_FACTS isolated (-I) from an empty folder with a timeout."""
+    if python == sys.executable:
+        return {"version": list(sys.version_info[:3]), "venv": sys.prefix != getattr(sys, "base_prefix", sys.prefix),
+                "marker": os.path.isfile(os.path.join(sysconfig.get_path("stdlib"), "EXTERNALLY-MANAGED")),
+                "pip": importlib.util.find_spec("pip") is not None}
+    try:
+        with tempfile.TemporaryDirectory() as empty:
+            r = subprocess.run([python, "-I", "-c", PY_FACTS], capture_output=True, timeout=30, cwd=empty, **TEXT)
+    except (OSError, subprocess.TimeoutExpired):
+        return None
+    for ln in r.stdout.splitlines():
+        if ln.startswith("@@PY "):
+            try:
+                facts = json.loads(ln[len("@@PY "):])
+                if isinstance(facts, dict) and isinstance(facts.get("version"), list):
+                    return facts
+            except ValueError:
+                pass
+    return None
+
+
+def _command_line(argv: list[str]) -> str:
+    """argv as one line to paste into this system's shell (the requirement's `>` quoted)."""
+    if os.name == "nt":
+        return " ".join(f'"{a}"' if (" " in a or ">" in a or "<" in a) else a for a in argv)
+    import shlex
+    return " ".join(shlex.quote(a) for a in argv)
+
+
+def bpy_install_hint(status: dict, python: str | None = None) -> dict | None:
+    """detect's suggestion when Blender cannot run at all: no binary found and no usable bpy module
+    in the interpreter detect checked (--blender-python, else BLENDER_PYTHON, else this one). The
+    exact pip command for that interpreter, with --break-system-packages when it is externally
+    managed (PEP 668) and not a venv. Nothing is installed here: the note says the command is for
+    a disposable sandbox, and that on the user's own machine the agent asks first."""
+    if status.get("binary") is not None or blender_usable(status):
+        return None
+    exe = python or bpy_pythons()[0]
+    facts = python_facts(exe)
+    argv = [exe, "-m", "pip", "install", BPY_REQUIREMENT]
+    managed = bool(facts and facts.get("marker") and not facts.get("venv"))
+    if managed:
+        argv.append("--break-system-packages")
+    hint = {"for": "blender", "python": exe, "command": _command_line(argv),
+            "note": ("No Blender binary and no usable bpy module. In a disposable sandbox (a cloud container whose "
+                     "packages you may change) run this command to get Blender as a Python module, a download of "
+                     "several hundred MB, then run detect again. On the user's own machine ask first; never install "
+                     "there unasked. Nothing was installed by detect.")}
+    notes = []
+    if facts is None:
+        notes.append(f"could not run {exe} to read its version: bpy 4.5+ wheels exist only for Python 3.11 "
+                     "(bpy 4.5 to 5.0) and 3.13 (bpy 5.1 and newer)")
+        hint["python_version"] = None
+    else:
+        ver = tuple(facts["version"][:2])
+        hint["python_version"] = ".".join(str(v) for v in facts["version"])
+        hint["externally_managed"] = managed
+        wheel = BPY_WHEELS.get(ver)
+        if wheel:
+            notes.append(f"pip installs {wheel} for Python {ver[0]}.{ver[1]}")
+        else:
+            notes.append(f"no bpy 4.5+ wheel exists for Python {ver[0]}.{ver[1]}: pip will find none. bpy needs Python "
+                         "3.11 (bpy 4.5 to 5.0) or 3.13 (bpy 5.1 and newer); install bpy into such a Python (a venv) "
+                         "and pass it as --blender-python")
+        if managed:
+            notes.append("--break-system-packages because this Python is externally managed (PEP 668); a venv avoids it")
+        if not facts.get("pip"):
+            notes.append("this Python has no pip module: `-m ensurepip` or the system's python3-pip package first")
+    text = "; ".join(notes)
+    hint["note"] += " " + text[:1].upper() + text[1:] + "."
+    return hint
+
+
 def cmd_detect(args) -> dict:
     exe = find_openscad()
     py = python_info()
     blender = blender_status(getattr(args, "blender_python", None))
+    hint = bpy_install_hint(blender, getattr(args, "blender_python", None))
     engines = {"openscad": openscad_info(exe) if exe else None,
                "python": {"manifold3d": py["manifold3d"]}}
     scad_ok = bool(exe) and not engines["openscad"].get("error")
@@ -407,9 +508,12 @@ def cmd_detect(args) -> dict:
                    "a recent nightly build adds --backend=manifold"])
     notes += [f"blender: {n}" for n in blender["notes"]]
     warnings = [engines["openscad"]["error"]] if exe and not scad_ok else []
+    if hint:
+        notes.append(f"blender: not available; suggest[] has the pip command for {hint['python']} (a sandbox only; "
+                     "ask first on the user's machine)")
     return {"schema": SCHEMA, "ran": True, "engines": engines, "available": order,
             "libraries": py, "fusion": "detect through the host's MCP tools, not here",
-            "blender": blender, "notes": notes, "warnings": warnings, "errors": []}
+            "blender": blender, "suggest": [hint] if hint else [], "notes": notes, "warnings": warnings, "errors": []}
 
 
 # --------------------------------------------------------------------------- #
@@ -447,6 +551,36 @@ def json_value(value, path: str, warnings: list):
     return text
 
 
+def unknown_key_warning(key, kind: str) -> str:
+    """The warning about a params.json key the generator's defaults lack, word for word as
+    blender_builder.py's parameters_record writes it for PARAMETERS (drop_proxy_only matches it)."""
+    return f"params.json key '{key}' is not in the generator's {kind} (a typo?)"
+
+
+def proxy_only_keys(params: dict) -> tuple[set, list[str]]:
+    """(keys, warnings) of params.json "_proxy_only": the engine keys only a proxy of the mating
+    part reads (references/measure.md; the numbers a proxy's dims entry declares, which must be
+    in params.json), so the part's generator need not list them in DEFAULTS / PARAMETERS. Each
+    listed key must be a params.json engine key: one that is not (a typo, a key since removed) is
+    a warning and exempts nothing. A value that is not a list of names is a warning and ignored."""
+    raw = params.get("_proxy_only")
+    if raw is None:
+        return set(), []
+    if not isinstance(raw, list) or not all(isinstance(k, str) and k and not k.startswith("_") for k in raw):
+        return set(), ['params.json "_proxy_only" must be a list of parameter names, e.g. ["plug_w", "plug_h"]; '
+                       f"ignored (got {str(raw)[:60]!r})"]
+    given = engine_params(params)
+    warnings = [f"params.json \"_proxy_only\" names '{k}', which is not a parameter in params.json (a typo, or a "
+                "key since removed): nothing uses it" for k in dict.fromkeys(raw) if k not in given]
+    return {k for k in raw if k in given}, warnings
+
+
+def drop_proxy_only(warnings: list[str], keys: set) -> list[str]:
+    """`warnings` without the unknown-key warnings (DEFAULTS or PARAMETERS) of proxy-only keys."""
+    drop = {unknown_key_warning(k, kind) for k in keys for kind in ("DEFAULTS", "PARAMETERS")}
+    return [w for w in warnings if w not in drop]
+
+
 def parameters_record(params: dict, defaults=None, kind: str = "DEFAULTS") -> tuple[dict, list[str]]:
     """The build JSON's "parameters" and the warnings about it. `params` is params.json (its
     "_" keys are dropped, as for the engine). With the generator's defaults (a dict: a Python
@@ -458,8 +592,7 @@ def parameters_record(params: dict, defaults=None, kind: str = "DEFAULTS") -> tu
     given = engine_params(params)
     warnings = []
     if isinstance(defaults, dict):
-        warnings += [f"params.json key '{k}' is not in the generator's {kind} (a typo?)"
-                     for k in given if k not in defaults]
+        warnings += [unknown_key_warning(k, kind) for k in given if k not in defaults]
         values, scope = {**engine_params(defaults), **given}, "merged"
     else:
         values, scope = given, "overrides"
@@ -472,6 +605,36 @@ def part_material(params: dict, name: str):
     parts = params.get("_parts")
     spec = parts.get(name) if isinstance(parts, dict) else None
     return (spec if isinstance(spec, dict) else {}).get("material") or params.get("_material") or None
+
+
+# Typical densities in g/cm3 by filament family, from manufacturers' data sheets (TDS ranges:
+# PLA 1.24-1.26, PETG 1.25-1.28, ABS 1.03-1.05, ASA 1.05-1.08, TPU 1.20-1.22). Typical values, not
+# the user's spool: a matte, silk or filled filament differs by a few percent. Keyed by the first
+# word of a material key (pla_basic -> pla), as finalize_deliver.py reads the filament type.
+DENSITY_TYPICAL = {"pla": 1.24, "petg": 1.27, "abs": 1.04, "asa": 1.07, "tpu": 1.21}
+
+
+def material_density(material) -> float | None:
+    """The typical density (g/cm3) of a material key's family, or None when it is not known."""
+    if not isinstance(material, str) or not material.strip():
+        return None
+    return DENSITY_TYPICAL.get(material.strip().lower().split("_")[0])
+
+
+def solid_weight(volume_mm3, material) -> dict:
+    """{"volume_cm3"} of a mesh volume, plus "solid_g" and "solid_density_g_cm3" when the
+    material's density is known: the mass of the part printed 100 % solid, an upper bound (walls
+    and sparse infill weigh less; the slicer's estimate is the real one). Empty when the volume
+    is not a positive number (a broken or inside-out mesh: D3)."""
+    if isinstance(volume_mm3, bool) or not isinstance(volume_mm3, (int, float)) or not volume_mm3 > 0 \
+            or not math.isfinite(volume_mm3):
+        return {}
+    out = {"volume_cm3": round(volume_mm3 / 1000.0, 2)}
+    rho = material_density(material)
+    if rho is not None:
+        out["solid_g"] = round(volume_mm3 / 1000.0 * rho, 1)
+        out["solid_density_g_cm3"] = rho
+    return out
 
 
 def part_specs(params: dict, default_name: str) -> dict:
@@ -981,6 +1144,7 @@ def finish(out, parts, sources, params, params_path, specs, args, engine):
     partial = _write_core_3mf(out, sane, groups, args)
     reports = _validate_parts(out, sane, stale, specs, sources, params_path, args)
     object_gates = _object_checks(out, parts, sane, groups, partial, specs, args)
+    _weights(out, parts)
     _record_inputs(out, parts, sane, sources, params_path, args)
     gate = overall_gate(reports)
     if object_gates:
@@ -1147,6 +1311,7 @@ def _object_checks(out, parts, sane, groups, partial, specs, args):
                         entry["partial"] = partial[g["name"]]
                     for n, pr in rep["parts"].items():
                         by_name[n]["assembly"] = {"object": g["name"], "role": pr["role"], "checks": pr["checks"]}
+                        _defer_p1(out, by_name[n], pr["role"], entry)
                     out["warnings"] += [f"object '{g['name']}': {w}" for w in rep["warnings"]]
                     out["errors"] += _fail_lines(f"object '{g['name']}'", rep["checks"])
                     for n, pr in rep["parts"].items():
@@ -1163,6 +1328,40 @@ def _object_checks(out, parts, sane, groups, partial, specs, args):
             object_gates.append(entry["gate"])
         out["objects"].append(entry)
     return object_gates
+
+
+def _weights(out, parts):
+    """volume_cm3, and solid_g with the density it used when the material's is known, on every
+    part validated (solid_weight), and on every object the sums over its parts (solid_g only when
+    every part has one). solid_g is 100 % infill, an upper bound: never the slicer's estimate."""
+    volumes = {}
+    for p in parts:
+        files = (p.get("validate") or {}).get("files") or [{}]
+        vol = (files[0].get("metrics") or {}).get("volume_mm3")
+        w = solid_weight(vol, p.get("material"))
+        if w:
+            p.update(w)
+            volumes[p["name"]] = (vol, vol / 1000.0 * w["solid_density_g_cm3"] if "solid_g" in w else None)
+    for o in out.get("objects") or []:
+        got = [volumes.get(n) for n in o.get("parts") or []]
+        if not got or None in got:
+            continue
+        o["volume_cm3"] = round(sum(v for v, _ in got) / 1000.0, 2)
+        if all(g is not None for _, g in got):
+            o["solid_g"] = round(sum(g for _, g in got), 1)
+
+
+def _defer_p1(out, part, role, entry):
+    """A fused part off the bed takes its object's P1 (assembly.defer_p1); its own P1 WARN line
+    leaves the part's and the build's warnings."""
+    rep = part.get("validate") or {}
+    for f in rep.get("files") or []:
+        if "checks" in f and assembly.defer_p1(f["checks"], f.get("metrics") or {}, role, entry):
+            gone = [w for w in rep.get("warnings") or []
+                    if w.startswith(f"{os.path.basename(f.get('path') or part['stl'])} P1: ")]
+            rep["warnings"] = [w for w in rep["warnings"] if w not in gone]
+            lines = {f"{part['name']}: {w}" for w in gone}
+            out["warnings"] = [w for w in out["warnings"] if w not in lines]
 
 
 def _record_inputs(out, parts, sane, sources, params_path, args):
@@ -1277,7 +1476,9 @@ def cmd_run(args) -> dict:
         except OSError as exc:
             out["warnings"].append(f"{p['name']}: the STL could not be rewritten in canonical triangle order ({exc}); "
                                    "a rebuild may write the same triangles in another order, with another sha256")
-    out["warnings"] += info.pop("warnings", [])
+    # Keys only a proxy reads (_proxy_only) are no typo of the part's generator.
+    proxy_keys, proxy_notes = proxy_only_keys(params)
+    out["warnings"] += drop_proxy_only(info.pop("warnings", []), proxy_keys) + proxy_notes
     # What the parts were built with: merged with the generator's defaults when the engine knows
     # them (a Python DEFAULTS, Blender PARAMETERS), else the params.json values (OpenSCAD).
     record = info.pop("parameters", None)
@@ -1402,7 +1603,7 @@ def cmd_record(args) -> dict:
     sources = sorted(set(given) | extra, key=lambda s: (os.path.basename(s), s))
     # Built elsewhere (Fusion, a live Blender): only the params.json values are known here.
     out["parameters"], notes = parameters_record(params)
-    out["warnings"] += notes
+    out["warnings"] += notes + proxy_only_keys(params)[1]
     out = finish(out, parts, sources, params, args.params, specs, args, args.engine)
     out["seconds"] = round(time.time() - t0, 2)
     return out
@@ -1418,9 +1619,10 @@ Prints one JSON document (schema 3dprint-scout.build/1):
   gate      PASS | FAIL | INCOMPLETE over every part and object; R4 = the generator ran
   parameters  scope (merged with the generator's defaults, or overrides) and values
   parts[]   name, stl, material, artifact_sane, object, role, rotation_deg, validate (validate.py's
-            document: files[0].checks, files[0].metrics), assembly (A1 / A2 in a group)
+            document: files[0].checks, files[0].metrics), assembly (A1 / A2 in a group),
+            volume_cm3, solid_g (100 % infill upper bound, known material only)
   objects[] name, parts, gate, checks (D2 / P1 / P2 of the whole object when it has
-            several parts), metrics, rotation_deg
+            several parts), metrics, rotation_deg, volume_cm3, solid_g (sums)
   sources   files hashed into the manifests (pass the same list to validate.py)
   threemf   core 3MF written in --out;  warnings / errors: read these two lists first (every
             hard FAIL of a part, object or assembly check is one line in errors)

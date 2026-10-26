@@ -22,6 +22,9 @@ slice: `--axis z` (default), `x` or `y`; `--z` takes a comma list or `start:end:
 closed loop gets bounds, area, centroid, a least-squares circle fit (centre, radius, rms:
 a circle when rms is well below 1 % of the radius) and, for outlines that look rectangular,
 the four corner radii from circle fits on the corner arcs (0 = sharp, null = too few points).
+`--points` adds each loop's corners as `vertices` ([u, w] on `plane_axes`, in loop order, at most
+--max-points, 24 by default): straight runs and gentle arcs are simplified away (Douglas-Peucker,
+`vertices_tol_mm`), so a notch or a step shows where it is.
 
 raymap: rays start outside the box and travel along -sign * axis; the grid is (u, v) on the
 other two axes in the order they come (y, z for axis x; x, z for y; x, y for z). Each cell
@@ -61,6 +64,7 @@ CORE_NS = "{http://schemas.microsoft.com/3dmanufacturing/core/2015/02}"
 PROD_NS = "{http://schemas.microsoft.com/3dmanufacturing/production/2015/06}"
 UNIT_MM = {"millimeter": 1.0, "micron": 0.001, "centimeter": 10.0, "inch": 25.4, "foot": 304.8, "meter": 1000.0}
 WELD = 1e-4
+MAX_POINTS = 24                         # slice --points: corners listed per loop at most (--max-points)
 
 
 class MeasureError(Exception):
@@ -410,12 +414,61 @@ def corner_radii(pts, bounds):
     return out
 
 
+def simplify_loop(pts, tol):
+    """The corners of a closed loop: Douglas-Peucker with `tol` mm, so straight runs and gentle
+    arcs drop their in-between points and a notch or a step keeps its corners. Indices into
+    `pts`, in loop order."""
+    n = len(pts)
+    if n <= 3:
+        return list(range(n))
+    far = max(range(n), key=lambda i: (pts[i][0] - pts[0][0]) ** 2 + (pts[i][1] - pts[0][1]) ** 2)
+
+    def dist(p, a, b):
+        dx, dy = b[0] - a[0], b[1] - a[1]
+        L = math.hypot(dx, dy)
+        if L == 0:
+            return math.hypot(p[0] - a[0], p[1] - a[1])
+        return abs(dx * (p[1] - a[1]) - dy * (p[0] - a[0])) / L
+
+    keep = {0, far}
+    stack = [(0, far), (far, n)]                      # index n is point 0 again: the loop closes
+    while stack:
+        i, j = stack.pop()
+        a, b = pts[i % n], pts[j % n]
+        best, at = -1.0, None
+        for k in range(i + 1, j):
+            d = dist(pts[k], a, b)
+            if d > best:
+                best, at = d, k
+        if at is not None and best > tol:
+            keep.add(at)
+            stack += [(i, at), (at, j)]
+    return sorted(keep)
+
+
+def loop_vertices(pts, cap):
+    """At most `cap` corners of a loop ([[u, w], ...], rounded to 0.001 mm) and the tolerance
+    that gave them: 0.01 mm, doubled until they fit."""
+    tol = 0.01
+    while True:
+        idx = simplify_loop(pts, tol)
+        if len(idx) <= cap or tol > 1e3:
+            break
+        tol *= 2
+    idx = idx[:cap]
+    return [[round(pts[i][0], 3), round(pts[i][1], 3)] for i in idx], tol
+
+
 def cmd_slice(args):
     V, F, names, shift = select(load(args.file), args.object, args.center)
     axis = args.axis.lower()
     if axis not in "xyz" or len(axis) != 1:
         raise MeasureError("--axis must be x, y or z")
     others = [c for c in "xyz" if c != axis]
+    points = bool(getattr(args, "points", False))
+    cap = getattr(args, "max_points", None) or MAX_POINTS
+    if points and cap < 3:
+        raise MeasureError("--max-points must be 3 or more")
     out = {"file": args.file, "objects": names, "axis": axis, "plane_axes": others, "centred": args.center,
            "shift_mm": shift, **box_info(V), "levels": []}
     for level in parse_levels(args.z):
@@ -437,6 +490,12 @@ def cmd_slice(args):
                 entry["is_circle"] = len(pts) >= 8 and fit["rms_mm"] < 0.01 * fit["radius_mm"]   # 4 corners also lie on a circle
             if closed and not entry.get("is_circle") and len(pts) >= 4:
                 entry["corner_radii_mm"] = corner_radii(pts, bounds)
+            if points:
+                if closed:
+                    entry["vertices"], entry["vertices_tol_mm"] = loop_vertices(pts, cap)
+                else:
+                    step = max(1, -(-len(pts) // cap))
+                    entry["vertices"] = [[round(p[0], 3), round(p[1], 3)] for p in pts[::step]][:cap]
             loops.append(entry)
         loops.sort(key=lambda e: -(e["area_mm2"] or 0.0))
         out["levels"].append({"level": level, "loops": loops[: args.max_loops]})
@@ -641,6 +700,11 @@ def main(argv=None):
         p_slice.add_argument("--object", help="object id or name (default: all, as placed)")
         p_slice.add_argument("--center", action="store_true", help="put the XY centre of the box at the origin first")
         p_slice.add_argument("--max-loops", type=int, default=12, help="largest loops to report per level")
+        p_slice.add_argument("--points", action="store_true",
+                             help="list each loop's corners as `vertices` [[u, w], ...] on plane_axes (straight runs and "
+                                  "gentle arcs simplified away, notches and steps kept)")
+        p_slice.add_argument("--max-points", type=int, default=MAX_POINTS,
+                             help=f"corners per loop with --points (default {MAX_POINTS}; the tolerance grows to fit)")
         p_ray = sub.add_parser("raymap", help="depth map of a wall from a grid of rays")
         p_ray.add_argument("file")
         p_ray.add_argument("--axis", required=True, help="x, y or z: the axis the rays travel along")
@@ -668,7 +732,8 @@ def main(argv=None):
         if file_sha256(args.file) != before:              # rebuilt while it was read: the numbers may be of either
             raise MeasureError(f"{args.file} changed while it was measured; measure it again")
         out["file_sha256"] = before                       # the very file these numbers are about (finalize.py)
-        out["query"] = {k: v for k, v in sorted(vars(args).items()) if k not in ("expect", "tol", "what", "extract")}
+        skip = ("expect", "tol", "what", "extract") + (() if getattr(args, "points", False) else ("points", "max_points"))
+        out["query"] = {k: v for k, v in sorted(vars(args).items()) if k not in skip}
         if expects:
             if args.what:
                 out["what"] = args.what

@@ -32,7 +32,9 @@ python3 "$SKILL_DIR/scripts/measure.py" raymap ref_mesh/obj_15_housing.stl --axi
   crossing surfaces); it gets bounds only and a warning, never a made-up area. Slice a range (`--z 0:70:2`) to find where a profile changes
   (a lip, a step, the start of a chamfer), then single levels for the numbers. `--center`
   puts the XY centre of the box at the origin, which is how mating parts are dimensioned.
-  `--axis x` or `y` slices across.
+  `--axis x` or `y` slices across. `--points` adds each loop's corners in order (`vertices`,
+  straight runs and gentle arcs simplified away, at most `--max-points`, default 24): where a
+  notch or a step in an outline is, read from the corners rather than a `raymap`.
 - `raymap` shoots a grid of rays at a wall and prints the depth of the first surface
   behind the outer face: a window is `.` (nothing within `--max-depth`), a recess is its
   depth, a rib stands at 0. Read the `text` rows (v from high to low) to size windows and
@@ -94,7 +96,10 @@ def build(p):
 Keep it to the faces the part touches or sweeps past; everything else can be a box. Take every
 size from the parameters, never a number written in the generator, and give the proxy a params
 file of its own that holds only the numbers of its `dims` entry, with the values in the
-project's params.json (`.3dprint/housing_proxy.json`). Build and validate a proxy with
+project's params.json (`.3dprint/housing_proxy.json`). Those keys in the project's params.json
+are not the part generator's parameters: list them in `"_proxy_only": [...]` there, so the
+part's build does not report them as typos, rather than adding them to the part's `PARAMETERS`
+or `DEFAULTS`. Build and validate a proxy with
 `--proxy`, which writes no 3MF, into a folder of its own, and save its JSON there; the phone
 stand's plug proxy, `plug_proxy.py` with its numbers in `.3dprint/usb_c_plug.json`:
 

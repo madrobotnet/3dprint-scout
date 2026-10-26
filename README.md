@@ -160,11 +160,14 @@ the X2D and H2D, objects that need both nozzles are placed where both can reach.
 | `.3dprint/params.json` | Every dimension, with assumptions taken when you weren't asked; what you were promised and the evidence for each (`_verify`) |
 | `.3dprint/printers.json` | Your printer: bed, nozzles, slicer, template (no serials, access codes or IPs) |
 | `.3dprint/calibration.json` | Your own print results (which fit-test ring fit, which latch held or broke), written only after you say yes; a value here beats every table |
+| `~/.3dprint/calibration.json` (your home folder) | The results you chose to keep for every project, asked separately; a project's own result wins over it |
 | `.3dprint/templates/` | Bambu Studio template. A saved one holds your account ID: keep it private |
 | `out/` | Working folder, rewritten on every build: STLs, build manifests, a core 3MF, a `.blend` for Blender builds, preview images, fit-test pieces |
 | a new delivery folder | Final files. Existing files are never overwritten |
 
 ## Status
+
+**v0.9.1** comes from the first real-print field test of 0.9.0, an exhaust adapter for a Bambu Lab X2D. It looks at how the closest existing models are built, not only at what their pages say, and asks whether you already use one that fits. When sources disagree on a size, the one you already use and that fits wins. Before showing you the part it lists where force goes through it and sizes those places, so you are not the one to ask whether it is strong enough. It says weights only from a computed number, and a test print in another filament is said to show the fit, not the strength. Results you choose can be kept for every project in your home folder. A bundle no longer copies another maker's model you had it measure. Blender exports re-triangulate only a face that would leave a bad triangle, so rebuilding an existing project after the update writes the same files and keeps its checks.
 
 **v0.9.0** stops less. A new part now asks you twice before the files come: once to pick one of
 two or three concepts (the existing models it found are listed under them), and once to look at
@@ -284,7 +287,7 @@ subprocess is using it. Skill changes also need the conversation scenarios in
 [`docs/scenarios/`](docs/scenarios/README.md), which are not shipped with the skill; Python unit
 tests alone do not exercise agent decisions. The kit holds nine scenarios, each with an opening
 message, scripted replies and a grading checklist, a script that sets up each start state, and
-the graded runs of 0.7.0, 0.8.0, 0.8.1, 0.8.2 and 0.9.0.
+the graded runs of 0.7.0, 0.8.0, 0.8.1, 0.8.2, 0.9.0 and 0.9.1.
 
 `SKILL.md` is the entry point: the rules that hold at all times, a short skeleton of each phase
 and the checklist. Each phase's how-to (`references/phase-0-detect.md` to `phase-6-deliver.md`),

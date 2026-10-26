@@ -125,6 +125,9 @@ The final report of Phase 6 (`references/phase-6-deliver.md`), schema `3dprint-s
                  "preset": "0.20mm Standard @BBL X1C"}],
   "bundle": ["deliver/2026-10-21/source/REPRODUCE.md", "..."],
   "bundle_missing": ["photos/notch.jpg: photo of test print 'notch'"],
+  "bundle_delivered": [{"file": "deliver/2026-10-21/box.3mf", "sha256": "…", "what": "delivered file", "at": "../box.3mf"}],
+  "bundle_withheld": [{"file": "ref/plug.3mf", "sha256": "…", "what": "file read by measurement 'plug width'",
+                       "why": "…", "url": "https://…", "licence": "CC BY-NC-SA 4.0"}],
   "open": ["promise 'cable-out' (use) assumed: rests on 'usb-c-plug' …", "joint 'lid on box': F3_fresh FAIL: STALE: …",
            "assumption: …"],
   "summary": ["use: not verified (4 promises: 1 not verified, 1 assumed, 2 verified)", "geometry: …", "shape: …",
@@ -152,7 +155,13 @@ all. Paths are relative to the folder it ran in. Exit 0 when it ran, 1 on a usag
 a file outside the project folder, a carried file the rebuild writes again, a text file that
 holds a path of this machine). `bundle` lists the files `--bundle` wrote; `bundle_missing` the files
 `_verify` names that were not found (`"<path>: <what it is>"`), which the bundle leaves out and
-REPRODUCE.md lists too. A malformed 3MF manifest is an `open` reason, not an error. A joint WARN
+REPRODUCE.md lists too. `bundle_delivered` names the delivered files (and a manifest beside them)
+of a bundle made inside the delivery folder, which it does not copy: each with its sha256 and its
+path from the bundle (`at`), where the re-check in REPRODUCE.md reads it (`--deliver ..`).
+`bundle_withheld` names the files the evidence read that the bundle does not copy, each with its
+sha256, what read it, why, and the dims entry's `url` and `licence` when given: a file a
+`user-file` dims entry was measured on that no entry declares the user's own (`"own": true`), and
+a recorded proxy's STL built from one; REPRODUCE.md lists them under "Files to obtain". A malformed 3MF manifest is an `open` reason, not an error. A joint WARN
 the user accepted (`joint <name> <check>` in `_verify.accepted`), or a member's strength.py WARN
 accepted as `member <name>`, does not keep the geometry from being verified; a FAIL cannot be
 accepted. Each `joints` and `strength` entry has the `result` a promise reads: `missing`, `stale`,
@@ -324,6 +333,15 @@ with `--only`, so it shows `seconds` per part and a `partial` object):
     string, with a warning. A value the generator computes from others (a rib height = seat +
     clearance) is not here; check it with a `measurement` instead.
   - `strength.py --from-build` links its inputs to these values (`--param h=ribbon_t`).
+- A params.json list `"_proxy_only": ["conn_out", ...]` names keys only a proxy uses
+  (`references/measure.md`): they stay in params.json and reach the engine, and are not reported
+  as typos. A listed key that is not in params.json, or a list that is not a list of names, is
+  a warning.
+- `volume_cm3` on each validated part (and summed on each object), and `solid_g` with the
+  `solid_density_g_cm3` it used when the part's material is a known family (PLA, PETG, ABS, ASA,
+  TPU; typical data-sheet densities): the mass at 100 % infill, an **upper bound**, not the
+  slicer's estimate. An object has `solid_g` only when every part has one. Say a weight from
+  these numbers only, as "at most about N g solid; the slicer gives the real weight".
 - `material` on a part is its material: `_parts.<name>.material`, else `_material`, else
   `null` (strength.py material keys). `_` keys are not in the freshness hash, so a changed
   material leaves the build fresh; `finalize.py` compares this record with the current

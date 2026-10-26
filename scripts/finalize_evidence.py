@@ -8,8 +8,8 @@ import os
 import re
 import validate
 
-from finalize_common import (source_file, DIM_KEYS, DIM_SOURCES, DIM_STATE, FinalizeError, IMAGE_SCHEMA, LINKED_ORIGINS,
-    SEEN_KEYS, effective_material, finite, load_json, lookup, norm, rel, same_value, text_field)
+from finalize_common import (source_file, DIM_FILE_KEYS, DIM_KEYS, DIM_SOURCES, DIM_STATE, FinalizeError, IMAGE_SCHEMA,
+    LINKED_ORIGINS, SEEN_KEYS, effective_material, finite, load_json, lookup, norm, rel, same_value, text_field)
 
 
 def check_joints(verify, parts, taken=frozenset()):
@@ -296,10 +296,16 @@ def check_dims(verify, params, measurements=()):
             errs.append(f"{label}: unknown field {', '.join(unknown)} (fields: {', '.join(DIM_KEYS)})")
         if not text_field(d, "what"):
             errs.append(f"{label}: needs what (the object and the sizes, in words)")
-        bad_text = [k for k in ("unit", "by", "url", "note") if k in d and not isinstance(d[k], str)]
+        bad_text = [k for k in ("unit", "by", "url", "licence", "note") if k in d and not isinstance(d[k], str)]
         if bad_text:
             errs.append(f"{label}: {', '.join(bad_text)} must be text")
         src = d.get("source")
+        if "own" in d and not isinstance(d["own"], bool):
+            errs.append(f"{label}: own must be true (the file is the user's own work) or false")
+        on_file = [k for k in DIM_FILE_KEYS if k in d]
+        if on_file and src in DIM_SOURCES and src != "user-file":
+            errs.append(f"{label}: {', '.join(on_file)} {'says' if len(on_file) == 1 else 'say'} whose the measured file "
+                        "is: only on a user-file entry")
         if src not in DIM_SOURCES:
             errs.append(f"{label}: source must be one of {', '.join(DIM_SOURCES)}")
         elif src == "caliper" and d.get("by") != "user":
@@ -341,7 +347,7 @@ def check_dims(verify, params, measurements=()):
                     errs.append(f"{label}: {k} is {json.dumps(v)} here but {json.dumps(cur)} in params.json")
         entry = {"id": did, "what": d.get("what"), "source": src, "params": p,
                  "state": "error" if errs else DIM_STATE[src]}
-        entry.update({k: d[k] for k in ("unit", "tol", "by", "url", "where", "from", "note") if k in d})
+        entry.update({k: d[k] for k in ("unit", "tol", "by", "url", "where", "from", "own", "licence", "note") if k in d})
         if not errs and src == "user-file":
             problems = user_file_problems(d, measurements)
             if problems:
@@ -382,7 +388,8 @@ def user_file_problems(d, measurements):
             problems.append(f"{k}: measurement '{mname}' read {exp[0]['value']}, not {json.dumps(v)} within {d['tol']}")
     return problems
 
-MEASURE_ARGS = {"info": ("file",), "slice": ("file", "z", "axis", "object", "center", "max_loops"),
+MEASURE_ARGS = {"info": ("file",),
+                "slice": ("file", "z", "axis", "object", "center", "max_loops", "points", "max_points"),
                 "raymap": ("file", "axis", "sign", "u", "v", "max_depth", "object", "center")}
 
 

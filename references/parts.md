@@ -62,8 +62,9 @@ gets, in `objects[]`:
 | A2 | `free` part keeps its clearance | hard | FAIL on contact or overlap with any other part, free or fused; WARN below the clearance (like F3). A print-in-place piece is one `free` part: two free parts that touch are two pieces fused together, and a `fused` colour part cannot sit on a free one (A1 counts fused partners only), so a moving piece is one colour for now |
 
 The gate of the build is the worst of every part and every object. A part's own P1/P2
-take its lowest face as the bed, so for a part that sits on another one read the object's
-P1/P2, not the part's.
+take its lowest face as the bed. A `fused` part above its object's lowest point gets P1 N/A,
+"judged on object ..." (the object's P1 on the union decides; since 0.9.1); its P2 is still its
+own, so for a part that sits on another one read the object's P2, not the part's.
 
 ## Printing the mechanism first
 

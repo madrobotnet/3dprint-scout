@@ -8,6 +8,7 @@ import sys
 import tempfile
 import unittest
 from contextlib import redirect_stdout
+from unittest import mock
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.join(HERE, "..")
@@ -15,6 +16,22 @@ sys.path.insert(0, os.path.join(ROOT, "scripts"))
 import calibration  # noqa: E402
 
 PRESET = "0.20mm Standard @BBL X2D"
+_USER_DIR = None
+_ENV = None
+
+
+def setUpModule():
+    """No test reads or writes the real ~/.3dprint: the user-level file is a temporary path."""
+    global _USER_DIR, _ENV
+    _USER_DIR = tempfile.TemporaryDirectory()
+    _ENV = mock.patch.dict(os.environ, {calibration.USER_ENV: os.path.join(_USER_DIR.name, "home", ".3dprint",
+                                                                           "calibration.json")})
+    _ENV.start()
+
+
+def tearDownModule():
+    _ENV.stop()
+    _USER_DIR.cleanup()
 
 
 def run(*argv):
@@ -458,6 +475,133 @@ class Calibration(unittest.TestCase):
         code, out = run("show", "--file", self.file)
         self.assertEqual(code, 1)
         self.assertIn("IP address", out["errors"][0])
+
+
+class UserLevelFile(unittest.TestCase):
+    """0.9.1: results carried from one project to the next in ~/.3dprint/calibration.json (here a temporary
+    path through THREEDPRINT_USER_CALIBRATION): read after the project file, project entries first."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.file = os.path.join(self.tmp.name, "project", ".3dprint", "calibration.json")
+        self.user = os.path.join(self.tmp.name, "home", ".3dprint", "calibration.json")
+        env = mock.patch.dict(os.environ, {calibration.USER_ENV: self.user})
+        env.start()
+        self.addCleanup(env.stop)
+
+    def add(self, *extra, user=False):
+        where = ["--user"] if user else ["--file", self.file]
+        return run("add", *where, "--printer", "x2d", "--material", "pla_basic", "--nozzle", "0.4", *extra)
+
+    def test_add_user_writes_the_user_level_file_only(self):
+        code, out = self.add("--feature", "fit", "--result", "fits", "--value", "sleeve_w_mm=61.5", "--date", "2026-10-20",
+                             user=True)
+        self.assertEqual(code, 0, out["errors"])
+        self.assertEqual((out["from"], out["entries"]), ("user", 1))
+        self.assertTrue(os.path.isfile(self.user))                          # ~/.3dprint/ made when needed
+        self.assertFalse(os.path.exists(self.file))
+        with open(self.user, encoding="utf-8") as f:
+            data = json.load(f)
+        self.assertEqual((data["schema"], data["entries"][0]["values"]), (calibration.SCHEMA, {"sleeve_w_mm": 61.5}))
+        code, out = self.add("--feature", "fit", "--result", "fits")
+        self.assertEqual((code, out["from"], out["file"]), (0, "project", self.file))
+        with open(self.user, encoding="utf-8") as f:
+            self.assertEqual(len(json.load(f)["entries"]), 1)                # the project's add left it alone
+        code, out = run("add", "--user", "--file", self.file, "--printer", "x2d", "--material", "pla_basic",
+                        "--nozzle", "0.4", "--feature", "fit", "--result", "fits")
+        self.assertEqual(code, 1)
+        self.assertIn("not both", out["errors"][0])
+        code, out = run("add", "--printer", "x2d", "--material", "pla_basic", "--nozzle", "0.4", "--feature", "fit",
+                        "--result", "fits")
+        self.assertEqual(code, 1)
+        self.assertIn("--file", out["errors"][0])
+        # The privacy guards hold for the user-level file too.
+        for argv, word in ((["--note", "printer at 192.168.1.20"], "IP address"), (["--value", "serial_no=1"], "not allowed"),
+                           (["--printer", "John Smith"], "lowercase id")):
+            code, out = self.add("--feature", "fit", "--result", "fits", *argv, user=True)
+            self.assertEqual(code, 1, argv)
+            self.assertIn(word, out["errors"][0], argv)
+        with open(self.user, encoding="utf-8") as f:
+            self.assertEqual(len(json.load(f)["entries"]), 1)
+
+    def test_lookup_reads_both_files_project_first(self):
+        fit = ["--feature", "fit"]
+        self.add(*fit, "--result", "fits", "--value", "clearance_per_side_mm=0.3", "--date", "2026-10-10")       # project 0
+        self.add(*fit, "--result", "tight", "--value", "clearance_per_side_mm=0.2", "--date", "2026-10-11")      # project 1
+        self.add(*fit, "--result", "fits", "--value", "clearance_per_side_mm=0.25", "--value", "sleeve_w_mm=61.5",
+                 "--date", "2026-10-20", user=True)                                                            # user 0
+        self.add(*fit, "--result", "loose", "--value", "clearance_per_side_mm=0.4", "--date", "2026-10-21",
+                 user=True)                                                                                    # user 1
+        self.add(*fit, "--result", "fits", "--value", "clearance_per_side_mm=0.35", "--nozzle", "0.6",
+                 "--date", "2026-10-22", user=True)                                                            # user 2
+        query = ["lookup", "--file", self.file, "--printer", "x2d", "--material", "pla_basic", "--nozzle", "0.4",
+                 "--feature", "fit"]
+        code, out = run(*query)
+        self.assertEqual(code, 0, out["errors"])
+        self.assertEqual(out["user_file"], self.user)
+        self.assertEqual([(e["from"], e["entry"]) for e in out["entries"]],
+                         [("project", 1), ("project", 0), ("user", 1), ("user", 0)])   # the project's first, each newest first
+        w = out["worked"]
+        self.assertEqual((w["clearance_per_side_mm"]["value"], w["clearance_per_side_mm"]["from"]), (0.3, "project"))
+        self.assertEqual((w["sleeve_w_mm"]["value"], w["sleeve_w_mm"]["from"], w["sleeve_w_mm"]["entry"]),
+                         (61.5, "user", 0))                                       # only the user-level file has it
+        self.assertEqual((out["worked_set"]["from"], out["worked_set"]["entry"]), ("project", 0))
+        self.assertEqual(out["bounds"]["clearance_per_side_mm"]["tight"]["from"], "project")
+        self.assertEqual(out["bounds"]["clearance_per_side_mm"]["loose"]["from"], "user")
+        self.assertIs(out["combined"], True)
+        self.assertTrue(any("entries 0, user 0" in w and "never printed together" in w for w in out["warnings"]),
+                        out["warnings"])
+        self.assertEqual([(r["from"], r["entry"], r["differs"]) for r in out["reference"]],
+                         [("user", 2, {"nozzle_mm": [0.6, 0.4]})])
+        code, out = run(*query, "--no-user")
+        self.assertEqual((code, out["user_file"], out["count"], out["reference"]), (0, None, 2, []))
+        self.assertNotIn("sleeve_w_mm", out["worked"])
+        self.assertTrue(all(e["from"] == "project" for e in out["entries"]))
+        code, out = run("show", "--file", self.file)
+        self.assertEqual((code, out["count"]), (0, 5))
+        self.assertEqual([e["from"] for e in out["entries"]], ["project"] * 2 + ["user"] * 3)
+        code, out = run("show", "--file", self.file, "--no-user")
+        self.assertEqual(out["count"], 2)
+        # A project without a log of its own still finds the user-level results.
+        code, out = run("lookup", "--file", os.path.join(self.tmp.name, "other", "calibration.json"), "--nozzle", "0.4",
+                        "--feature", "fit")
+        self.assertEqual((code, out["worked"]["clearance_per_side_mm"]["value"]), (0, 0.25))
+        self.assertEqual(out["worked_set"]["from"], "user")
+        # The user-level file given as the project file is read once.
+        code, out = run("lookup", "--file", self.user, "--nozzle", "0.4", "--feature", "fit")
+        self.assertEqual((code, out["count"]), (0, 2))
+        self.assertTrue(all(e["from"] == "project" for e in out["entries"]))
+
+    def test_an_unreadable_user_level_file_is_left_out_and_never_rewritten(self):
+        self.add("--feature", "fit", "--result", "fits", "--value", "clearance_per_side_mm=0.3")
+        os.makedirs(os.path.dirname(self.user))
+        for bad, word in (("{not json", "not valid JSON"), ('{"schema": "other", "entries": []}', "not a calibration file"),
+                          (json.dumps({"schema": calibration.SCHEMA, "entries": [
+                              {"date": "2026-10-17", "printer": "x2d", "material": "pla", "nozzle_mm": 0.4,
+                               "feature": "fit", "result": "fits", "values": {}, "note": "at 192.168.1.20"}]}),
+                           "IP address")):
+            with self.subTest(word=word):
+                with open(self.user, "w", encoding="utf-8") as f:
+                    f.write(bad)
+                code, out = self.add("--feature", "fit", "--result", "fits", user=True)
+                self.assertEqual(code, 1)
+                self.assertIn(word, out["errors"][0])
+                with open(self.user, encoding="utf-8") as f:
+                    self.assertEqual(f.read(), bad)                                # refused, as it is
+                for cmd in (["lookup", "--file", self.file, "--nozzle", "0.4"], ["show", "--file", self.file]):
+                    code, out = run(*cmd)
+                    self.assertEqual((code, out["count"]), (0, 1), out["errors"])     # the project's entries still
+                    self.assertTrue(any("user-level file" in w and word in w and "--no-user" in w
+                                        for w in out["warnings"]), out["warnings"])
+                code, out = run("lookup", "--file", self.file, "--nozzle", "0.4", "--no-user")
+                self.assertFalse(any("user-level" in w for w in out["warnings"]))
+
+    def test_the_default_place_is_in_the_home_folder(self):
+        with mock.patch.dict(os.environ):
+            os.environ.pop(calibration.USER_ENV, None)
+            self.assertEqual(calibration.user_file(), os.path.expanduser(os.path.join("~", ".3dprint", "calibration.json")))
+            self.assertEqual(calibration.shown_path(calibration.user_file()), "~/.3dprint/calibration.json")
 
 
 if __name__ == "__main__":

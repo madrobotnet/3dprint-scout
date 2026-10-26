@@ -11,7 +11,10 @@ overwrite an existing delivery path: choose a new version folder, or ask and sto
 that particular path is necessary (the scripts refuse overwrites as well). Updating the current
 project's working state is allowed under SKILL.md's file-protection rule. The verdicts
 come from `out/` before the copy, where the build's manifests are; copy `<part>.stl.manifest.json`
-along only when the copy is to be re-checked (without it R3 reads UNVERIFIED).
+along only when the copy is to be re-checked (without it R3 reads UNVERIFIED). When you build
+in one place and the user opens the files in another (a cloud sandbox and their computer) and
+the host moves files one at a time, send the delivery folder as one archive with its layout
+kept, and unpack it there when you can; a manifest separated from its file reads as missing.
 
 A part rebuilt to other bytes since the user last looked at it is shown again, and their look
 recorded, before the delivery (Phase 5, step 1: a stale `seen` entry).

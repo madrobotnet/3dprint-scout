@@ -1,5 +1,81 @@
 # Changelog
 
+## 0.9.1 — 2026-10-26
+
+From the first real-print field test of 0.9.0: an exhaust adapter for a Bambu Lab X2D, designed
+end to end with the released skill, a test piece printed and fitted. The flow worked; the user
+still had to bring up the key structure (a sleeve over the whole housing) and ask about strength,
+and the evidence model could not use the test piece (0.10.0 takes that on). Promise judgement is
+unchanged in this release.
+
+- **References are looked at** (Phase 1): the closest one or two are judged by how they are
+  built (their photos, or the file the user supplies), and each line in the pick names its
+  structure. When the part fits something the user owns, the pick also asks, optionally, whether
+  they already use one of the references and whether it fit.
+- **When sources disagree** (Phase 2): a thing the user already uses and that fits, then the
+  user's measurement, then the manufacturer's file or spec, then another maker's model. A size
+  none of these settles goes into the test piece.
+- **Load paths before the look** (Phase 3): every place a force goes through the part (a tube
+  under a clamp, a root loaded across the layers, a snap, a hinge, a boss) is listed with how it
+  was checked and its margin, and sized before the look; the look gives them one line each, or
+  says the part carries no load. A strength fix after the look made the user's look stale in the
+  field test.
+- **Phase 0 installs Blender in a sandbox**: `build.py detect` gives the pip command in a new
+  `suggest` list (`bpy>=4.5`, `--break-system-packages` where the interpreter is externally
+  managed, a note on which Python has wheels), and another engine is used only when that fails.
+  With both a live Blender and a sandbox one, the build runs in the sandbox and the live one shows
+  and cross-checks it (triangles and volume, never the STL's sha256).
+- **Weights from a number**: each part and object in the build report has `volume_cm3`, and
+  `solid_g` with the density used for a known material family (an upper bound at 100 % infill,
+  not the slicer's estimate). A weight or print time is said from such a number only.
+- **A test print in another filament** is said, when offered, to show the fit and not to count
+  as evidence yet (0.10.0 will count it for geometric promises).
+- **A user-level calibration file**: `~/.3dprint/calibration.json`, read by `lookup` and `show`
+  after the project file (project entries win; each value names `from`); `add --user` writes it,
+  asked separately ("keep it for your other designs too?"). An unreadable user file is left out
+  with a warning, never rewritten; `--no-user` skips it.
+- **Bundles** (`finalize.py --bundle`):
+  - Made inside the delivery folder, a bundle no longer copies the delivered files: it names each
+    with its sha256 (`bundle_delivered`) and its re-check reads them there (`--deliver ..`).
+  - A file measured as a source (`user-file` dims) is carried only when its entry says `"own":
+    true`; another maker's model is named with its sha256, `url` and `licence` (new optional
+    fields) in `bundle_withheld` and under "Files to obtain" in REPRODUCE.md.
+  - The delivery check no longer reads a 3MF manifest from inside an earlier bundle in the
+    delivery folder (it could change the verdict).
+- **Blender export**:
+  - The STL keeps Blender's own triangulation, so a part that exported cleanly writes the same
+    bytes as 0.9.0. Only when that would leave zero-area or duplicate triangles (a large flat
+    n-gon, such as facets `from_mesh` merged back) is the copy re-triangulated with BEAUTY, noted
+    as `retriangulated`; duplicates that remain are refused before the STL is written.
+  - Two vertices exactly one grid cell apart were refused as a zero-area triangle (float32
+    rounding); fixed.
+  - `from_mesh(..., merge_flat=False)` keeps a subdivided strip as given. Three new pitfalls in
+    `engines/blender.md`.
+- **Smaller tools**:
+  - `render.py`: `--size 700` (the width, 4:3); `--views hero`, one tight perspective Cycles
+    image with lights; `--proxy file.stl`, a grey see-through stand-in drawn for context and
+    listed apart in the sidecar; `"colors": "approximate"` when colours were passed.
+  - `measure.py slice --points`: each loop's corners, to locate a notch.
+  - `"_proxy_only"` in params.json: keys only a proxy uses are no longer reported as typos.
+  - A `fused` part above its object's lowest point gets P1 N/A, judged on the object, instead
+    of a WARN that stayed open.
+  - Bambu tuning rows: supports that stand on the model, and faces that set a fit.
+  - Many delivered files moved between machines go as one archive with the layout kept.
+- **Upgrading**: projects, reports and commands from 0.9.0 work unchanged. A Blender project
+  reads its build as stale once (the helper module changed): build again; the STLs come out
+  byte-identical, so fits, measurements and looks stay verified.
+- **Scenario kit**: the three design scenarios grade a new should item, the look's load paths.
+- **Conversation scenarios** (`docs/scenarios/results-v0.9.1.md`): given-answers, holes-unknown
+  and bambu-template were run with Claude. All three match in two stops, and each look gave its
+  load paths. The other six do not reach the changed guidance.
+- **Golden comparison with v0.9.0**: with 0.9.0's Blender builder put back, 45 of 189 outputs
+  differ, all from the new fields, the bundle changes and the manifest fix; no verdict changed.
+  Of the 22 Blender projects from earlier scenario runs, 21 rebuild with 0.9.1 to byte-identical
+  STLs and the same finalize result.
+- **Found, not changed**: one earlier generator (`from_manifold`, a boolean, `bed_chamfer`)
+  writes different STL bytes on every rebuild, under 0.9.0 too.
+- **Tests**: 497, passing on Python 3.13 + bpy 5.2.2, 3.11 + bpy 4.5.14 and 3.9.
+
 ## 0.9.0 — 2026-10-25
 
 Fewer stops. A part to design used to stop four or five times before the files came: the A–D
