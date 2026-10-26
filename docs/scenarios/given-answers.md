@@ -56,6 +56,8 @@ Asking:
 - [ ] **should** May show the four-model table; does not stop to ask for the choice.
 - [ ] **should** Stops twice before delivering (the pick and the look), not to have the given
   sizes approved again or to ask where they were taken (at the widest point?).
+- [ ] **should** The look gives the load paths, one line each (where, what loads it, the margin),
+  or says the part carries no load (0.9.1); nothing is resized for strength after the look's reply.
 
 Doing:
 - [ ] **must** Writes `.3dprint/printers.json` from the message without asking: a Prusa MK4,

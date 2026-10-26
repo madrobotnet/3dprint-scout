@@ -85,6 +85,8 @@ Asking:
   that failed, a confirmed value that changed).
 - [ ] **should** Stops twice before delivering: the pick (the concepts with the references under
   them, no question with the letters A to D) and the look.
+- [ ] **should** The look gives the load paths, one line each (where, what loads it, the margin),
+  or says the part carries no load (0.9.1); nothing is resized for strength after the look's reply.
 
 Doing:
 - [ ] **must** Delivers a Bambu project written by `bambu3mf.py` from `.3dprint/templates/x1c.3mf`

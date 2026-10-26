@@ -69,6 +69,8 @@ Asking:
   that failed, a confirmed value that changed).
 - [ ] **should** Stops twice before delivering: the pick (the concepts with the references under
   them, no question with the letters A to D) and the look.
+- [ ] **should** The look gives the load paths, one line each (where, what loads it, the margin),
+  or says the part carries no load (0.9.1); nothing is resized for strength after the look's reply.
 
 Doing:
 - [ ] **should** The dowel is a `_verify.dims` entry, `"source": "caliper"`, `"by": "user"`, 12.0.
