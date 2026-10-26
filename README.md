@@ -289,7 +289,7 @@ subprocess is using it. Skill changes also need the conversation scenarios in
 [`docs/scenarios/`](docs/scenarios/README.md), which are not shipped with the skill; Python unit
 tests alone do not exercise agent decisions. The kit holds nine scenarios, each with an opening
 message, scripted replies and a grading checklist, a script that sets up each start state, and
-the graded runs of 0.7.0, 0.8.0, 0.8.1, 0.8.2, 0.9.0 and 0.9.1.
+the graded runs of 0.7.0, 0.8.0, 0.8.1, 0.8.2, 0.9.0, 0.9.1 and 0.10.0.
 
 `SKILL.md` is the entry point: the rules that hold at all times, a short skeleton of each phase
 and the checklist. Each phase's how-to (`references/phase-0-detect.md` to `phase-6-deliver.md`),

@@ -48,6 +48,10 @@ stand for the promises it really showed, and a use that carries a force needs a 
   except where a convex hull has more than about 3333 triangles: that part gets new bytes once
   (they were random before) and its evidence must be made again. A Python project stays fresh;
   a rebuild of a part with such a hull also writes new bytes once.
+- **Conversation scenario** (`docs/scenarios/results-v0.10.0.md`): no scenario records a test
+  print, so the evidence changes are covered by unit tests and an end-to-end check; bambu-template,
+  which reaches the look's new lines and the `load` flag, was run with Claude and matches in two
+  stops.
 - **Golden comparison with v0.9.1**: of 185 build and finalize outputs, 3 differ, only in the
   bytes of 3MF files that differ on every build anyway; no verdict changed.
 - **Tests**: 534, passing on Python 3.13 + bpy 5.2.2 here and on 3.13, 3.11 and 3.9 in CI.
