@@ -283,6 +283,7 @@ class Finalize(Workspace):
             self.assertTrue(any(o.startswith("member 'latch arm': strength.py pin") for o in out["open"]), out["open"])
 
     def test_deliver_and_bundle(self):
+        import validate
         self.params(self.full_verify())
         self.record()
         os.makedirs("deliver")
@@ -294,18 +295,31 @@ class Finalize(Workspace):
         self.assertIn("lid: not in the delivery (deliver) as an STL or in a 3MF", out["open"])
         self.assertEqual({d["file"]: d["same_as_verified"] for d in out["delivered"]},
                          {"deliver/box.stl": True, "deliver/lid.stl": False})
-        self.assertEqual(sorted(out["bundle"]), ["deliver/source/REPRODUCE.md", "deliver/source/deliver/box.stl",
-                                                 "deliver/source/deliver/lid.stl", "deliver/source/gen.py",
+        self.assertEqual(sorted(out["bundle"]), ["deliver/source/REPRODUCE.md", "deliver/source/gen.py",
                                                  "deliver/source/params.json", "deliver/source/printers.json",
-                                                 "deliver/source/verification.json"])     # the delivery as judged
+                                                 "deliver/source/verification.json"])
+        # 0.9.1: a bundle inside the delivery folder names the delivered files with their sha256, never copies them
+        self.assertFalse(os.path.exists("deliver/source/deliver"))
+        self.assertEqual(out["bundle_delivered"], [
+            {"file": f"deliver/{n}.stl", "sha256": validate.file_sha256(f"deliver/{n}.stl"), "what": "delivered file",
+             "at": f"../{n}.stl"} for n in ("box", "lid")])                   # the delivery as judged
+        self.assertEqual(out["bundle_withheld"], [])
         with open("deliver/source/verification.json", encoding="utf-8") as f:
             text = f.read()
         self.assertNotIn(self.tmp, text)                                       # no path of this machine
         self.assertNotIn(os.path.realpath(self.tmp), text)
+        self.assertEqual(json.loads(text)["bundle_delivered"], out["bundle_delivered"])
         with open("deliver/source/REPRODUCE.md", encoding="utf-8") as f:
             reproduce = f.read()
         self.assertIn("build.py\" record", reproduce)                       # a recorded build says how to record it
         self.assertIn("--printer printers.json", reproduce)                    # with the bed the build had
+        self.assertIn(" --deliver ..\n", reproduce)                           # the re-check reads them where they are
+        self.assertIn(f"- `deliver/box.stl` (`../box.stl`): delivered file, sha256 `{validate.file_sha256('deliver/box.stl')}`",
+                      reproduce)
+        # The --deliver check judges the files of the delivery folder, never the bundle in it.
+        before = {k: out[k] for k in ("delivered", "open")}
+        code, again = self.finalize("--deliver", "deliver")
+        self.assertEqual({k: again[k] for k in ("delivered", "open")}, before)
         code, out = self.finalize("--bundle", "deliver/source")
         self.assertEqual(code, 1)
         self.assertIn("never overwrites", out["errors"][0])
@@ -863,6 +877,14 @@ class FinalizePromises(Workspace):
              "plug_depth is not an engine parameter in params.json"),
             ("dims bound to metadata", [cable], [dict(self.plug_dims(), params={"_parts.box.expect": [40, 30, 20]})],
              "_parts.box.expect is not an engine parameter in params.json"),
+            ("own that is not true or false", [cable], [self.plug_dims("user-file", own="yes")],
+             "dims 'usb-c-plug': own must be true (the file is the user's own work) or false"),
+            ("own on a caliper value", [cable], [self.plug_dims("caliper", by="user", own=True)],
+             "dims 'usb-c-plug': own says whose the measured file is: only on a user-file entry"),
+            ("a licence on a spec", [cable], [self.plug_dims("spec", url="https://example.org/usb-c", licence="CC BY 4.0",
+                                                             where={k: "table 1" for k in self.PLUG})],
+             "licence says whose the measured file is: only on a user-file entry"),
+            ("a licence that is not text", [cable], [self.plug_dims("user-file", licence=4)], "licence must be text"),
         ]
         for name, promises, dims, message in cases:
             with self.subTest(name):
@@ -1899,13 +1921,33 @@ def reproduce(folder):
     return json.loads(text)
 
 
-def verdict(out):
-    """What a bundle must reach again: the tiers, each promise's state and reasons, the open lines."""
-    return {"use": out["use"], "geometry": out["geometry"], "print": out["print"], "open": out["open"],
-            "promises": {p["id"]: (p["state"], p["reasons"]) for p in out["promises"]}}
+def verdict(out, delivery=None):
+    """What a bundle must reach again: the tiers, each promise's state and reasons, the open lines.
+    With `delivery`, the delivery folder a bundle is inside: its files named as the re-check from
+    the bundle names them (`--deliver ..`: set.3mf, not deliver/set.3mf)."""
+    v = {"use": out["use"], "geometry": out["geometry"], "print": out["print"], "open": out["open"],
+         "promises": {p["id"]: [p["state"], list(p["reasons"])] for p in out["promises"]}}
+    if delivery:
+        v = json.loads(json.dumps(v).replace(f"({delivery})", "(..)").replace(f"{delivery}/", ""))
+    return v
+
+
+def obtain(folder):
+    """What REPRODUCE.md asks for the files it does not carry (bundle_withheld): each put at its
+    place in the bundle, the same file (sha256)."""
+    import validate
+    with open(os.path.join(folder, "verification.json"), encoding="utf-8") as f:
+        withheld = json.load(f)["bundle_withheld"]
+    for r in withheld:
+        dst = os.path.join(folder, *r["file"].split("/"))
+        os.makedirs(os.path.dirname(dst), exist_ok=True)
+        shutil.copyfile(r["file"], dst)
+        assert validate.file_sha256(dst) == r["sha256"], r
+    return withheld
 
 
 class FinalizeBundle(FinalizePromises):
+    maxDiff = None
     """0.7.0 step 5: --bundle holds what it takes to reach the same verdict from the bundle alone
     (plan, 번들): the reports _verify names and what they read by hash, the seen images, the test
     print photos and the delivered Bambu project."""
@@ -1968,10 +2010,12 @@ class FinalizeBundle(FinalizePromises):
         return self.finalize("--deliver", "deliver", "--bundle", "deliver/source", *extra)
 
     def export(self, folder="deliver/source"):
-        """What REPRODUCE.md asks of a recorded build: the parts exported again (the same STLs)."""
+        """What REPRODUCE.md asks of a recorded build: the parts exported again (the same STLs), and
+        the files it does not carry obtained."""
         os.makedirs(os.path.join(folder, "out"), exist_ok=True)
         for n in ("box", "lid"):
             shutil.copyfile(os.path.join("out", n + ".stl"), os.path.join(folder, "out", n + ".stl"))
+        obtain(folder)
 
     @unittest.skipUnless(HAS_NP, "numpy not installed")
     def test_the_bundle_reaches_the_same_verdict(self):
@@ -1986,16 +2030,22 @@ class FinalizeBundle(FinalizePromises):
                    "out/strength_ribbon.json", "out/m_plug.json",
                    "out/plug_build.json", "out/plug.stl", "out/plug.stl.manifest.json",   # the proxy and its inputs
                    "plug.py", ".3dprint/plug.json",
-                   "ref/plug.stl",                                             # the user's file the dims rest on
                    "out/look.png", "out/look.png.json",                        # the image the user judged
-                   "photos/lid-fit.jpg",                                       # the user's photo of the print
-                   "deliver/set.3mf", "deliver/set.3mf.manifest.json"}         # the delivered Bambu project
+                   "photos/lid-fit.jpg"}                                       # the user's photo of the print
         prefix = "deliver/source/"
         bundled = {p[len(prefix):] for p in out["bundle"]}
         self.assertEqual(carried - bundled, set())                             # reverse: nothing left out
         self.assertEqual(bundled - carried, {"gen.py", "params.json", "printers.json", "REPRODUCE.md",
                                              "verification.json"})             # the parts are made again, not carried
         self.assertEqual(out["bundle_missing"], [])
+        # Named with their sha256, not copied: the delivered Bambu project (the bundle is in its folder), and the
+        # maker's model of the plug the dims rest on, which is not declared the user's own.
+        self.assertEqual([(r["file"], r["at"]) for r in out["bundle_delivered"]],
+                         [("deliver/set.3mf", "../set.3mf"), ("deliver/set.3mf.manifest.json", "../set.3mf.manifest.json")])
+        self.assertEqual([(r["file"], r["what"]) for r in out["bundle_withheld"]],
+                         [("ref/plug.stl", "file read by measurement 'plug width'")])
+        self.assertIn("('plug-head') does not declare their own", out["bundle_withheld"][0]["why"])
+        self.assertFalse(os.path.exists(prefix + "ref"))
         for path in carried:                                                   # copied, never moved
             self.assertTrue(os.path.isfile(path), path)
             with open(path, "rb") as a, open(prefix + path, "rb") as b:
@@ -2003,13 +2053,15 @@ class FinalizeBundle(FinalizePromises):
         with open(prefix + "REPRODUCE.md", encoding="utf-8") as f:
             text = f.read()
         self.assertIn('finalize.py" --build build.json --params params.json --printer printers.json --no-wall-check '
-                      '--deliver deliver\n', text)                            # the settings finalize was given
-        self.assertIn("`ref/plug.stl`: file read by measurement 'plug width'", text)
+                      '--deliver ..\n', text)                                 # the settings finalize was given
+        self.assertIn("## Files to obtain", text)
+        self.assertIn("- `ref/plug.stl`: file read by measurement 'plug width', sha256 "
+                      f"`{out['bundle_withheld'][0]['sha256']}`. Left out: ", text)
         self.assertIn("record out/box.stl out/lid.stl --source gen.py", text)
         self.assertNotIn(self.tmp, text)
-        self.export()
+        self.export()                                                          # ref/plug.stl obtained too
         again = reproduce("deliver/source")
-        self.assertEqual(verdict(again), verdict(out))
+        self.assertEqual(verdict(again), verdict(out, "deliver"))
 
     @unittest.skipUnless(HAS_NP, "numpy not installed")
     def test_a_file_named_but_not_found_is_listed_not_hidden(self):
@@ -2031,7 +2083,7 @@ class FinalizeBundle(FinalizePromises):
         self.assertIn("- `photos/lid-side.jpg`: photo of test print 'lid fit'", text)
         self.assertTrue(os.path.isfile("deliver/source/photos/lid-fit.jpg"))   # what exists is still carried
         self.export()
-        self.assertEqual(verdict(reproduce("deliver/source")), verdict(out))
+        self.assertEqual(verdict(reproduce("deliver/source")), verdict(out, "deliver"))
 
     def test_a_delivery_folder_not_found_is_named_in_reproduce(self):
         """Reverse (Codex, PR #22): --deliver naming a missing folder, or a file, is "not found" in
@@ -2053,6 +2105,131 @@ class FinalizeBundle(FinalizePromises):
                 self.assertFalse(os.path.exists(os.path.join(folder, deliver)))   # not made: still not found there
                 self.export(folder)
                 self.assertEqual(verdict(reproduce(folder)), verdict(out))
+
+    @unittest.skipUnless(HAS_NP, "numpy not installed")
+    def test_a_bundle_elsewhere_copies_the_delivered_files(self):
+        """0.9.1, the other side of a bundle inside the delivery folder: one made elsewhere carries
+        the delivered files, each 3MF with its manifest, and re-checks its own copies."""
+        values, verify = self.evidence_project()
+        self.params(verify, **values)
+        self.record()
+        self.record_proxy()
+        code, out = self.finalize("--deliver", "deliver", "--bundle", "bundle")
+        self.assertEqual(code, 0, out["errors"])
+        for path in ("deliver/set.3mf", "deliver/set.3mf.manifest.json"):
+            self.assertIn("bundle/" + path, out["bundle"])
+            with open(path, "rb") as a, open("bundle/" + path, "rb") as b:
+                self.assertEqual(a.read(), b.read(), path)
+        self.assertEqual(out["bundle_delivered"], [])
+        text = self.reproduce_text("bundle")
+        self.assertIn(" --deliver deliver\n", text)
+        self.assertNotIn("## The delivered files", text)
+        self.export("bundle")
+        self.assertEqual(verdict(reproduce("bundle")), verdict(out))
+
+    def test_the_delivery_check_never_reads_a_bundle_in_the_delivery_folder(self):
+        """0.9.1: a bundle in the delivery folder (deliver/source) is not part of the delivery: its
+        files are never judged as delivered files, and a 3MF manifest in it (here one that names
+        another filament) is never the one a delivered 3MF is judged by."""
+        self.params(self.full_verify(), _material="pla_basic")
+        self.record()
+        self.bambu_project()
+        code, before = self.finalize("--deliver", "deliver")
+        self.assertEqual(code, 0, before["errors"])
+        code, out = self.finalize("--deliver", "deliver", "--bundle", "deliver/source")
+        self.assertEqual(code, 0, out["errors"])
+        self.export()                                                          # the bundle's own out/box.stl, ...
+        with open("deliver/set.3mf.manifest.json") as f:
+            m = json.load(f)
+        m["filaments"]["lid"]["settings"] = "Bambu PETG HF @BBL X1C"
+        os.makedirs("deliver/source/deliver")
+        with open("deliver/source/deliver/set.3mf.manifest.json", "w") as f:   # found later than the one beside it
+            json.dump(m, f)
+        shutil.copyfile("out/lid.stl", "deliver/source/lid.stl")
+        code, after = self.finalize("--deliver", "deliver")
+        keys = ("delivered", "open", "geometry", "use")
+        self.assertEqual({k: after[k] for k in keys}, {k: before[k] for k in keys})
+        self.assertEqual([d["file"] for d in after["delivered"]], ["deliver/set.3mf"])
+        self.assertEqual(after["delivered"][0]["filaments"]["lid"]["material"], "pla_basic")
+
+    @unittest.skipUnless(HAS_NP, "numpy not installed")
+    def test_a_measured_file_is_carried_only_when_declared_the_users_own(self):
+        """0.9.1: a file a user-file dims entry was measured on may be someone else's model (a maker's,
+        under a licence that does not allow passing it on): the bundle names it with its sha256, and its
+        url and licence when declared, and REPRODUCE.md says to obtain it; only "own": true carries it."""
+        import validate
+        values, verify = self.evidence_project()
+        sha = validate.file_sha256("ref/plug.stl")
+        verify["dims"][0].update(own=True)
+        code, out = self.bundle(verify, values)
+        self.assertEqual(code, 0, out["errors"])
+        self.assertEqual(out["dims"][0]["own"], True)
+        self.assertIn("deliver/source/ref/plug.stl", out["bundle"])            # the user's own: carried
+        self.assertEqual(out["bundle_withheld"], [])
+        self.assertNotIn("## Files to obtain", self.reproduce_text())
+        shutil.rmtree("deliver/source")
+        url, licence = "https://example.org/models/plug", "CC BY-NC-SA 4.0"
+        verify["dims"][0].update(own=False, url=url, licence=licence)
+        code, out = self.bundle(verify, values)
+        self.assertEqual(code, 0, out["errors"])
+        self.assertEqual((out["dims"][0]["licence"], out["dims"][0]["url"]), (licence, url))
+        self.assertNotIn("deliver/source/ref/plug.stl", out["bundle"])
+        self.assertFalse(os.path.exists("deliver/source/ref/plug.stl"))
+        [held] = out["bundle_withheld"]
+        self.assertEqual({k: held[k] for k in ("file", "sha256", "what", "url", "licence")},
+                         {"file": "ref/plug.stl", "sha256": sha, "what": "file read by measurement 'plug width'",
+                          "url": url, "licence": licence})
+        self.assertIn("declared not the user's own (\"own\": false on dims 'plug-head')", held["why"])
+        text = self.reproduce_text()
+        self.assertIn(f"- `ref/plug.stl`: file read by measurement 'plug width', sha256 `{sha}`; from {url}; licence "
+                      f"{licence}. Left out: declared not the user's own", text)
+        self.assertIn("deliver/source/out/m_plug.json", out["bundle"])          # its measurement report is carried
+        # A recorded proxy built from the maker's model is that model too: its STL is not carried either.
+        shutil.rmtree("deliver/source")
+        verify["dims"][0].pop("own")
+        self.params(verify, **values)
+        self.record()
+        with open(".3dprint/plug.json", "w") as f:
+            json.dump(self.PLUG, f)
+        code, rec = run(build, "record", "out/plug.stl", "--source", "ref/plug.stl", "--params", ".3dprint/plug.json",
+                        "--out", "out", "--no-wall-check", "--no-3mf")
+        self.assertEqual(code, 0, rec.get("errors"))
+        with open("out/plug_build.json", "w") as f:
+            json.dump(rec, f)
+        code, out = self.finalize("--deliver", "deliver", "--bundle", "deliver/source")
+        self.assertEqual(code, 0, out["errors"])
+        held = {r["file"]: r for r in out["bundle_withheld"]}
+        self.assertEqual(sorted(held), ["out/plug.stl", "ref/plug.stl"])
+        self.assertIn("('plug-head') does not declare their own", held["ref/plug.stl"]["why"])
+        self.assertIn("built from ref/plug.stl", held["out/plug.stl"]["why"])
+        self.assertNotIn("deliver/source/out/plug.stl", out["bundle"])
+        self.assertIn("deliver/source/out/plug_build.json", out["bundle"])     # the record of how it was made stays
+
+    def test_a_part_measured_by_mistake_is_not_withheld(self):
+        """A user-file entry that measured a part of this build (unbacked, its own problem) does not make the
+        part, or a delivered copy of it, a file the bundle withholds."""
+        import finalize_bundle
+        import validate
+        self.record()
+        os.makedirs("deliver")
+        shutil.copyfile("out/box.stl", "deliver/box.stl")
+        with open("out/m_box.json", "w") as f:
+            json.dump({"file": "out/box.stl"}, f)
+        verify = {"measurements": [{"name": "box width", "report": "out/m_box.json"}],
+                  "dims": [{"id": "box", "source": "user-file", "from": {"box_w": "box width"}}]}
+        with open("out/build.json") as f:
+            built = json.load(f)
+        got = finalize_bundle.collect_contents(verify, built, "deliver")
+        self.assertIn("deliver/box.stl", got.files)
+        self.assertEqual(got.withheld, {})
+        self.assertIsNone(got.held_info("deliver/box.stl"))
+        write_stl("other.stl", box(5, 5, 5))                                   # the same entry on the user's file
+        with open("out/m_box.json", "w") as f:
+            json.dump({"file": "other.stl"}, f)
+        got = finalize_bundle.collect_contents(verify, built, "deliver")
+        self.assertEqual(list(got.withheld), ["other.stl"])
+        self.assertEqual(got.withheld["other.stl"]["sha256"], validate.file_sha256("other.stl"))
+        self.assertIn("deliver/box.stl", got.files)
 
     def test_what_refuses_a_bundle(self):
         """Reverse: a file outside the project folder, or a report that holds a path of this
@@ -2218,7 +2395,7 @@ class FinalizeBundle(FinalizePromises):
         with open("deliver/source/REPRODUCE.md", encoding="utf-8") as f:
             self.assertIn("manifest of deliver/set.3mf, found at out/set.3mf.manifest.json", f.read())
         self.export()
-        self.assertEqual(verdict(reproduce("deliver/source")), verdict(out))
+        self.assertEqual(verdict(reproduce("deliver/source")), verdict(out, "deliver"))
         os.remove("out/set.3mf.manifest.json")                                 # only the one beside it
         shutil.rmtree("deliver/source")
         code, out = self.finalize("--deliver", "deliver", "--bundle", "deliver/source")
@@ -2226,9 +2403,11 @@ class FinalizeBundle(FinalizePromises):
                          "pla_basic")
         with open("deliver/source/REPRODUCE.md", encoding="utf-8") as f:
             text = f.read()
-        self.assertIn("- `deliver/set.3mf.manifest.json`: manifest of deliver/set.3mf\n", text)
+        self.assertIn("- `deliver/set.3mf.manifest.json` (`../set.3mf.manifest.json`): manifest of deliver/set.3mf, "
+                      "sha256 ", text)                                         # beside it in the delivery: named
+        self.assertFalse(os.path.exists("deliver/source/deliver"))
         self.export()
-        self.assertEqual(verdict(reproduce("deliver/source")), verdict(out))
+        self.assertEqual(verdict(reproduce("deliver/source")), verdict(out, "deliver"))
 
     GROUPED = {"box": {"expect": [40, 30, 20], "object": "set"},
                "lid": {"expect": [40, 30, 3], "object": "set", "role": "free", "clearance": 0.3}}
@@ -2714,10 +2893,12 @@ class BundleFromTheScripts(unittest.TestCase):
         code, out = self.script(*argv, "--bundle", "deliver/source")
         self.assertEqual(code, 0, out["errors"])
         self.assertEqual((out["use"], out["geometry"]), ("verified", "verified"), out["open"])
-        for path in ("plug.py", ".3dprint/plug.json", "ref/plug.stl", "out/fit_plug.json", "out/m_plug.json",
-                     "out/strength_sled.json", "out/look.png", "out/look.png.json", "photos/arm.jpg",
-                     "deliver/sled_bambu.3mf", "deliver/sled_bambu.3mf.manifest.json"):
+        for path in ("plug.py", ".3dprint/plug.json", "out/fit_plug.json", "out/m_plug.json",
+                     "out/strength_sled.json", "out/look.png", "out/look.png.json", "photos/arm.jpg"):
             self.assertIn("deliver/source/" + path, out["bundle"])
+        self.assertEqual([r["file"] for r in out["bundle_delivered"]],             # in its folder: named, not copied
+                         ["deliver/sled_bambu.3mf", "deliver/sled_bambu.3mf.manifest.json"])
+        self.assertEqual([r["file"] for r in out["bundle_withheld"]], ["ref/plug.stl"])   # the maker's model
         for path in ("out/sled.stl", "out/plug_build.json", "out/plug/plug.stl"):   # made again, like the parts
             self.assertFalse(os.path.exists("deliver/source/" + path), path)
         with open("deliver/source/REPRODUCE.md", encoding="utf-8") as f:
@@ -2728,8 +2909,9 @@ class BundleFromTheScripts(unittest.TestCase):
         self.assertIn('build.py" run gen.py --engine python --params params.json --out out --3mf gen.3mf '
                       "--printer printers.json > build.json", text)    # its engine and its core 3MF, as built
         self.assertNotIn(self.tmp, text)
+        obtain("deliver/source")
         again = reproduce("deliver/source")
-        self.assertEqual(verdict(again), verdict(out))
+        self.assertEqual(verdict(again), verdict(out, "deliver"))
         self.assertTrue(os.path.isfile("deliver/source/out/plug/plug.stl"))
         # Reverse: a proxy whose params file changed since it was built would be another proxy built
         # again; its STL is carried as it was, and its build JSON left out (and said so).
@@ -2744,6 +2926,7 @@ class BundleFromTheScripts(unittest.TestCase):
                             for m in out["bundle_missing"]), out["bundle_missing"])
         with open("deliver/later/REPRODUCE.md", encoding="utf-8") as f:
             self.assertNotIn("--proxy", f.read())
+        obtain("deliver/later")
         again = reproduce("deliver/later")
         # A known difference, accepted: the same tiers and states, but not the same reason. Here the
         # proxy "was not built from .3dprint/plug.json as it is now"; in the bundle, whose build JSON

@@ -42,17 +42,25 @@ path in the project folder (`lib/helper.py` stays `lib/helper.py`):
   `printers.json` the build used, the report as `verification.json`, and `REPRODUCE.md`;
 - the reports `_verify` names (fit, strength and measurement JSON); a proxy's generator and
   params file (a proxy taken in with `record` also with its build JSON, STLs and manifests); a
-  `user-file` dims entry's file and its measurement reports; the seen images with their
-  sidecars; the photos of a test print (its `photos`);
-- with `--deliver`, the delivered files (every STL and 3MF), each 3MF with its manifest.
+  `user-file` dims entry's measurement reports, and its file when the entry declares it the
+  user's own (`"own": true`); the seen images with their sidecars; the photos of a test print
+  (its `photos`);
+- with `--deliver`, the delivered files (every STL and 3MF), each 3MF with its manifest; a
+  bundle made inside the delivery folder (`deliver/2026-10-21/source`) copies none of them and
+  names each with its sha256 (`bundle_delivered`): its re-check reads them there (`--deliver ..`).
+
+A measured file no dims entry declares the user's own, and a recorded proxy's STL built from
+it, is not copied: the bundle names it with its sha256, and the entry's `url` and `licence`, in
+`bundle_withheld` and under "Files to obtain" in REPRODUCE.md.
 
 `REPRODUCE.md` holds the commands that rebuild the parts (and the proxies `build.py run` made)
 and re-check them from the bundle alone (finalize with `--deliver` on the bundled delivery
-folder); the reports hold while the rebuild makes the same STLs, so with the same engine and
-library versions. A recorded build (Fusion, a live Blender) needs the user to export the part
-STLs again first; REPRODUCE.md lists them. A file `_verify` names that is missing does not stop
-the bundle: it is left out and listed in `bundle_missing` and in REPRODUCE.md; make it again and
-bundle into a new folder, or say it is missing.
+folder, or on the delivery folder the bundle is in); the reports hold while the rebuild makes
+the same STLs, so with the same engine and library versions. A recorded build (Fusion, a live
+Blender) needs the user to export the part STLs again first; REPRODUCE.md lists them. A file
+`_verify` names that is missing does not stop the bundle: it is left out and listed in
+`bundle_missing` and in REPRODUCE.md; make it again and bundle into a new folder, or say it is
+missing.
 
 Bundle a build that is the project as it is now: the bundle rebuilds the parts, so a verdict
 that says the build differs from the project (an STL or a source changed since, the settings,
@@ -70,8 +78,8 @@ folder (a part STL or the core 3MF too, and a link inside the folder to a file o
 and any carried text file that holds a path of this machine: keep the user's files,
 photos and reports in the project folder (`ref/plug.stl`, `photos/notch.jpg`), run the scripts
 from there with relative paths (Phase 4), move a source in and build again, and put a name, not
-a path, in a source or `params.json`. The bundle carries the user's own files, photos and the
-delivered files, and a delivered Bambu project may carry metadata from the user's template
-(`bambu3mf.py` blanks the designer and account fields it knows): when the user means to share
-it, say so, and that sharing it is their call. Deliver it with the files so a later change can
+a path, in a source or `params.json`. The bundle carries the user's own files and photos, and
+the delivered files when it is made outside the delivery folder, and a delivered Bambu project
+may carry metadata from the user's template (`bambu3mf.py` blanks the designer and account
+fields it knows): when the user means to share it, say so, and that sharing it is their call. Deliver it with the files so a later change can
 start from it.

@@ -8,17 +8,27 @@ import validate
 from finalize_common import (MANIFEST_3MF, effective_material, rel)
 
 
+def other_bundle(folder, here):
+    """Whether a folder is a source bundle (finalize --bundle: REPRODUCE.md and verification.json)
+    other than the one finalize runs in: its copies are not the delivery's, so a bundle inside the
+    delivery folder (deliver/2026-10-21/source) is never searched for its manifests."""
+    return (os.path.isfile(os.path.join(folder, "REPRODUCE.md")) and os.path.isfile(os.path.join(folder, "verification.json"))
+            and os.path.realpath(folder) != here)
+
+
 def threemf_manifest_files(folders):
     """Every 3MF manifest in the folders, walked in a fixed order: {artifact sha256: (its file,
     the manifest)}. A sound manifest found later takes the place of an earlier one for the same
     3MF; one whose `parts` is not a map of part names to sha256 strings is {"_malformed": its
-    file name}, and never takes the place of a sound one."""
+    file name}, and never takes the place of a sound one. A source bundle in them (other_bundle)
+    is not searched."""
     found = {}
+    here = os.path.realpath(os.curdir)
     for folder in folders:
         if not folder or not os.path.isdir(folder):
             continue
         for root, dirs, files in os.walk(folder):
-            dirs.sort()
+            dirs[:] = sorted(d for d in dirs if not other_bundle(os.path.join(root, d), here))
             for fn in sorted(files):
                 if fn.endswith(".3mf.manifest.json"):
                     path = os.path.join(root, fn)
