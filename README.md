@@ -14,11 +14,10 @@ with the print settings set per object.
 
 How it differs from other AI 3D tools:
 
-- **Built from your measurements and design rules.** A remote holder is sized to the remote it holds.
-- **Checked before printing.** Fits between parts, the strength of latches, snaps and clamps, bed
+- It works from your measurements and design rules, so a remote holder is sized to the remote it holds.
+- It checks before you print: fits between parts, the strength of latches, snaps and clamps, bed
   fit and overhangs, each with its numbers. A test print counts only for what it actually showed.
-- **Starts with what already exists.** It finds existing models first, with their licences, and
-  tells you when one already does the job.
+- It looks for existing models first, with their licences, and tells you when one already does the job.
 
 ## How a request runs
 
