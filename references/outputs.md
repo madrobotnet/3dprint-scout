@@ -333,6 +333,15 @@ with `--only`, so it shows `seconds` per part and a `partial` object):
     string, with a warning. A value the generator computes from others (a rib height = seat +
     clearance) is not here; check it with a `measurement` instead.
   - `strength.py --from-build` links its inputs to these values (`--param h=ribbon_t`).
+- A params.json list `"_proxy_only": ["conn_out", ...]` names keys only a proxy uses
+  (`references/measure.md`): they stay in params.json and reach the engine, and are not reported
+  as typos. A listed key that is not in params.json, or a list that is not a list of names, is
+  a warning.
+- `volume_cm3` on each validated part (and summed on each object), and `solid_g` with the
+  `solid_density_g_cm3` it used when the part's material is a known family (PLA, PETG, ABS, ASA,
+  TPU; typical data-sheet densities): the mass at 100 % infill, an **upper bound**, not the
+  slicer's estimate. An object has `solid_g` only when every part has one. Say a weight from
+  these numbers only, as "at most about N g solid; the slicer gives the real weight".
 - `material` on a part is its material: `_parts.<name>.material`, else `_material`, else
   `null` (strength.py material keys). `_` keys are not in the freshness hash, so a changed
   material leaves the build fresh; `finalize.py` compares this record with the current

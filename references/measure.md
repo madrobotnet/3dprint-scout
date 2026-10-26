@@ -94,7 +94,10 @@ def build(p):
 Keep it to the faces the part touches or sweeps past; everything else can be a box. Take every
 size from the parameters, never a number written in the generator, and give the proxy a params
 file of its own that holds only the numbers of its `dims` entry, with the values in the
-project's params.json (`.3dprint/housing_proxy.json`). Build and validate a proxy with
+project's params.json (`.3dprint/housing_proxy.json`). Those keys in the project's params.json
+are not the part generator's parameters: list them in `"_proxy_only": [...]` there, so the
+part's build does not report them as typos, rather than adding them to the part's `PARAMETERS`
+or `DEFAULTS`. Build and validate a proxy with
 `--proxy`, which writes no 3MF, into a folder of its own, and save its JSON there; the phone
 stand's plug proxy, `plug_proxy.py` with its numbers in `.3dprint/usb_c_plug.json`:
 
