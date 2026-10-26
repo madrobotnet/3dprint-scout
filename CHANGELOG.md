@@ -48,6 +48,9 @@ stand for the promises it really showed, and a use that carries a force needs a 
   except where a convex hull has more than about 3333 triangles: that part gets new bytes once
   (they were random before) and its evidence must be made again. A Python project stays fresh;
   a rebuild of a part with such a hull also writes new bytes once.
+- **Golden comparison with v0.9.1**: of 185 build and finalize outputs, 3 differ, only in the
+  bytes of 3MF files that differ on every build anyway; no verdict changed.
+- **Tests**: 534, passing on Python 3.13 + bpy 5.2.2 here and on 3.13, 3.11 and 3.9 in CI.
 - **Correction**: `results-v0.9.1.md` said the 0.9.1 runs' STLs were unchanged by the final
   export; four of their six part STLs rebuild to other bytes (they were built with a pre-release
   export). The page now says so.
