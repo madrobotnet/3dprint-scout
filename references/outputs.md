@@ -111,12 +111,24 @@ The final report of Phase 6 (`references/phase-6-deliver.md`), schema `3dprint-s
   "promises": [{"id": "cable-out", "kind": "use", "text": "…", "conditions": "…", "success": "…",
                 "state": "assumed", "reasons": ["rests on 'usb-c-plug' (…), which is assumed, not measured"],
                 "evidence": [{"joint": "plug through notch", "result": "passed", "covers": "…"}],
-                "rests_on": ["usb-c-plug"]}],
+                "rests_on": ["usb-c-plug"]},
+               {"id": "mount", "kind": "use", "text": "…", "conditions": "…", "success": "…", "by_hand": true,
+                "state": "verified", "reasons": ["test print 'corner piece' shows the fit, not the strength: a section of adapter printed in pla_basic, the part is petg_hf"],
+                "evidence": [{"joint": "sleeve on housing", "result": "passed"},
+                             {"test_print": "corner piece", "result": "passed", "scope": "geometry"}],
+                "rests_on": []},
+               {"id": "holds", "kind": "use", "text": "…", "conditions": "…", "success": "…", "load": true,
+                "state": "not verified", "reasons": ["it carries a load and no strength check names it"],
+                "evidence": [{"joint": "sleeve on housing", "result": "passed"}], "rests_on": []}],
   "promise_counts": {"use": {"assumed": 1, "verified": 2}, "look": {"not verified": 1}},
   "dims": [{"id": "usb-c-plug", "what": "…", "source": "assumed", "params": {"plug_w": 13}, "unit": "mm", "tol": 0.5,
             "note": "a maker's drawing of a similar plug", "state": "assumed"}],
   "promise_errors": [],
-  "test_prints": [{"name": "hinge coupon", "status": "skipped", "note": "…"}],
+  "test_prints": [{"name": "hinge coupon", "status": "skipped", "note": "…"},
+                  {"name": "corner piece", "status": "passed", "note": "…",
+                   "sections": {"adapter": {"box": [[-60.0, -60.0, -1.0], [60.0, 60.0, 25.7]], "piece": "out/piece/adapter.stl",
+                                            "state": "same", "volume_mm3": 48907.555, "difference_mm3": 0.0001,
+                                            "tolerance_mm3": 0.1}}}],
   "accepted": [{"check": "body P2", "reason": "…"}],
   "decided": [{"check": "lid P6", "result": "holds", "reason": "…"}],
   "delivered": [{"file": "deliver/2026-10-21/lid.stl", "kind": "stl", "part": "lid", "same_as_verified": true},
@@ -179,13 +191,35 @@ part's STL now is stale: the line stays, ending in "decided for another build of
 again". A wrong entry is a declaration error (`promise_errors`, `use` is `error`). None of this
 changes `geometry`.
 
-A promise entry repeats `conditions`, `success` and `by_hand` when they are declared. A `use`
-with `"by_hand": true` and no passed test print among its evidence (an `evidence` item
-`{"test_print": ..., "result": "passed"}`) keeps its state, and its `reasons` end with "the motion
-by hand is not confirmed by a print (no passed test print among its evidence)": in the promise's
-`open` line when it is not verified, and as its own `open` line, `promise '<id>' (use): the
-motion by hand is not confirmed by a print (...)`, when it is (`references/checks.md`, "A use
-done by hand").
+A promise entry repeats `conditions`, `success`, `by_hand` and `load` when they are declared. A
+`use` with `"by_hand": true` and no passed test print among its evidence (an `evidence` item
+`{"test_print": ..., "result": "passed"}` whose `scope` is not `"none"`) keeps its state, and its
+`reasons` end with "the motion by hand is not confirmed by a print (no passed test print among
+its evidence)": in the promise's `open` line when it is not verified, and as its own `open` line,
+`promise '<id>' (use): the motion by hand is not confirmed by a print (...)`, when it is
+(`references/checks.md`, "A use done by hand"). A `use` with `"load": true` and no `strength`
+item among its evidence is not verified: "it carries a load and no strength check names it".
+
+A test print's `evidence` item has `scope` when the print shows the geometry only: `"geometry"`
+when it stands for this promise as a print in another material than the part's, or of a section
+(the promise's reasons then say so: `test print '<name>' shows the fit, not the strength: lid
+printed in pla_basic, the part is petg_hf`, or `a section of adapter`); `"none"` when a section
+does not stand for this promise (the piece is not the part cut by its box now, was not compared,
+the box does not hold what the promise's joints and measurements check, or the promise carries a
+force). A print of whole parts in their own material has no `scope`, as before. Each `reasons`
+list is the errors, failures, not-verified and assumed reasons, accepted WARNs, then what a print
+showed and the close fits below, then the by-hand line. A fit with less than 0.2 mm of play (its
+report's F3 `value.min_play_mm`) that a print in another material confirmed adds `joint '<name>'
+has 0.150 mm of play, under 0.2 mm, and test print '<name>' printed <part> in pla_basic, not
+petg_hf: another material shrinks and squishes differently, so a fit this close may not come out
+the same in petg_hf` to the reasons, and to `open` as `promise '<id>' (<kind>): ...` when the
+promise is verified (otherwise it is part of the promise's line).
+
+A `test_prints` entry with a section piece adds `sections`, by part: the `box`, the `piece` STL,
+and `state`: `same` (with `volume_mm3`, `difference_mm3`, the volume of the symmetric difference
+of the piece and the part as it is now cut by the box, and `tolerance_mm3`), `differs`, `missing`
+(the piece's STL is gone or is not the one printed, with a `note`) or `unchecked` (no manifold3d,
+or a mesh that is not closed, with a `note`).
 
 ## How finalize judges each kind of evidence
 
@@ -208,6 +242,37 @@ the build recorded, and with `--deliver` the one the print file selects (below).
 fails the promise; a skipped, offered or pending one leaves it not verified. `_material`,
 `_parts.<name>.material` and `_print` are checked as declared (an unknown material key is a
 declaration error).
+
+A print in another material than the part's shows the geometry, not the strength: for a geometric
+promise its line "<part> was printed in <material>, the part is <material>" is dropped and the
+print stands (`scope` `"geometry"`); for a promise that carries a force (a `use` with `"load":
+true`, or with `strength` evidence) the line stays and the promise is not verified. A material
+changed since the build, or another filament in the delivered print file, keeps its line for
+either. A section piece (`parts.<name>.section`, `references/checks.md`, "A section piece") has
+the piece's sha256 in `parts`: finalize checks the piece's STL is that file, cuts the part's
+current STL by the box with manifold3d and compares the two by the volume of their symmetric
+difference, within the larger of 0.1 mm³ and 1e-6 of the piece's volume. A piece that differs
+is stale ("the section piece out/piece/adapter.stl is not adapter cut by its box as adapter is
+now (72 mm3 differ, more than 0.1): it printed adapter as it was then, or another box"); one
+that cannot be compared leaves the print not verified ("the section piece of adapter is not
+compared with adapter: no manifold3d to compare the piece (pip install manifold3d)"). A section that is the part cut by its box stands for a geometric promise
+when every joint and measurement of the promise that checks the cut part checks it inside the
+box: for a joint, `min_gap` (manifold3d) between the part less the box and the mating part, each
+placed as the fit report's `placement` says, is at least 1 mm plus the largest `play_mm` of a
+direction with contact, at every turn of `metrics.sweep` for a moving joint (turns close enough
+that no point moves more than a quarter of that between two); for a measurement, the part less
+the box keeps 1 mm from each plane `measure.py slice` cut (its `query`: axis, levels, `--center`)
+or from the band of rays `raymap` cast; `info` reads the whole part. A promise that names no joint
+or measurement of the cut part is not raised by its section. Each reason names what is outside:
+"test print 'corner piece' is a section of adapter: joint 'sleeve on housing' checks adapter
+outside the section box: adapter comes within 0.86 mm of out/housing/housing.stl outside it, and
+the section box must hold all of adapter within 1.16 mm of it"; "... measurement 'lip height'
+reads adapter at z = 18, where adapter goes on outside the section box (within 0.50 mm of that
+plane; ...)"; "test print 'corner piece' is a section of adapter, and no joint or measurement of
+this promise checks it: nothing shows that what it checks is inside the section box"; for a
+promise that carries a force, "test print 'corner piece' is a section of adapter: a section
+shows the fit, not the strength this promise needs (it carries a load or names a strength
+check)".
 
 A measurement is a saved `measure.py ... --expect` report (`references/measure.md`). Its `result`
 is `missing` (no readable report with expectations, or one whose values, states and gate do not
