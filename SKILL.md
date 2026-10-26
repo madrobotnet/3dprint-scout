@@ -59,6 +59,8 @@ Rules that hold in every phase, whatever file is open:
 - **Never model support structures into a part**: an overhang gets the slicer's supports or a redesign.
 - **A fit test or a mechanism-first print that was offered and skipped** goes into
   `_assumptions` ("not confirmed by a test print"); never say a test confirmed something it did not.
+- **A weight or a print time is said from a number, never guessed**: the build report's solid
+  mass (an upper bound: walls and infill weigh less) or the slicer's estimate, named as which.
 - **Only `finalize.py` says a promise is verified.** Your look at an image never verifies one, nor
   does a part's own check. `"by": "user"` records only what the user did or said. Excluding a
   promise, accepting a WARN and, attended, delivering a prototype need the user's agreement; a
@@ -98,8 +100,10 @@ references via web search; previews via OpenSCAD."). No planned stop; ask only a
 A user who already chose D with a specific model needs no engine: go to Phase 1's handoff.
 
 - Engines: a connected Fusion or live Blender that answers a harmless read, then `build.py detect`.
-  On the user's machine ask before installing anything. Nothing works → say what is missing and
-  stop before modeling (references and the D handoff still work).
+  On the user's machine ask before installing anything. In a disposable sandbox without Blender,
+  install it first (detect prints the command): fall back to another engine only when that fails,
+  and say why in `_assumptions`. Nothing works → say what is missing and stop before modeling
+  (references and the D handoff still work).
 - Rule A: **Blender first** when it is usable, for every shape; without it, mechanical → Python or
   OpenSCAD, organic → Python; Fusion only for editable CAD. Say the cost in one line.
 - Note the reference search tier (A marketplace tool, B web search, C neither) and whether `.3dprint/printers.json` exists.
@@ -112,8 +116,8 @@ Goal: restate the request, find four existing models with their licences, build 
 that borrow from them, and **stop** for the pick.
 
 - Four models, each with name, site, URL, licence ("not shown" when the page does not show it,
-  never guessed) and what is worth borrowing; in the pick they are one line each, under the
-  concepts. One that already does the job is said first ("this one already does it: use it as
+  never guessed) and what is worth borrowing; look at how the closest one or two are built (their
+  photos), not only their text. In the pick they are one line each, under the concepts. One that already does the job is said first ("this one already does it: use it as
   it is?"), and choosing it is D: the phase file's handoff, no modeling.
 - Concepts: 2–3 low-detail variants, each an image and one line on what differs and what it
   costs; the user answers with a number, "like model N", or "use it as it is". A, B, C and D are
@@ -139,8 +143,10 @@ what cannot wait for it.
 - The use list, made with the user in plain words: what they will do with the part, under which
   conditions, what counts as success; each a `use` promise (`conditions`, `success`).
 - Dimensions, each with its source (R2): the object's, caliper > official spec > two secondary
-  sources that agree; this printer's, the calibration log (`calibration.py lookup --nozzle ...`,
-  read first) > the starting points in `references/`. A supplied file is measured (`measure.py`).
+  sources that agree; sources that disagree are settled as the phase file says (a model the user
+  already uses and that fits first). This printer's: the calibration log (`calibration.py lookup
+  --nozzle ...`, read first) > the starting points in `references/`. A supplied file is measured
+  (`measure.py`).
 - What the part must fit (a phone, a plug, a cable): the user measures it when they can
   (`_verify.dims`); else `assumed`, offer a test print, say so in one line.
 - Compensation lives in one place (F1): the `slicer / model / unknown` table in
@@ -167,8 +173,10 @@ before anything is built on it.
 - Build with `build.py run` (`record` for Fusion or a live Blender), always with `--printer .3dprint/printers.json`;
   preview with `preview.py`. A simple part (one body, no mechanism) is built with its features and
   checked through Phase 4 first; several bodies or a mechanism show the outer shell alone first.
+- Before the look, list the load paths (where a force goes through the part, how it was checked,
+  the margin) and size them; a strength fix after the look makes the look stale.
 - **Stop for the look**, in every attended run: the image, the promises in the user's words, the
-  sizes they judge, the checks in one line, and a test print offer when one is due (the phase
+  sizes they judge, the checks and the load paths in one line each, and a test print offer when one is due (the phase
   file); their reply confirms the use list and the table too. A fit-test piece is offered in it,
   never instead of it.
 

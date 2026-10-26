@@ -152,6 +152,11 @@ test print (`references/phase-2-printer-dimensions.md`, "Material and process pr
 the key stays out and the print stays `assumed` on the preset unless a delivered Bambu project
 names one). A print in another material, on another printer, in another orientation or with
 another preset does not verify; a rebuilt part makes it stale, and only a new print renews it.
+Say so when you offer the print, before the user picks a filament ("can I print the test in
+PLA?" comes often): a test in another filament, or a piece cut out of the part, shows the user
+the fit, and that is worth a lot, but the report keeps those promises unconfirmed until the part
+itself is printed in its own filament. Record such a print anyway (it is the user's result) and
+say in its `note` what it showed.
 `fit_test.py` pieces are not parts of the build: record them without `promises` and build the
 part with the step that fits.
 

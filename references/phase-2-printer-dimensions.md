@@ -145,6 +145,15 @@ for `measure.py` (numbers only). A value found in a single secondary source, or 
 independent sources share while another disagrees, was not measured: `assumed`, with its sources
 (below). If none agree and the part must mate, ask, or offer a fit test (Phase 4).
 
+**When sources disagree.** Two sources that differ by more than the fit's clearance (a
+manufacturer's kit file says 108.75, another maker's sleeve is 108.25 inside) are settled in
+this order: a thing the user already uses on that same object and that fits (Phase 1 asks, in
+the pick); the user's measurement; the manufacturer's file or spec; another maker's model. Say
+which one won and why in the entry's `note`, and name the other value. When none of these
+settles it (two makers' models, no answer), put that size in the test piece (Phase 4) rather
+than pick one silently. A model that fits is evidence for its own sizes only: take the numbers
+it fits with, measured from its file or its page, not its whole shape.
+
 **The sizes a promise rests on** (`_verify.dims`). Every real object the part must fit or hold
 (the phone in its case, a USB-C plug, a cable, a screw) gets an entry: `id`, `what` (the object
 and its sizes, in words), `unit`, `params` (the params.json keys the model is built from, with

@@ -119,8 +119,19 @@ Render the built STLs with `preview.py`
 yourself first, **one view at a time**, never the grid as one picture: would someone name the
 object from this view; silhouette, main volumes, thickness, edge radii. A view the references
 do not show stays unverified (say so; do not call it right), and passing sizes, mesh checks or
-a triangle count say nothing about the shape. Then **stop for the user's look**, in every
-attended run, one message in this order:
+a triangle count say nothing about the shape.
+
+**Load paths, before the look.** List every place a force goes through the part and size it now,
+not after the user asks whether it is strong enough: a reply that changes a wall makes the look
+stale. One line each: where, what loads it, how it was checked and the margin. Common ones: a
+tube under a band or worm-gear clamp (crushing), a root, post or block loaded across the layers
+(the weakest direction), a snap or tongue, a hinge, a screw boss, anything the part hangs from
+or is pulled by. Check each with `strength.py` when it has the case (`references/phase-4-mechanisms.md`)
+or by a hand calculation whose formula, numbers and source go into `_assumptions`; a margin
+under the duty's floor is fixed before the look. A part that carries nothing but its own weight
+has an empty list: say so in one line.
+
+Then **stop for the user's look**, in every attended run, one message in this order:
 
 1. The image (and a view of the part with what it holds, when a proxy shows it better).
 2. The promises, one line each in the user's words: what the part lets them do, and what showed
@@ -128,7 +139,8 @@ attended run, one message in this order:
 3. The sizes they judge, three to six lines (Phase 2, step 5), and any value that changed since
    the user gave or confirmed it, with its old and new value and why.
 4. The checks in one line when they passed ("size, bed, mesh and supports all passed"); a
-   problem gets its own line.
+   problem gets its own line. Then the load paths, one line each (where, what loads it, the
+   margin), or "it carries no load".
 5. When one is due, the test print offer, as the Phase 4 question (`references/phase-4-features-joints.md`,
    "What counts as agreement"): a use done by hand (`by_hand`), a fit whose mating shape is not
    known exactly ("Fit test first"), a mechanism to print first. Name the promise, what goes
