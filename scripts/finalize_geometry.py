@@ -23,7 +23,9 @@ def check_parts(build, specs, params_path, settings, soft=None):
     if missing:
         reasons.append(f"sources the build hashed are missing: {', '.join(missing)} (run finalize from the folder the "
                        "build ran in)")
+    import assembly
     built = {p.get("name") for p in build.get("parts") or []}
+    objects = {o.get("name"): o for o in build.get("objects") or [] if isinstance(o, dict)}
     for name in specs:
         if name not in built:
             reasons.append(f"{name}: in _parts but not in this build (built with --only, or not recorded): build "
@@ -50,6 +52,9 @@ def check_parts(build, specs, params_path, settings, soft=None):
         rep = build_mod.validate_part(stl, specs.get(name, {}), sources, params_path, settings)
         f = (rep.get("files") or [{}])[0]
         checks = f.get("checks") or {}
+        # A fused part off the bed takes its object's P1, as the build did (assembly.defer_p1): the
+        # object's P1 is judged in check_objects, the part's own would be a WARN about no bed.
+        assembly.defer_p1(checks, f.get("metrics") or {}, p.get("role"), objects.get(p.get("object")))
         entry["gate"] = rep.get("gate")
         entry["checks"] = {k: v.get("state") for k, v in checks.items()}
         for cid, ck in checks.items():

@@ -86,6 +86,28 @@ class Workspace(unittest.TestCase):
 
 
 
+class FusedPartP1(Workspace):
+    def test_a_fused_part_off_the_bed_takes_the_objects_p1(self):
+        """0.9.1: snap_top sits on the box; its own P1 (8 mm2 at its own lowest face) is no bed WARN
+        to accept at delivery: it is N/A, judged on the object, whose P1 decides."""
+        write_stl("out/snap_top.stl", box(2, 4, 6, 10, 10, 20))
+        write_stl("out/peg.stl", box(2, 4, 6, 60, 0, 10))                       # alone, off the bed: its own WARN stays
+        with open(".3dprint/params.json", "w") as f:
+            json.dump({"_parts": {"box": {"expect": [40, 30, 20]}, "snap_top": {"object": "box", "role": "fused"},
+                                  "peg": {}}}, f)
+        code, built = run(build, "record", "out/box.stl", "out/snap_top.stl", "out/peg.stl", "--source", "gen.py",
+                          "--params", ".3dprint/params.json", "--printer", ".3dprint/printers.json", "--out", "out",
+                          "--no-wall-check", "--no-3mf")
+        with open("out/build.json", "w") as f:
+            json.dump(built, f)
+        code, out = self.finalize()
+        self.assertEqual(code, 0, out["errors"])
+        checks = {p["name"]: p["checks"] for p in out["parts"]}
+        self.assertEqual((checks["snap_top"]["P1"], checks["peg"]["P1"], checks["box"]["P1"]), ("N/A", "WARN", "PASS"))
+        self.assertFalse(any("snap_top P1" in o for o in out["open"]), out["open"])
+        self.assertTrue(any("peg P1 WARN" in o for o in out["open"]), out["open"])
+
+
 class Finalize(Workspace):
     def test_nothing_declared_is_not_verified(self):
         self.record()

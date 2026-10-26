@@ -503,5 +503,65 @@ class BuildIntegration(unittest.TestCase):
             self.assertIn("objects[]", buf.getvalue())
 
 
+
+class FusedPartP1(unittest.TestCase):
+    """A fused part that sits on another part takes its object's P1 (its own lowest face is no
+    bed); a free part, a fused part on the bed and a part alone keep their own."""
+
+    def test_defer_p1(self):
+        obj = {"name": "o", "checks": {"P1": {"state": "PASS", "kind": "soft"}}, "metrics": {"bbox_min_mm": [0, 0, 0]}}
+        def own():
+            return {"P1": {"state": "WARN", "kind": "soft", "value": {"bed_contact_mm2": 8.0},
+                           "note": "little or no flat area on the bed"}}
+        checks = own()
+        self.assertTrue(assembly.defer_p1(checks, {"bbox_min_mm": [5, 5, 20]}, "fused", obj))
+        p1 = checks["P1"]
+        self.assertEqual((p1["state"], p1["kind"]), ("N/A", "soft"))               # G3: N/A, never PASS
+        self.assertEqual(p1["value"], {"object": "o", "object_P1": "PASS", "lowest_z_mm": 20, "object_lowest_z_mm": 0,
+                                       "bed_contact_mm2": 8.0})
+        self.assertTrue(p1["note"].startswith("judged on object 'o' (its P1: PASS)"), p1["note"])
+        self.assertFalse(assembly.defer_p1(checks, {"bbox_min_mm": [5, 5, 20]}, "fused", obj))   # once
+        for role, low, entry in (("free", 20, obj), (None, 20, obj), ("fused", 0.005, obj), ("fused", 20, None),
+                                 ("fused", 20, {"name": "o", "checks": {"P1": {"state": "PASS"}}}),       # no metrics (old JSON)
+                                 ("fused", 20, {"name": "o", "metrics": {"bbox_min_mm": [0, 0, 0]}})):    # no object P1
+            checks = own()
+            with self.subTest(role=role, low=low, entry=entry):
+                self.assertFalse(assembly.defer_p1(checks, {"bbox_min_mm": [5, 5, low]}, role, entry))
+                self.assertEqual(checks, own())
+
+    def test_build_and_record(self):
+        """record (no manifold3d needed): snap_top on the base defers, the free part above and the
+        fused foot on the bed keep their own P1 WARN, and so does the part alone."""
+        with tempfile.TemporaryDirectory() as d:
+            stls = {"base": box(40, 40, 20), "snap_top": box(2, 4, 6, 10, 10, 20),          # 8 mm2 below 10: own P1 WARN
+                    "foot": box(3, 3, 5, 40, 0, 0), "pin": box(2, 4, 2, 30, 30, 25),         # on the bed / free above
+                    "alone": box(2, 4, 6, 80, 0, 10)}
+            paths = []
+            for n, t in stls.items():
+                paths.append(os.path.join(d, n + ".stl"))
+                write_stl(paths[-1], t)
+            prm = os.path.join(d, "params.json")
+            with open(prm, "w") as f:
+                json.dump({"_parts": {"base": {}, "snap_top": {"object": "base", "role": "fused"},
+                                      "foot": {"object": "base"}, "pin": {"object": "base", "role": "free"},
+                                      "alone": {}}}, f)
+            src = os.path.join(d, "gen.py")
+            with open(src, "w") as f:
+                f.write("def run(context=None):\n    pass\n")
+            buf = io.StringIO()
+            with redirect_stdout(buf):
+                build.main(["record", *paths, "--source", src, "--params", prm, "--out", os.path.join(d, "out"),
+                            "--no-wall-check", "--no-3mf"])
+            out = json.loads(buf.getvalue())
+        p1 = {p["name"]: p["validate"]["files"][0]["checks"]["P1"] for p in out["parts"]}
+        self.assertEqual({n: c["state"] for n, c in p1.items()},
+                         {"base": "PASS", "snap_top": "N/A", "foot": "WARN", "pin": "WARN", "alone": "WARN"})
+        self.assertEqual(p1["snap_top"]["value"]["object_P1"], out["objects"][0]["checks"]["P1"]["state"])
+        warned = [w for w in out["warnings"] if " P1: " in w]
+        self.assertEqual(sorted(w.split(":")[0] for w in warned), ["alone", "foot", "pin"])
+        snap = next(p for p in out["parts"] if p["name"] == "snap_top")
+        self.assertFalse(any(" P1: " in w for w in snap["validate"]["warnings"]))
+
+
 if __name__ == "__main__":
     unittest.main()
