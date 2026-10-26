@@ -4,12 +4,21 @@
 
 <img src="https://raw.githubusercontent.com/madrobotnet/3dprint-scout/main/docs/demo.webp" width="100%" alt="Demo: one sentence becomes a printed phone stand. 3dprint-scout looks for existing models, draws the profile, builds two parts, checks the fit with three phones, slices in Bambu Studio, and the print matches the render.">
 
-An agent skill for designing things to 3D print, **reference-first**.
+**Describe what it has to fit. Get a part that's checked before you print.**
 
-Tell your agent what you want to make. It first finds existing models and lets you reference one,
-mix several, start from scratch, or just print one that already does the job. Then it models the
-part, checks it with numbers, and hands you files ready for your printer and slicer. For Bambu
-Studio, that is a project file with the print settings already set per object.
+3dprint-scout is an agent skill for functional prints: holders, adapters, replacement parts,
+printer accessories. It designs around the measured sizes of the things you own, checks fits and
+strength with numbers, and suggests a small test piece when a fit is uncertain. It tells you which
+results were checked and which rest on assumptions. For Bambu Studio, you also get a project file
+with the print settings set per object.
+
+How it differs from other AI 3D tools:
+
+- **Built from your measurements and design rules.** A remote holder is sized to the remote it holds.
+- **Checked before printing.** Fits between parts, the strength of latches, snaps and clamps, bed
+  fit and overhangs, each with its numbers. A test print counts only for what it actually showed.
+- **Starts with what already exists.** It finds existing models first, with their licences, and
+  tells you when one already does the job.
 
 ## How a request runs
 
