@@ -167,6 +167,8 @@ the X2D and H2D, objects that need both nozzles are placed where both can reach.
 
 ## Status
 
+**v0.10.0** counts the test prints you actually make. A piece cut from a big part, printed to try the fit, now stands for the fits inside it once the skill has checked the piece is that part cut by its box. A test in another filament (PLA for a PETG part) counts for fits and motions, never for strength. A use that carries a force (holds, is clamped, is pulled) needs a strength calculation before it is called verified, and three new calculations cover a tube under a hose clamp, a post loaded across the layers and a tapered snap. Rebuilds of parts with a large rounded hull now write the same files every time.
+
 **v0.9.1** comes from the first real-print field test of 0.9.0, an exhaust adapter for a Bambu Lab X2D. It looks at how the closest existing models are built, not only at what their pages say, and asks whether you already use one that fits. When sources disagree on a size, the one you already use and that fits wins. Before showing you the part it lists where force goes through it and sizes those places, so you are not the one to ask whether it is strong enough. It says weights only from a computed number, and a test print in another filament is said to show the fit, not the strength. Results you choose can be kept for every project in your home folder. A bundle no longer copies another maker's model you had it measure. Blender exports re-triangulate only a face that would leave a bad triangle, so rebuilding an existing project after the update writes the same files and keeps its checks.
 
 **v0.9.0** stops less. A new part now asks you twice before the files come: once to pick one of
