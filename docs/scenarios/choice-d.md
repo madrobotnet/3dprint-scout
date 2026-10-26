@@ -29,16 +29,16 @@ An empty folder: `python3 docs/scenarios/setup.py choice-d FOLDER`. Web search m
 
 | When the agent | Reply, word for word |
 |---|---|
-| Shows existing models and asks which way to go (A–D) | `표에서 첫 번째 모델이 딱 좋네요. 그 모델을 그대로 출력할게요.` |
+| Shows existing models and asks which way to go (the pick, with or without concepts; A–D step by step) | `표에서 첫 번째 모델이 딱 좋네요. 그 모델을 그대로 출력할게요.` |
 | Hands off the chosen model | (the run ends) |
 | Anything else (the printer or slicer among it) | the fallback: `잘 모르겠어요. 알아서 정해 주세요.` |
 
 ## Grading checklist
 
 Before the choice:
-- [ ] **must** Shows four existing models in a table: name, site, URL, licence ("not shown" when
-  the page does not show one, never a guess) and what is worth borrowing; offers A, B, C and D
-  (and "show 4 more"); stops.
+- [ ] **must** Shows four existing models, in a table or one line each: name, site, URL, licence
+  ("not shown" when the page does not show one, never a guess) and what is worth borrowing;
+  offers to use one as it is (and "show 4 more"), with concepts or without; stops.
 
 After the choice:
 - [ ] **must** The handoff gives the chosen model's page URL, its creator and its licence (as in
@@ -48,9 +48,12 @@ After the choice:
   test print.
 - [ ] **must** Asks nothing more: not the printer, the slicer or a dimension (the bed fit stays
   unchecked rather than a Phase 2 questionnaire).
-- [ ] **must** Builds nothing: no generator, no `out/build.json`, no `_verify` in a params.json;
-  runs none of `build.py`, `validate.py`, `fit.py`, `finalize.py` on a model.
-- [ ] **must** Downloads no model file: no `.stl`, `.3mf`, `.step` or `.zip` appears in the folder.
+- [ ] **must** Builds nothing after the choice: no generator, no `out/build.json`, no `_verify` in
+  `.3dprint/params.json`; runs none of `build.py`, `validate.py`, `fit.py`, `finalize.py` on a
+  model. The concepts the pick showed (0.9.0) are built before it, in `out/concepts/` only, and
+  are not graded here.
+- [ ] **must** Downloads no model file: no `.stl`, `.3mf`, `.step` or `.zip` appears in the folder
+  outside `out/concepts/` (the concepts' own builds).
 - [ ] **must** Generates no substitute and does not start modeling its own version (saying that a
   custom part is possible later is fine).
 - [ ] **must** Claims nothing as checked or verified about the model's mesh, size or fit; a size

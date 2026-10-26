@@ -126,7 +126,12 @@ links again is part of the run.
 3. Answer each message of the agent from the scenario's **scripted replies**, word for word:
    - Find the row that matches what the agent asks or shows (the rows are keyed by the stop:
      printer and slicer, the reference choice A–D, the concept pick, the base-shape look, the
-     Phase 4 decisions, the delivery, and the questions the scenario expects).
+     Phase 4 decisions, the delivery, and the questions the scenario expects). From 0.9.0 the
+     skill stops twice by default: the pick (the concepts, the references under them) and the
+     look (the part with its promises, its sizes and a test print offer when one is due). A
+     message that shows several rows' things gets each row's reply: the look that shows the use
+     list and the table gets the look's reply and the table's, and its test print offer the
+     offer's.
    - Several questions in one message: one reply each, in the order the agent asked them, joined
      with a space into one message.
    - A question no row covers: the **fallback reply**, word for word, once per message:

@@ -76,6 +76,19 @@ ask only for what is missing or conflicting and matters, and never re-ask an app
 given. New concepts and a new base-shape preview still get their review. Silence is not approval;
 only unattended mode (below) takes defaults.
 
+**Two stops by default.** A part to design stops twice before delivery, for everyone: **the
+pick** at the end of Phase 1 (concepts first, the references under them, and what cannot wait:
+an unknown printer or slicer, a size the part must fit that nobody measured), and **the look**
+at the end of Phase 3 (the part as built and checked, its promises, the sizes the user judges,
+and a test print offer when one is due). The use list, the parameter table and the test print
+question go into the look, not stops of their own. Stop in between only for something new: a
+check that fails, a confirmed value that changes, a promise newly not verified, a mechanism that
+would grow the object. A part with several bodies or a mechanism adds one stop, its shell
+first. When the user asks to go step by step, stop where each phase file says "Step by step".
+Every stop is one message with its question in bold, last; checks that passed take one line, and
+the words of the delivery message hold in every message (`references/phase-6-deliver.md`: no
+script names, check ids, JSON keys, nor the letters A to D).
+
 ## Phase 0 — Detect (silent)
 
 Read `references/phase-0-detect.md` now (required).
@@ -91,29 +104,31 @@ A user who already chose D with a specific model needs no engine: go to Phase 1'
   OpenSCAD, organic → Python; Fusion only for editable CAD. Say the cost in one line.
 - Note the reference search tier (A marketplace tool, B web search, C neither) and whether `.3dprint/printers.json` exists.
 
-## Phase 1 — Intent and references (STOP)
+## Phase 1 — Intent and references (STOP: the pick)
 
 Read `references/phase-1-references.md` now (required).
 
-Goal: restate the request, show four existing models with their licences, offer any still-open
-choice and **stop**. Reuse an existing choice; B or C is followed by a concepts stop.
+Goal: restate the request, find four existing models with their licences, build 2–3 concepts
+that borrow from them, and **stop** for the pick.
 
-- Four models in a table with name, site, URL, licence ("not shown" when the page does not show
-  it, never guessed) and what is worth borrowing.
-- The choice: **A** reference one, **B** mix several, **C** original, **D** use an existing model
-  as is (say so when one already does the job); offer "show 4 more". Then stop unless the user
-  already chose. D ends with the phase file's handoff and no modeling.
-- Concepts (after B or C): 2–3 low-detail variants, each an image and one line on what differs
-  and what it costs; then **stop** for the pick.
+- Four models, each with name, site, URL, licence ("not shown" when the page does not show it,
+  never guessed) and what is worth borrowing; in the pick they are one line each, under the
+  concepts. One that already does the job is said first ("this one already does it: use it as
+  it is?"), and choosing it is D: the phase file's handoff, no modeling.
+- Concepts: 2–3 low-detail variants, each an image and one line on what differs and what it
+  costs; the user answers with a number, "like model N", or "use it as it is". A, B, C and D are
+  your words, never shown. The user who asked for a new design or named a model gets that.
 - Each feature a concept describes (a cable notch, a latch, a wave) becomes a promise in
   `_verify.promises` at once; the pick keeps the chosen concept's.
 
-## Phase 2 — Printer, purpose, dimensions (STOP)
+## Phase 2 — Printer, purpose, dimensions (no stop of its own)
 
-Read `references/phase-2-printer-dimensions.md` now (required).
+Read `references/phase-2-printer-dimensions.md` now (required), before the pick: what it must ask
+goes into the pick.
 
 Goal: know the printer, the slicer, the purpose, the use list and every real-world dimension with
-its source; show the use list and the parameter table and **stop** for new or changed decisions.
+its source. The use list and the parameter table go into the look (Phase 3); stop here only for
+what cannot wait for it.
 
 - Read `.3dprint/printers.json`; ask only for an unknown printer or slicer: "Which printer do you
   have, and which program do you open print files in? It's fine if you don't know the program."
@@ -150,10 +165,12 @@ before anything is built on it.
   intent, never a measured box), `object` / `role` for grouped parts, `_assumptions`.
 - Every value a later check links to is a parameter, not a literal (the phase file).
 - Build with `build.py run` (`record` for Fusion or a live Blender), always with `--printer .3dprint/printers.json`;
-  preview with `preview.py`; report size, volume and verdicts with the image; **stop for the
-  user's look**, in every attended run; a fit-test piece comes after it, not instead of it.
-  Several bodies or a mechanism: show the outer shell alone first; a simple part may be shown
-  with its features.
+  preview with `preview.py`. A simple part (one body, no mechanism) is built with its features and
+  checked through Phase 4 first; several bodies or a mechanism show the outer shell alone first.
+- **Stop for the look**, in every attended run: the image, the promises in the user's words, the
+  sizes they judge, the checks in one line, and a test print offer when one is due (the phase
+  file); their reply confirms the use list and the table too. A fit-test piece is offered in it,
+  never instead of it.
 
 ## Phase 4 — Features and joints (review point)
 
@@ -169,14 +186,14 @@ Goal: every hole, fit, snap and mechanism checked with numbers before anything i
   --from-build` with a cited load. FAIL → redesign; WARN, or no proven reference → **print the
   mechanism first** (`build.py run --only ...`); a lid hinge always, a wall-built one as a coupon.
 - **Fit test first** when the mating shape is not known exactly: `fit_test.py` pieces in three
-  clearance steps; the user cannot test now → the middle step, recorded in `_assumptions`. Test
-  pieces and the final part use the same printer, filament and preset.
+  clearance steps, offered in the look; the user cannot test now → the middle step, recorded in
+  `_assumptions`. Test pieces and the final part use the same printer, filament and preset.
 - A size a hand calculation assumed (a lip height, a wall) is checked on the built STL with
   `measure.py --expect` and the report saved (`references/measure.md`).
 - Leave Phase 4 only when `finalize.py` names no error (`promise_errors` empty, `use` not
-  `error`), and decide each promise not verified with the user, now and whenever finalize first
-  reports one later (the phase file, "Leaving Phase 4"): evidence, assumed, a prototype or
-  excluded. A `failed` promise is never excluded or accepted away: go back to the phase of the
+  `error`), and decide each promise not verified with the user (the phase file, "Leaving Phase
+  4"): evidence, assumed, a prototype or excluded. For a simple part that question is part of the
+  look; later, stop for it only when finalize first reports a promise the look did not settle. A `failed` promise is never excluded or accepted away: go back to the phase of the
   evidence that failed (G7).
 
 ## Phase 5 — Gate and process tuning (review point)

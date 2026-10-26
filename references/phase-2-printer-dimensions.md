@@ -1,6 +1,10 @@
-# Phase 2 — Printer, purpose, dimensions (STOP)
+# Phase 2 — Printer, purpose, dimensions (no stop of its own)
 
-Read this on entering Phase 2 (SKILL.md names the rules that hold at all times).
+Read this on entering Phase 2 (SKILL.md names the rules that hold at all times), and before the
+pick: a question this phase must ask (an unknown printer or slicer, a size the part must fit
+that no source gives, a measurement the user can make) goes into the pick, so it costs no stop
+of its own. Everything else takes its default, recorded in `_assumptions`, and the look (Phase 3)
+shows it to the user.
 
 ## 1. Printer
 
@@ -20,8 +24,8 @@ Per printer: `process` (`fdm`), `slicer` (`name`, and for Bambu Studio `template
 exactly one printer it may be omitted, with several pass `--printer-id`. A bed without
 `height` leaves D2 UNVERIFIED. Answers come as SKILL.md says (request, conversation, saved
 settings); write the file from confirmed answers without asking again because it was missing.
-When both answers are missing, ask in plain words: "Which printer do you have, and which program
-do you open print files in? It's fine if you don't know the program." The printer sets the bed
+When both answers are missing, ask in plain words, in the pick: "Which printer do you have, and
+which program do you open print files in? It's fine if you don't know the program." The printer sets the bed
 and nozzles; the program (the slicer) sets the output file (Phase 6) and who compensates holes.
 One brand can go with several slicers: if only the slicer is unknown, ask only that, never infer
 it from the brand. Many users do not know the word "slicer"; never make them feel they should.
@@ -83,11 +87,12 @@ did not say.
 
 Then make the **use list** with the user: what they will do with the part, under which
 conditions, and what counts as success. Start from the request and the chosen concept's
-promises, propose the list in plain words and let the user correct it; never ask them to write
-it, or make them feel they should know this file's words. For a phone stand: "Here is what the
-stand should let you do: stand the phone in its case upright; plug in a right-angle charging
-cable while it stands, the cable leaving at the back. Anything to add or change?" Ask only about
-the conditions that change the design (a case on or off, upright or sideways, how often it opens).
+promises, propose the list in plain words in the look, where the user corrects it with the shape in front
+of them; never ask them to write it, or make them feel they should know this file's words. For a
+phone stand: "Here is what the stand should let you do: stand the phone in its case upright; plug
+in a right-angle charging cable while it stands, the cable leaving at the back." A condition that
+changes the design (a case on or off, upright or sideways, how often it opens) takes the likely
+one, said in the look; ask it in the pick only when no choice is safe to build on.
 
 Each thing they will do is a `use` promise in `_verify.promises` with `conditions` and
 `success`; complete the concept's promises the same way (`references/phase-1-references.md`,
@@ -182,7 +187,7 @@ A promise rests on the dims its evidence names (a proxy joint names the dims it 
 `assumed` at delivery, never verified.
 
 **Ask the user to measure** what the part must fit whenever they have the object, in plain
-words: "Could you measure the plug with a ruler or calipers? The width and thickness of the
+words, in the pick: "Could you measure the plug with a ruler or calipers? The width and thickness of the
 plug head, and how far it sticks out." When they cannot (no tool, the object is elsewhere),
 take the best source you have as `assumed`, offer a test print of that fit (`fit_test.py`
 pieces, a few grams, Phase 4), and say it in one line: "I assumed the plug head is 13 × 8 mm,
@@ -211,19 +216,27 @@ the skill delivers carries its settings, so a generated template means holes `"m
 elephant foot `"slicer"` (`references/bambu-process.md`, "Constraints"); STLs sliced with a
 preset nobody has seen stay `"unknown"`.
 
-## 5. Show the use list and the parameter table, and stop
+## 5. The use list and the parameter table go into the look
 
-First the use list: each promise in one line in the user's words, with what counts as success
-and, when it rests on a size nobody measured, that size ("rests on the plug size, assumed").
-Then the table:
+Nothing stops here: the look (Phase 3) shows the use list and the sizes with the part as built,
+and the user's reply to it confirms them. Have them ready:
+
+- The use list: each promise in one line in the user's words, with what counts as success and,
+  when it rests on a size nobody measured, that size ("rests on the plug size, assumed").
+- The sizes the user judges, three to six lines: what they measured or gave, the clearance, the
+  depth or height that matters, the overall size and the bed margin (usable area minus
+  footprint; negative → say so in the pick instead, before anything is built). Each with its
+  source in plain words (measured by you, from the spec with its link, assumed); the material and
+  the print setting too, marked assumed when the user did not say.
+- The full parameter table, last in the look under a "details" line:
 
 | Parameter | Value | Source |
 |---|---|---|
 
-The source of a size a promise rests on is its dims source in plain words (measured by you,
-from the spec with its link, assumed). The material and the print setting are rows too, marked
-assumed when the user did not say. Include the bed margin (usable area minus footprint).
-If it is negative, say so now.
-Reuse unchanged dimensions the user already confirmed; stop for new or changed design choices
-and unresolved dimensions that matter. A new derived dimension or assumption is not approved
-merely because some other dimensions were supplied.
+The source of a size a promise rests on is its dims source in plain words. Reuse unchanged
+dimensions the user already confirmed. A new derived dimension or assumption is not approved
+merely because some other dimensions were supplied: it is shown in the look, where the reply
+decides it.
+
+**Step by step.** When the user asks to go step by step, show the use list and the table now and
+stop for new or changed design choices and unresolved dimensions that matter.

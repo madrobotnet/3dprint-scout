@@ -87,13 +87,14 @@ Changing `object`, `role`, group membership or a free part's `clearance` require
 report, even if no triangle changed. Since 0.6.1 the report's `assembly_sha256` records these
 validation inputs separately from the geometry hash.
 
-## Build, preview, stop
+## Build, check, the look
 
 This phase: outer shell, walls, floor. For a part with several bodies or a mechanism, the user
-looks at the shell alone first, before holes, fillets and joints: a generator rebuilt from
-scratch may already build them, so give it a parameter that leaves them off for this look. A
-simple part (one body, no mechanism) may be shown as built, features included. Build and
-validate:
+looks at the shell alone first, before holes, fillets and joints (one more stop): a generator
+rebuilt from scratch may already build them, so give it a parameter that leaves them off for
+this look. A simple part (one body, no mechanism) is built with its features and checked through
+Phase 4 (its fits, measurements and finalize) before the look, so the user judges the part they
+will print, once. Build and validate:
 
 ```bash
 mkdir -p out && python3 "$SKILL_DIR/scripts/build.py" run model.scad --params .3dprint/params.json \
@@ -118,10 +119,33 @@ Render the built STLs with `preview.py`
 yourself first, **one view at a time**, never the grid as one picture: would someone name the
 object from this view; silhouette, main volumes, thickness, edge radii. A view the references
 do not show stays unverified (say so; do not call it right), and passing sizes, mesh checks or
-a triangle count say nothing about the shape. Then report size, volume and verdicts in two or
-three lines with the image, and **stop for the user's look**, in every attended run: a
-fit-test piece comes after it, not instead of it. Unattended: SKILL.md's rule; still make and
+a triangle count say nothing about the shape. Then **stop for the user's look**, in every
+attended run, one message in this order:
+
+1. The image (and a view of the part with what it holds, when a proxy shows it better).
+2. The promises, one line each in the user's words: what the part lets them do, and what showed
+   it so far ("the remote box sits in its pocket with 1 mm all round").
+3. The sizes they judge, three to six lines (Phase 2, step 5), and any value that changed since
+   the user gave or confirmed it, with its old and new value and why.
+4. The checks in one line when they passed ("size, bed, mesh and supports all passed"); a
+   problem gets its own line.
+5. When one is due, the test print offer, as the Phase 4 question (`references/phase-4-features-joints.md`,
+   "What counts as agreement"): a use done by hand (`by_hand`), a fit whose mating shape is not
+   known exactly ("Fit test first"), a mechanism to print first. Name the promise, what goes
+   unconfirmed without the print and what that can cost, and the choices: the test piece first,
+   or the part now with that unconfirmed (a prototype). A size the user could still measure is
+   asked here the same way.
+6. One question in bold, last: "Does it look right, and shall I go on?" with the offer's choice
+   when there is one.
+7. A "details" line and the full parameter table under it.
+
+The reply confirms the shape, the use list and the sizes, and answers the offer. A fit-test piece
+is offered in this message, never instead of it. Unattended: SKILL.md's rule; still make and
 inspect the preview, and never call an unreviewed shape approved.
+
+**Step by step.** When the user asks to go step by step, report size, volume and verdicts in two
+or three lines with the image after the base shape alone and stop; Phase 4 then asks its own
+questions.
 
 **Record the user's look.** When the user looks at the image and says a `look` promise (Phase
 1) is right or wrong, add it to `_verify.seen`: the image, the `image_sha256` from its sidecar
