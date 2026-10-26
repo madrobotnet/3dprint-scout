@@ -317,7 +317,8 @@ def bpy_info(python: str | None = None) -> dict | None:
             failures.append(f"could not run bpy probe in {exe}: {exc}")
             continue
         if r.returncode != 0:
-            detail = r.stderr.strip()[-1000:]
+            tail = [ln.strip() for ln in r.stderr.splitlines() if ln.strip()]
+            detail = tail[-1][:300] if tail else ""                  # the error itself, not the traceback
             failures.append(f"import bpy exited with status {r.returncode} in {exe}"
                             + (f": {detail}" if detail else ""))
             continue
@@ -494,6 +495,31 @@ def bpy_install_hint(status: dict, python: str | None = None) -> dict | None:
     return hint
 
 
+PYTHON_LIBS = ("manifold3d", "numpy", "rtree", "matplotlib")   # what Python modeling and the checks use
+
+
+def python_libs_hint(py: dict) -> dict | None:
+    """detect's suggestion when this interpreter lacks a library the Python engine or a check uses
+    (manifold3d: modeling, fits, object checks; numpy: previews, measuring; rtree: wall thickness;
+    matplotlib: text). The exact pip command for the missing ones, about 190 MB for all four;
+    nothing is installed here, and on the user's own machine the agent asks first."""
+    missing = [m for m in PYTHON_LIBS if not py.get(m)]
+    if not missing:
+        return None
+    facts = python_facts(sys.executable)
+    argv = [sys.executable, "-m", "pip", "install", *missing]
+    managed = bool(facts and facts.get("marker") and not facts.get("venv"))
+    if managed:
+        argv.append("--break-system-packages")
+    note = ("Python modeling and some checks need these libraries; what is missing is reported unverified, never "
+            "faked. In a disposable sandbox run this command (all four are about 190 MB); on the user's own machine "
+            "ask first, or offer a venv. Nothing was installed by detect.")
+    if managed:
+        note += " --break-system-packages because this Python is externally managed (PEP 668); a venv avoids it."
+    return {"for": "python", "python": sys.executable, "missing": missing, "command": _command_line(argv),
+            "note": note}
+
+
 def cmd_detect(args) -> dict:
     exe = find_openscad()
     py = python_info()
@@ -512,9 +538,14 @@ def cmd_detect(args) -> dict:
     if hint:
         notes.append(f"blender: not available; suggest[] has the pip command for {hint['python']} (a sandbox only; "
                      "ask first on the user's machine)")
+    libs = python_libs_hint(py)
+    if libs:
+        notes.append(f"python: {', '.join(libs['missing'])} missing; suggest[] has the pip command (a sandbox only; "
+                     "ask first on the user's machine)")
     return {"schema": SCHEMA, "ran": True, "engines": engines, "available": order,
             "libraries": py, "fusion": "detect through the host's MCP tools, not here",
-            "blender": blender, "suggest": [hint] if hint else [], "notes": notes, "warnings": warnings, "errors": []}
+            "blender": blender, "suggest": [h for h in (hint, libs) if h], "notes": notes, "warnings": warnings,
+            "errors": []}
 
 
 # --------------------------------------------------------------------------- #

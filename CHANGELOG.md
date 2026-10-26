@@ -1,5 +1,18 @@
 # Changelog
 
+## Unreleased
+
+From a clean-install check (a new virtual environment, the skills CLI, the snap-box example).
+
+- **detect suggests the Python libraries**: when manifold3d, numpy, rtree or matplotlib is
+  missing, `suggest` gains a `for: "python"` entry with the pip command for the interpreter
+  detect ran in, only for the missing ones (`--break-system-packages` where that Python is
+  externally managed and not a venv), and the same rule: run it in a disposable sandbox, ask
+  first on the user's machine. The bpy entry is unchanged.
+- **Shorter detect notes**: a failed `import bpy` probe keeps the error's last line, not the
+  whole traceback.
+- **README**: the install section gives the one pip command for the Python engine and every check.
+
 ## 0.10.0 — 2026-10-26
 
 The evidence model, from the X2D exhaust adapter field test: the user printed a piece cut from
