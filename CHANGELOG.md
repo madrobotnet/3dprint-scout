@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.10.1 — 2026-10-27
 
 From a clean-install check (a new virtual environment, the skills CLI, the snap-box example).
 
