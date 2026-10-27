@@ -117,6 +117,14 @@ wherever your agent reads skills from.
 https://github.com/madrobotnet/3dprint-scout."* An agent that can run commands can usually set
 it up by itself.
 
+**Python libraries.** Before it starts, the agent checks what is installed and shows the command
+for anything missing. On your own computer it asks before installing. To set up the Python
+engine and every check at once (about 190 MB):
+
+```bash
+python3 -m pip install manifold3d numpy rtree matplotlib
+```
+
 Then just ask, in any language: *"I want a wall hook for a 6 mm dowel"*, *"make a case for this
 PCB"*, *"X2D 프린터 문 손잡이를 만들고 싶어"*.
 

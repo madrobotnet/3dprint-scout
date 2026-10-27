@@ -944,12 +944,17 @@ class BpyInstallHint(Base):
         self.assertEqual(code, 0, out["errors"])
         return out, probe
 
+    @staticmethod
+    def blender_hint(out):
+        [hint] = [h for h in out["suggest"] if h["for"] == "blender"]
+        return hint
+
     def test_no_blender_gives_the_pip_command_for_the_interpreter_detect_checked(self):
         facts = {"version": [3, 13, 1], "venv": False, "marker": True, "pip": True}
         out, probe = self.detect(facts)
         self.assertNotIn("blender", out["available"])
-        [hint] = out["suggest"]
-        probe.assert_called_once_with(sys.executable)
+        [hint] = [h for h in out["suggest"] if h["for"] == "blender"]
+        probe.assert_any_call(sys.executable)
         self.assertEqual((hint["for"], hint["python"], hint["python_version"], hint["externally_managed"]),
                          ("blender", sys.executable, "3.13.1", True))
         want = [sys.executable, "-m", "pip", "install", "bpy>=4.5", "--break-system-packages"]
@@ -963,25 +968,25 @@ class BpyInstallHint(Base):
 
     def test_the_command_follows_the_interpreter(self):
         venv = {"version": [3, 11, 9], "venv": True, "marker": True, "pip": True}     # a venv ignores the marker
-        hint = self.detect(venv)[0]["suggest"][0]
+        hint = self.blender_hint(self.detect(venv)[0])
         self.assertNotIn("--break-system-packages", hint["command"])
         self.assertFalse(hint["externally_managed"])
         self.assertIn("bpy 4.5 to 5.0 for Python 3.11", hint["note"])
         plain = {"version": [3, 12, 3], "venv": False, "marker": False, "pip": False}    # no wheel, no pip: said
-        hint = self.detect(plain)[0]["suggest"][0]
+        hint = self.blender_hint(self.detect(plain)[0])
         self.assertNotIn("--break-system-packages", hint["command"])
         self.assertIn("No bpy 4.5+ wheel exists for Python 3.12", hint["note"])
         self.assertIn("3.11 (bpy 4.5 to 5.0) or 3.13 (bpy 5.1 and newer)", hint["note"])
         self.assertIn("no pip module", hint["note"])
-        hint = self.detect(None)[0]["suggest"][0]                                # could not run it
+        hint = self.blender_hint(self.detect(None)[0])                           # could not run it
         self.assertIsNone(hint["python_version"])
         self.assertIn("Could not run", hint["note"])
         self.assertTrue(hint["command"].startswith(build._command_line([sys.executable])))
         # --blender-python: that interpreter is the one named.
         failed = {"error": "import bpy exited with status 1 in /opt/py/bin/python3", "python": "/opt/py/bin/python3"}
         out, probe = self.detect(venv, failed, None, "--blender-python", "/opt/py/bin/python3")
-        probe.assert_called_once_with("/opt/py/bin/python3")
-        self.assertTrue(out["suggest"][0]["command"].startswith("/opt/py/bin/python3 -m pip install"))
+        probe.assert_any_call("/opt/py/bin/python3")
+        self.assertTrue(self.blender_hint(out)["command"].startswith("/opt/py/bin/python3 -m pip install"))
 
     def test_nothing_to_suggest_when_blender_can_run_or_a_binary_is_there(self):
         facts = {"version": [3, 13, 1], "venv": False, "marker": False, "pip": True}
@@ -994,6 +999,26 @@ class BpyInstallHint(Base):
         binary = {"path": "/x/blender", "version": "4.2.0"}                        # an old Blender: upgrade it, not bpy
         out, probe = self.detect(facts, None, binary)
         self.assertEqual(out["suggest"], [])
+
+    def test_missing_python_libraries_get_their_pip_command(self):
+        facts = {"version": [3, 13, 1], "venv": True, "marker": False, "pip": True}
+        good = {"version": "5.2.2", "version_tuple": (5, 2, 2), "python": sys.executable}
+        bare = {"python": "3.13.1", "manifold3d": False, "numpy": True, "trimesh": False, "rtree": False,
+                "pyrender": False, "matplotlib": True}
+        with mock.patch.object(build, "python_info", return_value=bare):
+            out, probe = self.detect(facts, good)
+        [libs] = out["suggest"]
+        self.assertEqual((libs["for"], libs["missing"]), ("python", ["manifold3d", "rtree"]))
+        self.assertEqual(libs["command"], build._command_line([sys.executable, "-m", "pip", "install", "manifold3d", "rtree"]))
+        for words in ("disposable sandbox", "ask first", "Nothing was installed by detect"):
+            self.assertIn(words, libs["note"])
+        self.assertTrue(any(n.startswith("python: manifold3d, rtree missing") for n in out["notes"]), out["notes"])
+        self.assertNotIn("python", out["available"])
+        managed = {"version": [3, 13, 1], "venv": False, "marker": True, "pip": True}       # PEP 668, outside a venv
+        with mock.patch.object(build, "python_info", return_value=bare):
+            [libs] = self.detect(managed, good)[0]["suggest"]
+        self.assertTrue(libs["command"].endswith("manifold3d rtree --break-system-packages"), libs["command"])
+        self.assertIn("PEP 668", libs["note"])
 
     def test_python_facts_of_this_and_another_interpreter(self):
         here = build.python_facts(sys.executable)

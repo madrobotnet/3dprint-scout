@@ -108,6 +108,14 @@ npx skills add madrobotnet/3dprint-scout
 **귀찮으면 에이전트에게 맡기세요.** *"https://github.com/madrobotnet/3dprint-scout 에 있는 스킬을
 설치해 줘"*라고 말하면 돼요. 명령을 실행할 수 있는 에이전트라면 대개 알아서 설정해요.
 
+**Python 라이브러리.** 에이전트는 시작하기 전에 설치된 것을 확인하고 빠진 것이 있으면 설치 명령을
+보여 줘요. 내 컴퓨터에서는 설치하기 전에 먼저 물어봐요. Python 엔진과 검사 전부를 한 번에
+갖추려면 아래 명령을 실행하세요(약 190MB).
+
+```bash
+python3 -m pip install manifold3d numpy rtree matplotlib
+```
+
 그다음엔 어떤 언어로든 그냥 요청하면 돼요. 예: *"6mm 봉에 거는 벽걸이 고리 만들어줘"*, *"이 기판
 케이스 만들어줘"*, *"X2D 프린터 문 손잡이를 만들고 싶어"*.
 
