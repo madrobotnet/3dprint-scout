@@ -115,7 +115,8 @@ class PureHelpers(unittest.TestCase):
                                         capture_output=True, encoding="utf-8", env=env, timeout=30)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 deps = json.loads(result.stdout)
-                expected = {os.path.join(project, name) for name in files if name != "unused.py"}
+                expected = {os.path.normpath(os.path.join(project, name))
+                            for name in files if name != "unused.py"}
                 self.assertEqual(set(deps), expected | {PATH})
                 before = validate.hash_inputs(deps, {})
                 with open(os.path.join(cad, "sizes.py"), "w", encoding="utf-8") as f:
