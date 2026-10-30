@@ -87,6 +87,46 @@ class PureHelpers(unittest.TestCase):
     def setUpClass(cls):
         cls.bb = load()
 
+    def test_deps_include_local_namespace_and_package_imports(self):
+        for package in (False, True):
+            with self.subTest(package=package), tempfile.TemporaryDirectory() as folder:
+                project = os.path.join(folder, "project")
+                cad = os.path.join(project, "cad")
+                external = os.path.join(folder, "project_external")
+                os.makedirs(cad)
+                os.makedirs(external)
+                files = {
+                    "gen.py": "import blender_builder as bb\nfrom cad.build import SIZE\nimport outside\n"
+                              "import json\nprint(json.dumps(bb._deps()))\n",
+                    "cad/build.py": "from .sizes import SIZE\n",
+                    "cad/sizes.py": "SIZE = 10\n",
+                    "unused.py": "raise RuntimeError('not imported')\n",
+                }
+                if package:
+                    files["cad/__init__.py"] = "PACKAGE = True\n"
+                for name, text in files.items():
+                    with open(os.path.join(project, name), "w", encoding="utf-8") as f:
+                        f.write(text)
+                with open(os.path.join(external, "outside.py"), "w", encoding="utf-8") as f:
+                    f.write("SIZE = 20\n")
+                env = dict(os.environ, PYTHONPATH=os.pathsep.join((ENGINES, external)),
+                           PYTHONDONTWRITEBYTECODE="1")
+                result = subprocess.run([sys.executable, os.path.join(project, "gen.py")],
+                                        capture_output=True, encoding="utf-8", env=env, timeout=30)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                deps = json.loads(result.stdout)
+                expected = {os.path.join(project, name) for name in files if name != "unused.py"}
+                self.assertEqual(set(deps), expected | {PATH})
+                before = validate.hash_inputs(deps, {})
+                with open(os.path.join(cad, "sizes.py"), "w", encoding="utf-8") as f:
+                    f.write("SIZE = 11\n")
+                self.assertNotEqual(validate.hash_inputs(deps, {}), before)
+                if package:
+                    before = validate.hash_inputs(deps, {})
+                    with open(os.path.join(cad, "__init__.py"), "w", encoding="utf-8") as f:
+                        f.write("PACKAGE = False\n")
+                    self.assertNotEqual(validate.hash_inputs(deps, {}), before)
+
     def test_cli_args_take_what_follows_the_double_dash(self):
         ns = self.bb.cli_args(["blender", "--background", "--python", "gen.py", "--", "--params", "p.json",
                                "--out", "o", "--only", "a,b", "--blend", "x.blend"])
