@@ -476,13 +476,69 @@ def summary(parts, **extra):
     return "@@3DPS " + json.dumps(doc, sort_keys=True)
 
 
+_MANIFOLD_AVAILABLE = None
+
+
+def _probe_manifold():
+    """Check the compiled backend, without touching the user's scene or window."""
+    sc = bpy.data.scenes.new("3dprint-scout boolean capability")
+    objects = []
+    meshes = []
+    evaluated = None
+    try:
+        for name, size in (("body", (2, 2, 2)), ("tool", (1, 1, 3))):
+            bm = bmesh.new()
+            bmesh.ops.create_cube(bm, size=1)
+            bmesh.ops.scale(bm, vec=size, verts=bm.verts)
+            me = bpy.data.meshes.new(name)
+            bm.to_mesh(me)
+            bm.free()
+            meshes.append(me)
+            obj = bpy.data.objects.new(name, me)
+            sc.collection.objects.link(obj)
+            objects.append(obj)
+        mod = objects[0].modifiers.new("capability", "BOOLEAN")
+        mod.operation = "DIFFERENCE"
+        mod.solver = "MANIFOLD"
+        mod.object = objects[1]
+        layer = sc.view_layers[0]
+        layer.update()
+        graph = layer.depsgraph
+        evaluated = bpy.data.meshes.new_from_object(objects[0].evaluated_get(graph), depsgraph=graph)
+        bm = bmesh.new()
+        bm.from_mesh(evaluated)
+        volume = abs(bm.calc_volume(signed=True))
+        bm.free()
+        return abs(volume - 6.0) < 1e-5
+    finally:
+        if evaluated is not None:
+            bpy.data.meshes.remove(evaluated)
+        for obj in objects:
+            bpy.data.objects.remove(obj, do_unlink=True)
+        for me in meshes:
+            bpy.data.meshes.remove(me)
+        bpy.data.scenes.remove(sc)
+
+
 def boolean_solver(version=None):
-    """'MANIFOLD' from Blender 4.5 on (the floor of this module), 'EXACT' before: for the
-    record, and for an explicit `solver=` override."""
+    """Prefer Manifold when the running binary actually evaluates its booleans.
+
+    An explicit version is a nominal capability query. Some binaries expose the
+    solver enum but leave the target unchanged; their safe default is Exact.
+    """
+    global _MANIFOLD_AVAILABLE
     if version is None:
         if bpy is None:
             return "MANIFOLD"
         version = bpy.app.version
+        if tuple(version[:2]) >= MIN_VERSION:
+            if _MANIFOLD_AVAILABLE is None:
+                _MANIFOLD_AVAILABLE = _probe_manifold()
+            if not _MANIFOLD_AVAILABLE:
+                note = "Manifold backend failed the volume probe; using EXACT for this Blender binary"
+                if note not in LOG:
+                    LOG.append(note)
+                return "EXACT"
     return "MANIFOLD" if tuple(version[:2]) >= MIN_VERSION else "EXACT"
 
 
