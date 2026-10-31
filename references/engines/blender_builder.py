@@ -3398,15 +3398,17 @@ def _generator_stem():
 def _deps():
     """Python files the build imported from the generator's folder, from here or from the
     skill's scripts folder (parts.py through from_manifold), hashed into the manifest by
-    build.py, plus this file."""
+    build.py, plus this file. Imported submodules and package initializers under those
+    folders count too; modules installed elsewhere do not."""
     main = sys.modules.get("__main__")
     roots = {os.path.normcase(os.path.dirname(os.path.abspath(__file__))), os.path.normcase(SKILL_SCRIPTS)}
     if getattr(main, "__file__", None):
         roots.add(os.path.normcase(os.path.dirname(os.path.abspath(main.__file__))))
+    roots = tuple(r + os.sep for r in roots)
     deps = {os.path.abspath(__file__), *_IMPORTED}
     for m in list(sys.modules.values()):
         f = getattr(m, "__file__", None)
-        if f and f.endswith(".py") and os.path.normcase(os.path.dirname(os.path.abspath(f))) in roots:
+        if f and f.endswith(".py") and os.path.normcase(os.path.abspath(f)).startswith(roots):
             deps.add(os.path.abspath(f))
     return sorted(deps)
 
