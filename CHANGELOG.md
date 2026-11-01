@@ -1,9 +1,27 @@
 # Changelog
 
-## 0.10.1 — 2026-10-27
+## 0.10.1 — 2026-11-01
 
-From a clean-install check (a new virtual environment, the skills CLI, the snap-box example).
+Fixes from a clean-install check (a new virtual environment, the skills CLI, the snap-box
+example) and from Blender on another machine.
 
+- **Blender: a Manifold solver that does nothing is caught** (#46). Some Blender binaries offer
+  the Manifold boolean solver and leave the mesh as it was: on Linux arm64, Blender 5.0.1 kept
+  all 8000 mm³ of a 20 mm cube after a 3 mm-radius through-hole was subtracted (Exact gave
+  7435.42 mm³). Holes and unions went missing while the mesh stayed closed, so the checks
+  passed. The builder now subtracts one known volume in a temporary scene first, uses Manifold
+  only when the result is right, and otherwise uses Exact and says so in the build log. The
+  user's scene is not touched; an explicit `solver=` still wins.
+- **Blender: package imports are sources** (#45). A generator that imports its geometry from a
+  package beside it (`from cad.build import generate`) listed only itself and the helper as
+  sources, so a change to `cad/build.py` left the build fresh and stayed out of the bundle.
+  Submodules and package `__init__.py` files below the generator's folder now count.
+- **A project's own virtual environment is not a source.** With a `.venv` or a conda env inside
+  the project folder, the Python engine listed every library it imported from there as a
+  source (numpy: 92 files), and with the change above the Blender engine did too (bpy and
+  numpy: 259 files); a bundle then refused the build or would copy them. Files in a
+  site-packages or dist-packages folder below the project, or in the running Python's own
+  prefix, are left out, in both engines (`build.installed_file`).
 - **detect suggests the Python libraries**: when manifold3d, numpy, rtree or matplotlib is
   missing, `suggest` gains a `for: "python"` entry with the pip command for the interpreter
   detect ran in, only for the missing ones (`--break-system-packages` where that Python is
@@ -12,6 +30,10 @@ From a clean-install check (a new virtual environment, the skills CLI, the snap-
 - **Shorter detect notes**: a failed `import bpy` probe keeps the error's last line, not the
   whole traceback.
 - **README**: the install section gives the one pip command for the Python engine and every check.
+- **Upgrading**: a Blender project reads its build as stale once (the helper module changed):
+  build again. With a Manifold solver that works its STLs come out the same (checked with the
+  Blender coaster example on bpy 4.5.14). A Python project changes only if it keeps a virtual
+  environment inside its folder: its next build lists fewer sources.
 
 ## 0.10.0 — 2026-10-26
 

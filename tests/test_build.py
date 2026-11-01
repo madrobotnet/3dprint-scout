@@ -65,6 +65,23 @@ def run(*argv):
     return code, json.loads(buf.getvalue())
 
 
+def make_venv(folder):
+    """A virtual environment inside `folder` (as a user's project keeps its own .venv), seeing the
+    system's packages: (its python, its site-packages). With a package in each place a library
+    lands: site-packages, and the environment's own prefix."""
+    import venv
+    env = os.path.join(folder, ".venv")
+    venv.EnvBuilder(system_site_packages=True, with_pip=False).create(env)
+    python = os.path.join(env, "Scripts", "python.exe") if os.name == "nt" else os.path.join(env, "bin", "python")
+    purelib = subprocess.run([python, "-c", "import sysconfig; print(sysconfig.get_paths()['purelib'])"],
+                             capture_output=True, encoding="utf-8", check=True).stdout.strip()
+    os.makedirs(os.path.join(purelib, "vendored"))
+    with open(os.path.join(purelib, "vendored", "__init__.py"), "w", encoding="utf-8") as f:
+        f.write("SIZE = 10\n")
+    with open(os.path.join(env, "prefix_mod.py"), "w", encoding="utf-8") as f:
+        f.write("SIZE = 10\n")
+    return python, purelib
+
 class Base(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -255,6 +272,21 @@ class PythonEngine(Base):
         code, out = run("run", src, "--out", self.out, "--no-wall-check", "--no-3mf")
         self.assertEqual(code, 0, out.get("errors"))
         self.assertEqual(sorted(os.path.basename(s) for s in out["sources"]), ["gen2.py", "parts.py", "strength.py"])
+
+    def test_a_venv_inside_the_project_is_not_a_source(self):
+        """A project's own .venv is below the generator's folder; what is installed there (numpy,
+        manifold3d's helpers) is not the project's source and stays out of the manifest."""
+        python, _ = make_venv(self.d)
+        src = self.write("gen.py", "import sys\nsys.path.insert(0, sys.prefix)\nimport vendored, prefix_mod, lib\n"
+                                   "import manifold3d as m3d\ndef build(p):\n"
+                                   "    return {'gen': m3d.Manifold.cube([vendored.SIZE] * 3)}\n")
+        self.write("lib.py", "SIZE = 10\n")
+        r = subprocess.run([python, os.path.join(HERE, "..", "scripts", "build.py"), "run", src, "--out", self.out,
+                            "--no-wall-check", "--no-3mf"], capture_output=True, encoding="utf-8", timeout=300,
+                           env=dict(os.environ, PYTHONDONTWRITEBYTECODE="1"))
+        out = json.loads(r.stdout)
+        self.assertEqual(r.returncode, 0, out.get("errors"))
+        self.assertEqual(sorted(os.path.basename(s) for s in out["sources"]), ["gen.py", "lib.py"])
 
     def test_generator_warnings_reach_the_report(self):
         """A UserWarning raised while the generator runs (parts.text switching fonts) is a line
