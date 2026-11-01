@@ -3399,7 +3399,8 @@ def _deps():
     """Python files the build imported from the generator's folder, from here or from the
     skill's scripts folder (parts.py through from_manifold), hashed into the manifest by
     build.py, plus this file. Imported submodules and package initializers under those
-    folders count too; modules installed elsewhere do not."""
+    folders count too; modules installed elsewhere do not, nor a library installed below one of
+    those folders (a project's own .venv holding bpy and numpy, a conda env)."""
     main = sys.modules.get("__main__")
     roots = {os.path.normcase(os.path.dirname(os.path.abspath(__file__))), os.path.normcase(SKILL_SCRIPTS)}
     if getattr(main, "__file__", None):
@@ -3408,9 +3409,24 @@ def _deps():
     deps = {os.path.abspath(__file__), *_IMPORTED}
     for m in list(sys.modules.values()):
         f = getattr(m, "__file__", None)
-        if f and f.endswith(".py") and os.path.normcase(os.path.abspath(f)).startswith(roots):
+        if f and f.endswith(".py") and os.path.normcase(os.path.abspath(f)).startswith(roots) \
+                and not _installed_file(os.path.normcase(os.path.abspath(f)), roots):
             deps.add(os.path.abspath(f))
     return sorted(deps)
+
+
+def _installed_file(path, roots):
+    """build.py's installed_file (this module runs inside Blender, without build.py): inside a
+    site-packages or dist-packages folder below the root it was found under, or inside the
+    running Python's prefix when the project itself is not in there."""
+    for root in roots:
+        if path.startswith(root):
+            if {"site-packages", "dist-packages"} & set(path[len(root):].split(os.sep)[:-1]):
+                return True
+    prefixes = {os.path.normcase(os.path.abspath(p)) + os.sep
+                for p in (sys.prefix, sys.exec_prefix, sys.base_prefix, sys.base_exec_prefix) if p}
+    under = [r for r in roots if path.startswith(r)]
+    return any(path.startswith(pre) and not any(r.startswith(pre) for r in under) for pre in prefixes)
 
 
 def run_mode():
