@@ -128,6 +128,23 @@ class PureHelpers(unittest.TestCase):
                         f.write("PACKAGE = False\n")
                     self.assertNotEqual(validate.hash_inputs(deps, {}), before)
 
+    def test_deps_leave_out_a_venv_inside_the_project(self):
+        """A project's own .venv (bpy and numpy installed there) is below the generator's folder,
+        but its modules are libraries, not sources: they would fill the manifest and the bundle."""
+        with tempfile.TemporaryDirectory() as folder:
+            project = os.path.join(folder, "project")
+            os.makedirs(project)
+            python, _ = make_venv(project)
+            gen = os.path.join(project, "gen.py")
+            with open(gen, "w", encoding="utf-8") as f:
+                f.write("import sys\nsys.path.insert(0, sys.prefix)\nimport blender_builder as bb\n"
+                        "import vendored, prefix_mod, json\nprint(json.dumps(bb._deps()))\n")
+            env = dict(os.environ, PYTHONPATH=ENGINES, PYTHONDONTWRITEBYTECODE="1")
+            result = subprocess.run([python, gen], capture_output=True, encoding="utf-8", env=env, timeout=60)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual({os.path.normcase(d) for d in json.loads(result.stdout)},
+                             {os.path.normcase(os.path.normpath(gen)), os.path.normcase(PATH)})
+
     def test_cli_args_take_what_follows_the_double_dash(self):
         ns = self.bb.cli_args(["blender", "--background", "--python", "gen.py", "--", "--params", "p.json",
                                "--out", "o", "--only", "a,b", "--blend", "x.blend"])
@@ -357,6 +374,23 @@ class PureHelpers(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             bb.box([1, 1, 1])
 
+
+def make_venv(folder):
+    """A virtual environment inside `folder` (as a user's project keeps its own .venv), seeing the
+    system's packages: (its python, its site-packages). With a package in each place a library
+    lands: site-packages, and the environment's own prefix."""
+    import venv
+    env = os.path.join(folder, ".venv")
+    venv.EnvBuilder(system_site_packages=True, with_pip=False).create(env)
+    python = os.path.join(env, "Scripts", "python.exe") if os.name == "nt" else os.path.join(env, "bin", "python")
+    purelib = subprocess.run([python, "-c", "import sysconfig; print(sysconfig.get_paths()['purelib'])"],
+                             capture_output=True, encoding="utf-8", check=True).stdout.strip()
+    os.makedirs(os.path.join(purelib, "vendored"))
+    with open(os.path.join(purelib, "vendored", "__init__.py"), "w", encoding="utf-8") as f:
+        f.write("SIZE = 10\n")
+    with open(os.path.join(env, "prefix_mod.py"), "w", encoding="utf-8") as f:
+        f.write("SIZE = 10\n")
+    return python, purelib
 
 class Profiles(unittest.TestCase):
     """0.6: 2D profiles with true arcs and rounded corners (pure Python, no Blender)."""

@@ -945,15 +945,32 @@ def _pyrun(source, params_file, out_dir, parts_csv):
     # imported from the skill's scripts folder (parts.py, sdf.py), is hashed into the manifest.
     # build.py's own imports (assembly, validate, threemf) were loaded before the generator and
     # are not part of what the generator depends on: hashing them would make every build stale
-    # when the skill is updated.
+    # when the skill is updated. A library installed below the project folder (its own .venv)
+    # is not a source either: it would fill the manifest and the bundle with site-packages.
     norm = lambda p: os.path.normcase(os.path.abspath(p))     # noqa: E731 - Windows paths differ in case
     own = {norm(os.path.join(HERE, n)) for n in ("build.py", "assembly.py", "validate.py", "threemf.py")}
     roots = (norm(src_dir) + os.sep, norm(HERE) + os.sep)
     deps = sorted({os.path.abspath(m.__file__) for m in list(sys.modules.values())
                    if getattr(m, "__file__", None) and m.__file__.endswith(".py")
-                   and norm(m.__file__).startswith(roots) and norm(m.__file__) not in own})
+                   and norm(m.__file__).startswith(roots) and norm(m.__file__) not in own
+                   and not installed_file(norm(m.__file__), roots)})
     print("@@3DPS " + json.dumps({"parts": out, "deps": deps, "version": getattr(m3d, "__version__", "unknown"),
                                   "warnings": notes, "parameters": record}))
+
+
+def installed_file(path: str, roots: tuple) -> bool:
+    """True for a module that belongs to an installed library, not to the project: inside a
+    site-packages or dist-packages folder below the root it was found under (a project's own
+    .venv), or inside the running Python's prefix (a conda env in the project folder) when the
+    project itself is not in there. `path` and `roots` are normcased; roots end in os.sep."""
+    for root in roots:
+        if path.startswith(root):
+            if {"site-packages", "dist-packages"} & set(path[len(root):].split(os.sep)[:-1]):
+                return True
+    prefixes = {os.path.normcase(os.path.abspath(p)) + os.sep
+                for p in (sys.prefix, sys.exec_prefix, sys.base_prefix, sys.base_exec_prefix) if p}
+    under = [r for r in roots if path.startswith(r)]
+    return any(path.startswith(pre) and not any(r.startswith(pre) for r in under) for pre in prefixes)
 
 
 def engine_marker(source: str) -> str | None:

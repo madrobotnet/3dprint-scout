@@ -183,7 +183,7 @@ the X2D and H2D, objects that need both nozzles are placed where both can reach.
 
 ## Status
 
-**v0.10.1** comes from installing the skill from scratch in a clean environment. When the Python libraries are missing, the setup check now gives the pip command for them, as it already did for Blender, and the install section has the same one line.
+**v0.10.1** fixes a silent failure on some Blender binaries, which offer the Manifold boolean solver and then leave holes uncut. The skill now tests the solver once and falls back to Exact. A Blender generator that imports its geometry from a package next to it is tracked in full, and a virtual environment kept inside the project folder no longer counts as the project's source. When the Python libraries are missing, the setup check gives the pip command for them, and the install section has the same one line.
 
 **v0.10.0** counts the test prints you actually make. A piece cut from a big part, printed to try the fit, now stands for the fits inside it once the skill has checked the piece is that part cut by its box. A test in another filament (PLA for a PETG part) counts for fits and motions, never for strength. A use that carries a force (holds, is clamped, is pulled) needs a strength calculation before it is called verified, and three new calculations cover a tube under a hose clamp, a post loaded across the layers and a tapered snap. Rebuilds of parts with a large rounded hull now write the same files every time.
 
